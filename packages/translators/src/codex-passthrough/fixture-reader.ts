@@ -173,7 +173,7 @@ function parseDownstreamFile(text: string): RecordedDownstream {
       headers[line.slice(0, separator)] = line.slice(separator + 2)
     }
   }
-  const bodyMatch = /## Body \/ byte stream[^\n]*\n```\n([\s\S]*?)\n```/.exec(text)
+  const bodyMatch = /## Body(?: \/ byte stream)?[^\n]*\n```\n([\s\S]*?)\n```/.exec(text)
   // The fenced body is the exact bytes plus ONE trailing newline.
   const body = bodyMatch === null ? '' : stripOneTrailingNewline(bodyMatch[1] ?? '')
   const stream = text.includes('chunked framing preserved') ? body : undefined

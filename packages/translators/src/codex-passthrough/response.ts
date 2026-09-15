@@ -197,7 +197,7 @@ export function injectResponseModel(payload: string, model: string): string {
   const response = tryParseJson(responseText)
   if (!isPlainObject(response)) return payload
   if (response['model'] !== undefined) return payload
-  const updated = appendMember(responseText, responseSpan, `"model":${JSON.stringify(model)}`)
+  const updated = appendMember(responseText, { start: 0, end: responseText.length }, `"model":${JSON.stringify(model)}`)
   return payload.slice(0, responseSpan.start) + updated + payload.slice(responseSpan.end)
 }
 

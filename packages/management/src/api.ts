@@ -37,6 +37,7 @@ import {
   serializeUsageRecord,
   type ErrorEventInput,
   type UsageCompletion,
+  type UsageRetention,
   USAGE_QUEUE,
 } from './usage'
 import { openUsageWireConnection, type UsageWireConnection } from './resp'
@@ -478,7 +479,19 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
 
   const fileRegistry = new AuthFileRegistry(store, deriveFileAuthIndex, effective.authDir, now, zoneOffset)
 
-  const sidecars = new CooldownSidecars(store, now)
+  const sidecars = new CooldownSidecars(store, now, {
+    // Stale .cds sidecars of vanished auths are pruned on save; the live
+    // set is every auth index the current config plus auth dir can derive.
+    liveAuthIds: async () => {
+      const live = new Set<string>()
+      for (const index of (await allCredentialIndices()).keys()) live.add(index)
+      for (const file of await fileRegistry.names()) {
+        const found = await fileRegistry.read(file)
+        if (found !== undefined) live.add(fileRegistry.authIndexOf(file, found.document))
+      }
+      return live
+    },
+  })
 
   // ---- on-demand credential index registry -------------------------------
   const allCredentialIndices = async (): Promise<Map<string, { provider: string; models: readonly string[] }>> => {
@@ -1497,6 +1510,13 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
       const failed: Array<{ name: string; error: string }> = []
       for (const part of files) {
         const name = part.filename ?? ''
+        // The multipart file name becomes a Store key exactly like the
+        // `name=` upload path, so it faces the same validity rule.
+        const invalid = checkAuthFileName(name)
+        if (invalid !== undefined) {
+          failed.push({ name, error: invalid })
+          continue
+        }
         if (!name.endsWith('.json')) {
           failed.push({ name, error: 'file must be .json' })
           continue
@@ -1726,17 +1746,20 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
     return json(200, goJson(out))
   }
 
+  /** Retention window consulted by every usage-queue consumer loop. */
+  const usageRetention = (): UsageRetention => ({ seconds: effective.redisUsageQueueRetentionSeconds, now })
+
   async function usageQueueHandler(query: URLSearchParams): Promise<WireResponse> {
     const raw = query.get('count')
     if (raw === null) {
-      const records = await popUsageRecords(store, 1)
+      const records = await popUsageRecords(store, 1, usageRetention())
       return json(200, usageQueueArrayBody(records))
     }
     const count = Number(raw)
     if (!Number.isInteger(count) || count <= 0) {
       return ginError(400, 'count must be a positive integer')
     }
-    const records = await popUsageRecords(store, count)
+    const records = await popUsageRecords(store, count, usageRetention())
     return json(200, usageQueueArrayBody(records))
   }
 
@@ -1998,19 +2021,19 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
         return { ok: false, message }
       },
       popRecords: async (count: number) => {
-        const records = await popUsageRecords(store, count)
+        const records = await popUsageRecords(store, count, usageRetention())
         return records
       },
       popRecord: async () => {
-        const records = await popUsageRecords(store, 1)
+        const records = await popUsageRecords(store, 1, usageRetention())
         return records[0]
       },
       subscribe: (channel, deliver) => {
         subscribers.add({ channel, deliver })
       },
-      unsubscribe: (channel) => {
+      unsubscribe: (channel, deliver) => {
         for (const subscriber of [...subscribers]) {
-          if (subscriber.channel === channel) subscribers.delete(subscriber)
+          if (subscriber.channel === channel && subscriber.deliver === deliver) subscribers.delete(subscriber)
         }
       },
     })

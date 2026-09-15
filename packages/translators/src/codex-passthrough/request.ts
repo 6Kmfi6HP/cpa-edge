@@ -223,8 +223,16 @@ export async function translateResponsesPassthrough(
 
   text = rewriteModel(text, ctx.upstreamModel)
   text = await rebuildInput(text, { convertRoles: true, stripBreakpoints: true, normalizeIds: true })
+  if (process.env['S9DEBUG'] === '1') {
+    const s = rawSpanAt(text, ['tools'])
+    console.log('AFTER-INPUT tools: ' + (s === undefined ? 'ABSENT' : text.slice(s.start, s.end).slice(0, 400)))
+  }
   const toolsState = applyToolsMatrix(text, ctx)
   text = toolsState.text
+  if (process.env['S9DEBUG'] === '1') {
+    const s = rawSpanAt(text, ['tools'])
+    console.log('AFTER-TOOLS tools: ' + (s === undefined ? 'ABSENT' : text.slice(s.start, s.end).slice(0, 400)))
+  }
 
   // stream_options leaves its original position; the preserved delivery
   // member re-enters at its slot in the append sequence.

@@ -719,15 +719,17 @@ function numberAt(record: Record<string, unknown>, key: string): number | undefi
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
-/** `<type>: <message>` summary of an upstream error body. */
+/** `<code-or-type>: <message>` summary of an upstream error body. */
 function upstreamErrorSummary(bodyText: string): string {
   const parsed = tryParseJson(bodyText)
   if (isPlainObject(parsed)) {
     const error = parsed['error']
     if (isPlainObject(error)) {
+      const code = typeof error['code'] === 'string' ? (error['code'] as string) : ''
       const type = typeof error['type'] === 'string' ? (error['type'] as string) : ''
       const message = typeof error['message'] === 'string' ? (error['message'] as string) : ''
-      if (type.length > 0 && message.length > 0) return `${type}: ${message}`
+      const label = code.length > 0 ? code : type
+      if (label.length > 0 && message.length > 0) return `${label}: ${message}`
       if (message.length > 0) return message
     }
   }

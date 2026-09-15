@@ -83,6 +83,7 @@ const CASES = [
   'S2d4-thinking-adaptive-max',
   'S2d4-thinking-adaptive-noeffort',
   'S2d4-thinking-adaptive-unknown',
+  'S2d4-thinking-budget-invalid',
   'S2d4-count-tokens-bad-budget',
   'S2d4-stream-truthy-null',
   'S2d4-topp-no-temperature',
@@ -345,7 +346,6 @@ describe('S2d4 golden replay — service-level', () => {
       // request never left the gateway (the seed exchange is the only
       // upstream call).
       expect(captured.length - seedCalls, `${caseId}: upstream call count`).toBe(upstreams.length)
-      for (let i = 0; i < upstreams.length; i++) {
       for (let i = 0; i < upstreams.length; i++) {
         const expected = upstreams[i]
         const actual = captured[i]

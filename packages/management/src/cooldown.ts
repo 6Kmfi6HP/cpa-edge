@@ -65,44 +65,101 @@ export function sidecarName(authId: string): string {
  * cache mirrors the Store so a restart over the same Store restores the
  * same state lazily.
  */
+/** Builds the stored form of one record at a fixed stamp. */
+function buildSidecarRecord(input: CooldownRecordInput, stamp: number): SidecarRecord {
+  return {
+    provider: input.provider,
+    authId: input.authId,
+    ...(input.model !== undefined ? { model: input.model } : {}),
+    status: input.status,
+    nextRetryAfter: input.nextRetryAfter,
+    reason: input.reason,
+    quota: {
+      exceeded: input.quota?.exceeded ?? false,
+      next_recover_at: input.quota?.nextRecoverAt ?? '0001-01-01T00:00:00Z',
+      observed_at: input.quota?.observedAt ?? '0001-01-01T00:00:00Z',
+    },
+    lastError: input.lastError,
+    updatedAt: rfc3339Local(stamp, localZoneOffsetMinutes()),
+    nextRetryAfterMs: parseStampMs(input.nextRetryAfter),
+  }
+}
+
+/** Parses a stored sidecar document; anything else reads as empty state. */
+function parseSidecarDocument(raw: JsonValue | undefined): { records: SidecarRecord[]; provider: string } {
+  if (raw === undefined || typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    return { records: [], provider: '' }
+  }
+  const record = raw as { [key: string]: JsonValue }
+  const provider = typeof record['provider'] === 'string' ? (record['provider'] as string) : ''
+  const stored = Array.isArray(record['records']) ? (record['records'] as JsonValue[]) : []
+  const records: SidecarRecord[] = stored
+    .filter((item): item is { [key: string]: JsonValue } => typeof item === 'object' && item !== null && !Array.isArray(item))
+    .map((item) => {
+      const lastError = (item['last_error'] ?? {}) as { [key: string]: JsonValue }
+      const quota = (item['quota'] ?? {}) as { [key: string]: JsonValue }
+      const nextRetryAfter = typeof item['next_retry_after'] === 'string' ? (item['next_retry_after'] as string) : ''
+      const entry: SidecarRecord = {
+        provider: typeof item['provider'] === 'string' ? (item['provider'] as string) : provider,
+        authId: typeof item['auth_id'] === 'string' ? (item['auth_id'] as string) : '',
+        ...(typeof item['model'] === 'string' ? { model: item['model'] as string } : {}),
+        status: typeof item['status'] === 'string' ? (item['status'] as string) : '',
+        nextRetryAfter,
+        reason: typeof item['reason'] === 'string' ? (item['reason'] as string) : '',
+        quota: {
+          exceeded: quota['exceeded'] === true,
+          next_recover_at: typeof quota['next_recover_at'] === 'string' ? (quota['next_recover_at'] as string) : '0001-01-01T00:00:00Z',
+          observed_at: typeof quota['observed_at'] === 'string' ? (quota['observed_at'] as string) : '0001-01-01T00:00:00Z',
+        },
+        lastError: {
+          message: typeof lastError['message'] === 'string' ? (lastError['message'] as string) : '',
+          retryable: lastError['retryable'] === true,
+          httpStatus: typeof lastError['http_status'] === 'number' ? (lastError['http_status'] as number) : 0,
+        },
+        updatedAt: typeof item['updated_at'] === 'string' ? (item['updated_at'] as string) : '',
+        nextRetryAfterMs: parseStampMs(nextRetryAfter),
+      }
+      return entry
+    })
+  return { records, provider }
+}
+
+/** Optional sidecar-store behaviors wired by the adapter. */
+export interface CooldownSidecarOptions {
+  /** Auth ids that still exist; sidecars of others are pruned on save. */
+  readonly liveAuthIds?: () => Promise<ReadonlySet<string>>
+}
+
 export class CooldownSidecars {
   private readonly docs = new Map<string, { records: SidecarRecord[]; provider: string }>()
 
   constructor(
     private readonly store: Store,
     private readonly now: () => number,
+    private readonly options?: CooldownSidecarOptions,
   ) {}
 
   /** Merges one record into its auth's sidecar (records keyed by model). */
   async record(input: CooldownRecordInput): Promise<void> {
     const name = sidecarName(input.authId)
-    const existing = await this.load(name)
     const stamp = this.now()
-    const entry: SidecarRecord = {
-      provider: input.provider,
-      authId: input.authId,
-      ...(input.model !== undefined ? { model: input.model } : {}),
-      status: input.status,
-      nextRetryAfter: input.nextRetryAfter,
-      reason: input.reason,
-      quota: {
-        exceeded: input.quota?.exceeded ?? false,
-        next_recover_at: input.quota?.nextRecoverAt ?? '0001-01-01T00:00:00Z',
-        observed_at: input.quota?.observedAt ?? '0001-01-01T00:00:00Z',
-      },
-      lastError: input.lastError,
-      updatedAt: rfc3339Local(stamp, localZoneOffsetMinutes()),
-      nextRetryAfterMs: parseStampMs(input.nextRetryAfter),
-    }
-    const key = input.model ?? ''
-    const records = existing.records.filter((record) => (record.model ?? '') !== key)
-    records.push(entry)
-    records.sort((left, right) => {
-      const leftKey = left.model ?? ''
-      const rightKey = right.model ?? ''
-      return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0
+    // The merge runs inside the store update so concurrent recordings of
+    // the same auth derive from the committed document instead of racing a
+    // read captured earlier.
+    const committed = await this.store.update<JsonValue>(COOLDOWN_NAMESPACE, name, (current) => {
+      const doc = parseSidecarDocument(current)
+      const key = input.model ?? ''
+      const records = doc.records.filter((record) => (record.model ?? '') !== key)
+      records.push(buildSidecarRecord(input, stamp))
+      records.sort((left, right) => {
+        const leftKey = left.model ?? ''
+        const rightKey = right.model ?? ''
+        return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0
+      })
+      return JSON.parse(this.render(name, { records, provider: input.provider })) as JsonValue
     })
-    await this.persist(name, { records, provider: input.provider })
+    this.docs.set(name, parseSidecarDocument(committed))
+    await this.pruneVanished(name)
   }
 
   /** All sidecars with their serialized bytes (2-space indent + newline). */
@@ -131,44 +188,7 @@ export class CooldownSidecars {
   private async load(name: string): Promise<{ records: SidecarRecord[]; provider: string }> {
     const cached = this.docs.get(name)
     if (cached !== undefined) return cached
-    const raw = await this.store.get(COOLDOWN_NAMESPACE, name)
-    let doc: { records: SidecarRecord[]; provider: string }
-    if (raw === undefined || typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-      doc = { records: [], provider: '' }
-    } else {
-      const record = raw as { [key: string]: JsonValue }
-      const provider = typeof record['provider'] === 'string' ? (record['provider'] as string) : ''
-      const stored = Array.isArray(record['records']) ? (record['records'] as JsonValue[]) : []
-      const records: SidecarRecord[] = stored
-        .filter((item): item is { [key: string]: JsonValue } => typeof item === 'object' && item !== null && !Array.isArray(item))
-        .map((item) => {
-          const lastError = (item['last_error'] ?? {}) as { [key: string]: JsonValue }
-          const quota = (item['quota'] ?? {}) as { [key: string]: JsonValue }
-          const nextRetryAfter = typeof item['next_retry_after'] === 'string' ? (item['next_retry_after'] as string) : ''
-          const entry: SidecarRecord = {
-            provider: typeof item['provider'] === 'string' ? (item['provider'] as string) : provider,
-            authId: typeof item['auth_id'] === 'string' ? (item['auth_id'] as string) : '',
-            ...(typeof item['model'] === 'string' ? { model: item['model'] as string } : {}),
-            status: typeof item['status'] === 'string' ? (item['status'] as string) : '',
-            nextRetryAfter,
-            reason: typeof item['reason'] === 'string' ? (item['reason'] as string) : '',
-            quota: {
-              exceeded: quota['exceeded'] === true,
-              next_recover_at: typeof quota['next_recover_at'] === 'string' ? (quota['next_recover_at'] as string) : '0001-01-01T00:00:00Z',
-              observed_at: typeof quota['observed_at'] === 'string' ? (quota['observed_at'] as string) : '0001-01-01T00:00:00Z',
-            },
-            lastError: {
-              message: typeof lastError['message'] === 'string' ? (lastError['message'] as string) : '',
-              retryable: lastError['retryable'] === true,
-              httpStatus: typeof lastError['http_status'] === 'number' ? (lastError['http_status'] as number) : 0,
-            },
-            updatedAt: typeof item['updated_at'] === 'string' ? (item['updated_at'] as string) : '',
-            nextRetryAfterMs: parseStampMs(nextRetryAfter),
-          }
-          return entry
-        })
-      doc = { records, provider }
-    }
+    const doc = parseSidecarDocument(await this.store.get(COOLDOWN_NAMESPACE, name))
     this.docs.set(name, doc)
     return doc
   }
@@ -204,10 +224,19 @@ export class CooldownSidecars {
     return `${goJsonIndent(envelope)}\n`
   }
 
-  private async persist(name: string, doc: { records: SidecarRecord[]; provider: string }): Promise<void> {
-    this.docs.set(name, doc)
-    const rendered = JSON.parse(this.render(name, doc)) as JsonValue
-    await this.store.put(COOLDOWN_NAMESPACE, name, rendered)
+  /** Deletes sidecars whose auth no longer exists; runs on every save (§3.4.4). */
+  private async pruneVanished(keep: string): Promise<void> {
+    const liveAuthIds = this.options?.liveAuthIds
+    if (liveAuthIds === undefined) return
+    const live = await liveAuthIds()
+    for (const key of await this.store.list(COOLDOWN_NAMESPACE)) {
+      if (key === keep) continue
+      const doc = await this.load(key)
+      const authId = doc.records[0]?.authId ?? ''
+      if (authId === '' || live.has(authId)) continue
+      await this.store.delete(COOLDOWN_NAMESPACE, key)
+      this.docs.delete(key)
+    }
   }
 }
 

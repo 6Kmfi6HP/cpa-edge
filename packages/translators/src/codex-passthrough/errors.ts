@@ -14,7 +14,7 @@
  * forwarded frames: `event: error` for plain clients,
  * `event: response.failed` for Codex-flavored clients.
  */
-import { isPlainObject, marshalSorted, scanObjectMembers, serializeOrdered, tryParseJson } from './json'
+import { RawJson, isPlainObject, marshalSorted, scanObjectMembers, serializeOrdered, tryParseJson } from './json'
 import type { RawMember, RawSpan, WireObject } from './json'
 
 /** Message of an upstream stream that ended before a terminal event. */
@@ -357,13 +357,13 @@ export function formatTerminalFailureFrame(
     const chunk = serializeOrdered({
       type: 'response.failed',
       sequence_number: sequenceNumber,
-      response: { status: 'failed', error: detail },
+      response: { status: 'failed', error: new RawJson(detail) },
     } as WireObject)
     return `\nevent: response.failed\ndata: ${chunk}\n\n`
   }
   const chunk = serializeOrdered({
     type: 'error',
-    error: detail,
+    error: new RawJson(detail),
     sequence_number: sequenceNumber,
   } as WireObject)
   return `\nevent: error\ndata: ${chunk}\n\n`
