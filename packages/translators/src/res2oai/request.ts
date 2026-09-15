@@ -65,6 +65,7 @@ export function translateResponsesToChat(body: string, ctx: ResponsesToChatConte
     body: serialized,
     value: JSON.parse(serialized) as WireObject,
     tools: declared,
+    chatTools,
     toolChoice,
     maxTokens,
     reasoningEffort: effort,

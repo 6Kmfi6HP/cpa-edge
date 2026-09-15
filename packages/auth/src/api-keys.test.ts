@@ -142,3 +142,27 @@ describe('example-key safe mode (§2.1)', () => {
     expect(html.startsWith('<!doctype html>')).toBe(true)
   })
 })
+
+
+describe('safe-mode detection against normalized keys (§2.1 regression)', () => {
+  it('trips on padded template values, matching credential normalization', () => {
+    expect(detectSafeMode([' your-api-key-1 ']).active).toBe(true)
+    expect(detectSafeMode([' your-api-key-1 ']).keys).toEqual(['your-api-key-1'])
+    expect(detectSafeMode(['your-api-key-2  ', 'real']).keys).toEqual(['your-api-key-2'])
+    expect(detectSafeMode([' real-key ']).active).toBe(false)
+  })
+
+  it('seals the proxy surface through the full request path for padded keys', () => {
+    const result = authenticateClientRequest({
+      apiKeys: [' your-api-key-1 '],
+      headers: { authorization: 'Bearer your-api-key-1' },
+      url: URL_V1,
+    })
+    expect(result).toEqual({
+      ok: false,
+      status: 403,
+      body: SAFE_MODE_PROXY_BODY,
+      headers: { 'X-Cpa-Safe-Mode': 'example-api-key' },
+    })
+  })
+})

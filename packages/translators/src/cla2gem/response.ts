@@ -105,14 +105,15 @@ export function claudeStopReason(sawFunctionCall: boolean, finishReason: string 
 // ---------------------------------------------------------------------------
 
 /**
- * Argument value of a functionCall at a part path, re-serialized compactly
- * (recordings pin compact downstream argument values; the REQUEST side is
- * where raw client bytes survive). Missing arguments render `{}`.
+ * Argument value of a functionCall at a part path, as the parsed value
+ * (serialized compactly downstream; recordings pin compact argument
+ * values, while the REQUEST side is where raw client bytes survive).
+ * Missing arguments render `{}`.
  */
 function argsValueAt(body: string, partPath: readonly string[]): WireValue {
   const call = readCallAt(body, partPath)
   if (call === undefined || call['args'] === undefined) return {}
-  return serializeOrdered(call['args'] as WireValue)
+  return call['args'] as WireValue
 }
 
 /** Parsed functionCall object at a part path, or undefined. */

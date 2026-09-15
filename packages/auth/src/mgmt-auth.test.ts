@@ -264,9 +264,12 @@ describe('ban window arithmetic (injectable clock)', () => {
     }
     const doc = (await store.get(MGMT_ATTEMPTS_NAMESPACE, MGMT_ATTEMPTS_KEY)) as Record<
       string,
-      { failures: number }
+      { failures: number; last_seen?: string }
     >
-    expect(doc['127.0.0.1']).toEqual({ failures: 4 })
+    expect(doc['127.0.0.1']).toEqual({
+      failures: 4,
+      last_seen: new Date(1_000_000).toISOString().slice(0, 19) + 'Z',
+    })
   })
 
   it('lifts the ban when it expires and resets the counter', async () => {
@@ -305,6 +308,160 @@ describe('ban window arithmetic (injectable clock)', () => {
       string,
       unknown
     >
-    expect(doc['10.9.9.9']).toEqual({ failures: 1 })
+    expect(doc['10.9.9.9']).toEqual({
+      failures: 1,
+      last_seen: new Date(1_000_000).toISOString().slice(0, 19) + 'Z',
+    })
+  })
+})
+
+describe('XFF leading-zero octets (Go net.ParseIP semantics)', () => {
+  it('rejects dotted quads with leading zeros while a lone zero stays valid', () => {
+    expect(isParseableIp('01.1.1.1')).toBe(false)
+    expect(isParseableIp('1.1.1.01')).toBe(false)
+    expect(isParseableIp('001.1.1.1')).toBe(false)
+    expect(isParseableIp('0.0.0.0')).toBe(true)
+    expect(isParseableIp('1.1.1.1')).toBe(true)
+  })
+
+  it('aborts the walk on a leading-zero entry and falls back to X-Real-IP or the remote address', () => {
+    expect(
+      resolveClientIp({
+        'x-forwarded-for': '01.1.1.1, 10.0.0.99',
+        'x-real-ip': '9.9.9.9',
+        remoteAddr: REMOTE,
+      }),
+    ).toBe('9.9.9.9')
+    expect(
+      resolveClientIp({
+        'x-forwarded-for': '10.0.0.99, 01.1.1.1',
+        'x-real-ip': '9.9.9.9',
+        remoteAddr: REMOTE,
+      }),
+    ).toBe('9.9.9.9')
+    expect(resolveClientIp({ 'x-forwarded-for': '01.1.1.1', remoteAddr: `${REMOTE}:5555` })).toBe(
+      REMOTE,
+    )
+  })
+
+  it('skips XFF tokens that are empty after trimming', () => {
+    expect(resolveClientIp({ 'x-forwarded-for': '  , 1.2.3.4 ', remoteAddr: REMOTE })).toBe('1.2.3.4')
+    expect(resolveClientIp({ 'x-forwarded-for': '1.2.3.4, , 5.6.7.8', remoteAddr: REMOTE })).toBe(
+      '1.2.3.4',
+    )
+  })
+})
+
+describe('atomic ban check-and-count (concurrent bursts)', () => {
+  it('answers exactly the threshold in 401s for a concurrent burst, then 403s', async () => {
+    const store = new MemoryStore()
+    const svc = service(store, { secret: SECRET }, () => 0)
+    const burst = 8
+    const results = await Promise.all(
+      Array.from({ length: burst }, () =>
+        svc.authenticate(request({ 'x-management-key': 'wrong', 'x-forwarded-for': '127.0.0.1' })),
+      ),
+    )
+    let unauthorized = 0
+    let banned = 0
+    for (const result of results) {
+      if (result.ok) throw new Error('no attempt in the burst may succeed')
+      if (result.status === 401) unauthorized += 1
+      if (result.status === 403) banned += 1
+    }
+    expect(unauthorized).toBe(MANAGEMENT_BAN_THRESHOLD)
+    expect(banned).toBe(burst - MANAGEMENT_BAN_THRESHOLD)
+    for (const result of results) {
+      if (!result.ok && result.status === 403) {
+        expect(result.body).toBe(
+          '{"error":"IP banned due to too many failed attempts. Try again in 30m0s"}',
+        )
+      }
+    }
+  })
+
+  it('reports a live ban even when it was triggered after the burst was admitted', async () => {
+    const store = new MemoryStore()
+    const now = { value: 1_000_000 }
+    const svc = service(store, { secret: SECRET }, () => now.value)
+    // Four failures already counted.
+    for (let i = 1; i <= 4; i += 1) {
+      await svc.authenticate(request({ 'x-management-key': 'wrong', 'x-forwarded-for': '127.0.0.1' }))
+    }
+    // The fifth (ban-triggering) and sixth race each other.
+    const [fifth, sixth] = await Promise.all([
+      svc.authenticate(request({ 'x-management-key': 'wrong', 'x-forwarded-for': '127.0.0.1' })),
+      svc.authenticate(request({ 'x-management-key': 'wrong', 'x-forwarded-for': '127.0.0.1' })),
+    ])
+    const statuses = [fifth, sixth]
+      .map((result) => (result.ok ? 200 : result.status))
+      .sort((a, b) => a - b)
+    expect(statuses).toEqual([401, 403])
+  })
+})
+
+describe('attempts activity bookkeeping (S6 last_seen)', () => {
+  it('stamps last_seen on every counted failure', async () => {
+    const store = new MemoryStore()
+    const now = { value: 1_000_000 }
+    const svc = service(store, { secret: SECRET }, () => now.value)
+    await svc.authenticate(request({ 'x-management-key': 'wrong', 'x-forwarded-for': '10.5.5.5' }))
+    now.value += 60_000
+    await svc.authenticate(request({ 'x-management-key': 'wrong', 'x-forwarded-for': '10.5.5.5' }))
+    const doc = (await store.get(MGMT_ATTEMPTS_NAMESPACE, MGMT_ATTEMPTS_KEY)) as Record<
+      string,
+      { failures: number; last_seen?: string }
+    >
+    expect(doc['10.5.5.5']).toEqual({
+      failures: 2,
+      last_seen: new Date(1_060_000).toISOString().slice(0, 19) + 'Z',
+    })
+  })
+
+  it('sweeps by idleness: entries idle over two hours go, fresh and banned ones stay', async () => {
+    const hour = 3_600_000
+    const quarterTo = 13 * hour + 45 * 60_000
+    const store = new MemoryStore()
+    const now = { value: 10 * hour }
+    const svc = service(store, { secret: SECRET }, () => now.value)
+    await svc.authenticate(request({ 'x-management-key': 'wrong', 'x-forwarded-for': '10.0.0.1' }))
+    now.value = quarterTo
+    for (let i = 1; i <= MANAGEMENT_BAN_THRESHOLD; i += 1) {
+      await svc.authenticate(request({ 'x-management-key': 'wrong', 'x-forwarded-for': '10.9.9.9' }))
+    }
+    await svc.authenticate(request({ 'x-management-key': 'wrong', 'x-forwarded-for': '10.0.0.2' }))
+    now.value = 14 * hour
+    await svc.sweepIdleEntries()
+    const doc = (await store.get(MGMT_ATTEMPTS_NAMESPACE, MGMT_ATTEMPTS_KEY)) as Record<
+      string,
+      unknown
+    >
+    // Idle for four hours: purged.
+    expect(doc['10.0.0.1']).toBeUndefined()
+    // Live ban (15 minutes remaining): kept with its deadline and stamp.
+    expect(doc['10.9.9.9']).toEqual({
+      failures: 0,
+      banned_until: new Date(quarterTo + MANAGEMENT_BAN_DURATION_MS).toISOString().slice(0, 19) + 'Z',
+      last_seen: new Date(quarterTo).toISOString().slice(0, 19) + 'Z',
+    })
+    // Idle for fifteen minutes: kept.
+    expect(doc['10.0.0.2']).toEqual({
+      failures: 1,
+      last_seen: new Date(quarterTo).toISOString().slice(0, 19) + 'Z',
+    })
+  })
+
+  it('still purges zero-failure entries regardless of activity', async () => {
+    const store = new MemoryStore()
+    const now = { value: 1_000_000 }
+    const svc = service(store, { secret: SECRET }, () => now.value)
+    await svc.authenticate(request({ 'x-management-key': 'wrong', 'x-forwarded-for': '10.7.7.7' }))
+    await svc.authenticate(request({ 'x-management-key': SECRET, 'x-forwarded-for': '10.7.7.7' }))
+    await svc.sweepIdleEntries()
+    const doc = (await store.get(MGMT_ATTEMPTS_NAMESPACE, MGMT_ATTEMPTS_KEY)) as Record<
+      string,
+      unknown
+    >
+    expect(doc['10.7.7.7']).toBeUndefined()
   })
 })

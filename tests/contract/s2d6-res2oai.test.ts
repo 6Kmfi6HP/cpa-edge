@@ -728,14 +728,34 @@ const TRANSPORT_PREFIX_RE =
 
 const MESSAGE_FIELD_RE = /"message":"((?:[^"\\]|\\.)*)"/
 
-function maskFailureFrameData(data: string, context: string): string {
-  const match = MESSAGE_FIELD_RE.exec(data)
-  if (match === null) {
-    throw new Error(`${context}: failure frame data carries no message field to mask-check`)
+function failureMessageOf(data: string): string {
+  return MESSAGE_FIELD_RE.exec(data)?.[1] ?? ''
+}
+
+function withFailureMessage(data: string, message: string): string {
+  return data.replace(MESSAGE_FIELD_RE, `"message":"${message}"`)
+}
+
+/**
+ * The disconnect metas declare error.message dynamic "if transport-prefixed": the
+ * recorded canonical "unexpected EOF" and any volatile transport-prefixed text (socket
+ * pairs, errno names) describe the same event class, so when EITHER side carries a
+ * transport-prefixed message BOTH sides normalize to the placeholder; otherwise the
+ * recorded bytes pin. Any other message text fails the byte gold.
+ */
+function normalizeFailureFrameData(expectedData: string, actualData: string, context: string): { expected: string; actual: string } {
+  const expectedMessage = failureMessageOf(expectedData)
+  const actualMessage = failureMessageOf(actualData)
+  if (expectedMessage === '' || actualMessage === '') {
+    throw new Error(`${context}: failure frame data carries no message field`)
   }
-  const message = match[1] ?? ''
-  if (!TRANSPORT_PREFIX_RE.test(message)) return data
-  return data.replace(MESSAGE_FIELD_RE, '"message":"<TRANSPORT-ERROR>"')
+  if (TRANSPORT_PREFIX_RE.test(expectedMessage) || TRANSPORT_PREFIX_RE.test(actualMessage)) {
+    return {
+      expected: withFailureMessage(expectedData, '<TRANSPORT-ERROR>'),
+      actual: withFailureMessage(actualData, '<TRANSPORT-ERROR>'),
+    }
+  }
+  return { expected: expectedData, actual: actualData }
 }
 
 function normalizeUpstreamHeaderValue(name: string, value: string): string {
@@ -1067,8 +1087,9 @@ function expectDecodedSse(actual: DecodedSse, expected: DecodedSse, context: str
     let expectedData = expectedFrame.data
     let actualData = actualFrame.data
     if (FAILURE_EVENT_NAMES.has(expectedFrame.event)) {
-      expectedData = maskFailureFrameData(expectedData, context)
-      actualData = maskFailureFrameData(actualData, context)
+      const normalized = normalizeFailureFrameData(expectedData, actualData, context)
+      expectedData = normalized.expected
+      actualData = normalized.actual
     }
     expect(actualFrame.event, `${context}: SSE frame ${index} event name`).toBe(expectedFrame.event)
     expect(actualData, `${context}: SSE frame ${index} data bytes`).toBe(expectedData)

@@ -37,7 +37,7 @@ const CREDENTIALS = [
   {
     apiKey: 'mock-gem-key',
     baseUrl: 'http://host.docker.internal:19001',
-    models: [{ name: 'gemini-mock-model', alias: 'gm', thinking: false as const }],
+    models: [{ name: 'gemini-mock-model', alias: 'gm' }],
   },
 ]
 const encoder = new TextEncoder()
@@ -61,6 +61,8 @@ const CASES = [
   'S2d8-16-slow-chunks',
   'S2d8-17-disconnect',
   'S2d8-18-stream-error-before-first-chunk',
+  'S2d8-19-alias-rejection',
+  'S2d8-20-strict-json-400',
 ] as const
 
 /** Demand-driven byte stream; the read after the last chunk errors or closes. */

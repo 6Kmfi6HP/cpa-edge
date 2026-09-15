@@ -138,7 +138,3 @@ export function buildModelCooldownResponse(input: {
   return { status: 500, body: buildClaudeErrorEnvelope('api_error', message) }
 }
 
-/** Generic 400 body of an unreadable client request (S1 base shape). */
-export function buildInvalidRequestBody(detail: string): string {
-  return serializeOrdered({ error: { message: `Invalid request: ${detail}`, type: 'invalid_request_error' } })
-}

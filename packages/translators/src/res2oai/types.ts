@@ -46,6 +46,8 @@ export interface ChatUpstreamRequest {
   readonly value: WireObject
   /** Declared tools in production order (dedup applied). */
   readonly tools: readonly DeclaredTool[]
+  /** Chat-format tool entries (echo source of the non-stream response). */
+  readonly chatTools: readonly WireObject[]
   /** Translated `tool_choice`, when tools were declared. */
   readonly toolChoice: WireObject | undefined
   /** Translated `max_tokens`, when the request carried `max_output_tokens`. */

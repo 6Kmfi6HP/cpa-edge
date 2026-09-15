@@ -69,7 +69,6 @@ export type { Cla2GemStreamBootstrap, Cla2GemStreamContext } from './stream'
 
 export {
   buildClaudeErrorEnvelope,
-  buildInvalidRequestBody,
   buildModelCooldownResponse,
   claudeErrorTypeForStatus,
   COOLDOWN_PROVIDER,

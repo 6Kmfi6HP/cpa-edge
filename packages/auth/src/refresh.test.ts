@@ -324,3 +324,158 @@ describe('refresh-on-401 coordinator', () => {
     expect(bookkeeping['status_message']).toBe('unauthorized')
   })
 })
+
+
+describe('registry backoff clearing (§2.7 regressions)', () => {
+  it('drops the failure backoff and error note on an effective success', async () => {
+    const store = new MemoryStore()
+    const registry = new RefreshRegistry(store, { now: () => 1_760_000_000_000 })
+    await registry.recordFailure('claude-b.json', 'upstream unavailable')
+    const failed = await registry.get('claude-b.json')
+    expect(failed.next_refresh_after).toBeDefined()
+    expect(failed.status_message).toBe('upstream unavailable')
+    await registry.recordSuccess('claude-b.json', true)
+    expect(await registry.get('claude-b.json')).toEqual({
+      last_refreshed_at: new Date(1_760_000_000_000).toISOString().slice(0, 19) + 'Z',
+      status: 'active',
+    })
+  })
+
+  it('keeps the ineffective backoff but still clears the error note on success', async () => {
+    const store = new MemoryStore()
+    const registry = new RefreshRegistry(store, { now: () => 1_760_000_000_000 })
+    await registry.recordFailure('claude-c.json', 'upstream unavailable')
+    await registry.recordSuccess('claude-c.json', false)
+    expect(await registry.get('claude-c.json')).toEqual({
+      last_refreshed_at: new Date(1_760_000_000_000).toISOString().slice(0, 19) + 'Z',
+      status: 'active',
+      next_refresh_after: new Date(1_760_000_000_000 + 30_000).toISOString().slice(0, 19) + 'Z',
+    })
+  })
+
+  it('drops the failure backoff when the credential becomes unauthorized', async () => {
+    const store = new MemoryStore()
+    const registry = new RefreshRegistry(store, { now: () => 1_760_000_000_000 })
+    await registry.recordSuccess('claude-d.json', true)
+    await registry.recordFailure('claude-d.json', 'upstream unavailable')
+    const failed = await registry.get('claude-d.json')
+    expect(failed.next_refresh_after).toBeDefined()
+    await registry.recordUnauthorized('claude-d.json', 'unauthorized')
+    expect(await registry.get('claude-d.json')).toEqual({
+      last_refreshed_at: new Date(1_760_000_000_000).toISOString().slice(0, 19) + 'Z',
+      status: 'error',
+      status_message: 'unauthorized',
+    })
+  })
+})
+
+describe('429 block consumption (claude §2.3.1 regression)', () => {
+  const BASE = 1_760_000_000_000
+
+  it('threads the vendor block into the registry and fails fast without a vendor call', async () => {
+    const store = new MemoryStore()
+    await store.put('auth', 'claude-a.json', { ...CLAUDE_DOC })
+    const now = { value: BASE }
+    const refresher = new UnauthorizedRefresher(store, { now: () => now.value })
+    let vendorCalls = 0
+    const rateLimited: FetchLike = async () => {
+      vendorCalls += 1
+      return new Response('rate limited', { status: 429, headers: { 'Retry-After': '5' } })
+    }
+    const attempt = (fetchFn: FetchLike) =>
+      refresher.refreshAfterUnauthorized({
+        fileName: 'claude-a.json',
+        provider: 'claude',
+        document: { ...CLAUDE_DOC },
+        failedAccessToken: 'old-access',
+        deps: { fetch: fetchFn, now: () => now.value, sleep: async () => undefined },
+      })
+
+    const first = await attempt(rateLimited)
+    expect(first.refreshed).toBe(false)
+    if (!first.refreshed) {
+      expect(first.outcome).toEqual({
+        ok: false,
+        retryable: false,
+        message: 'refresh rate limited',
+        blockedUntilMs: BASE + 5_000,
+        unauthorized: false,
+      })
+    }
+    // The registry consumed the exact vendor deadline as its backoff.
+    const afterFirst = (await store.get(
+      REFRESH_REGISTRY_NAMESPACE,
+      'claude-a.json',
+    )) as Record<string, unknown>
+    const expectedBlocked = new Date(BASE + 5_000).toISOString().slice(0, 19) + 'Z'
+    expect(afterFirst['next_refresh_after']).toBe(expectedBlocked)
+    expect(vendorCalls).toBe(1)
+
+    // Within the window a second refresh fails fast, without a vendor call.
+    now.value += 1_000
+    const second = await attempt(rateLimited)
+    expect(second.refreshed).toBe(false)
+    if (!second.refreshed) {
+      const outcome = second.outcome
+      if (outcome !== undefined && !outcome.ok) {
+        expect(outcome.retryable).toBe(false)
+        expect(outcome.message).toBe('refresh blocked')
+        expect(outcome.unauthorized).toBe(false)
+      } else {
+        throw new Error('expected a blocked refresh outcome')
+      }
+    }
+    expect(vendorCalls).toBe(1)
+    const afterSecond = (await store.get(
+      REFRESH_REGISTRY_NAMESPACE,
+      'claude-a.json',
+    )) as Record<string, unknown>
+    expect(afterSecond['next_refresh_after']).toBe(expectedBlocked)
+
+    // After the window the refresh proceeds to the vendor and succeeds.
+    now.value += 5_000
+    const success: FetchLike = async () => {
+      vendorCalls += 1
+      return jsonResponse({ access_token: 'ok-access', refresh_token: 'r-2', expires_in: 3600 })
+    }
+    const third = await attempt(success)
+    expect(third.refreshed).toBe(true)
+    expect(vendorCalls).toBe(2)
+    const stored = (await store.get('auth', 'claude-a.json')) as Record<string, unknown>
+    expect(stored['access_token']).toBe('ok-access')
+    const registryAfter = (await store.get(
+      REFRESH_REGISTRY_NAMESPACE,
+      'claude-a.json',
+    )) as Record<string, unknown>
+    expect(registryAfter['next_refresh_after']).toBeUndefined()
+    expect(registryAfter['status_message']).toBeUndefined()
+  })
+})
+
+describe('refreshed-credential persistence (atomic merge)', () => {
+  it('keeps concurrent writes to the stored document while the refresh is in flight', async () => {
+    const store = new MemoryStore()
+    await store.put('auth', 'claude-a.json', { ...CLAUDE_DOC })
+    const refresher = new UnauthorizedRefresher(store, { now: () => 0 })
+    const vendoring: FetchLike = async () => {
+      // A concurrent writer commits a change while the refresh is running.
+      await store.update('auth', 'claude-a.json', (current) => ({
+        ...(current ?? {}),
+        label: 'touched-while-refreshing',
+      }))
+      return jsonResponse({ access_token: 'new-access', refresh_token: 'r-2', expires_in: 3600 })
+    }
+    const outcome = await refresher.refreshAfterUnauthorized({
+      fileName: 'claude-a.json',
+      provider: 'claude',
+      document: { ...CLAUDE_DOC },
+      failedAccessToken: 'old-access',
+      deps: { fetch: vendoring, now: () => 0, sleep: async () => undefined },
+    })
+    expect(outcome.refreshed).toBe(true)
+    const stored = (await store.get('auth', 'claude-a.json')) as Record<string, unknown>
+    expect(stored['access_token']).toBe('new-access')
+    expect(stored['refresh_token']).toBe('r-2')
+    expect(stored['label']).toBe('touched-while-refreshing')
+  })
+})
