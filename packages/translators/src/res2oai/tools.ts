@@ -12,7 +12,7 @@
  * declared set. Flat names win over namespace collisions; a name that
  * matches several qualified children stays as-is.
  */
-import { RawJson, isPlainObject, readArray, readObject, readString, serializeOrdered, sortKeysDeep } from './json'
+import { isPlainObject, readArray, readObject, readString, serializeOrdered, sortKeysDeep } from './json'
 import type { WireObject } from './json'
 import type { DeclaredTool } from './types'
 

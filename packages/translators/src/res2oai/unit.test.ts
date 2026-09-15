@@ -52,13 +52,6 @@ function chatBody(body: string, model = 'mock-gpt-model'): string {
   return translateResponsesToChat(body, { upstreamModel: model }).body
 }
 
-function streamEvents(script: readonly (string | { readonly event?: string; readonly data: string })[]): string[] {
-  return script.map((entry) => {
-    if (typeof entry === 'string') return entry
-    return `event: ${entry.event ?? 'x'}\ndata: ${entry.data}\n\n`
-  })
-}
-
 async function* bytesOf(chunks: readonly string[]): AsyncIterable<Uint8Array> {
   for (const chunk of chunks) yield encoder.encode(chunk)
 }
@@ -569,6 +562,7 @@ describe('S2d6 stream state machine (§3.4/§4)', () => {
     const out = await collectFrames(
       [
         `data: ${chunk({ role: 'assistant' })}\n\n`,
+        `data: ${chunk({ content: 'A' })}\n\n`,
         'data: {"id":"x","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant"},"finish_reason":"stop"}]}\n\n',
         'data: {"object":"other"}\n\n',
         `data: ${usageChunk()}\n\n`,
@@ -576,7 +570,9 @@ describe('S2d6 stream state machine (§3.4/§4)', () => {
       ],
       streamContext(),
     )
-    expect(out).toContain('"sequence_number":5,"response"')
+    // The non-chunk payloads translated to nothing: only the message events exist.
+    expect(out).toContain('event: response.output_text.delta\ndata: {"type":"response.output_text.delta","sequence_number":5,')
+    expect(out).not.toContain('finish_reason')
     expect(out).toContain('"usage":{"input_tokens":9,"input_tokens_details":{"cached_tokens":0},"output_tokens":6,"total_tokens":15,"output_tokens_details":{"reasoning_tokens":0}}')
   })
 
@@ -588,7 +584,15 @@ describe('S2d6 stream state machine (§3.4/§4)', () => {
       choices: [],
       usage: { prompt_tokens: 9, completion_tokens: 6, total_tokens: 15, output_tokens_details: { reasoning_tokens: 4 } },
     })
-    const out = await collectFrames([`data: ${chunk({ role: 'assistant' })}\n\n`, `data: ${chunk({}, 'stop')}\n\n`, `data: ${usage}\n\n`, 'data: [DONE]\n\n'], streamContext())
+    const out = await collectFrames(
+      [
+        `data: ${chunk({ role: 'assistant' })}\n\n`,
+        `data: ${chunk({ content: 'A' })}\n\n`,
+        `data: ${usage}\n\n`,
+        'data: [DONE]\n\n',
+      ],
+      streamContext(),
+    )
     expect(out).toContain('"usage":{"input_tokens":9,"input_tokens_details":{"cached_tokens":0},"output_tokens":6,"output_tokens_details":{"reasoning_tokens":4},"total_tokens":15}')
   })
 
@@ -600,7 +604,15 @@ describe('S2d6 stream state machine (§3.4/§4)', () => {
       choices: [],
       usage: { prompt_tokens: 9, completion_tokens: 6, total_tokens: 0 },
     })
-    const out = await collectFrames([`data: ${chunk({ role: 'assistant' })}\n\n`, `data: ${chunk({}, 'stop')}\n\n`, `data: ${usage}\n\n`, 'data: [DONE]\n\n'], streamContext())
+    const out = await collectFrames(
+      [
+        `data: ${chunk({ role: 'assistant' })}\n\n`,
+        `data: ${chunk({ content: 'A' })}\n\n`,
+        `data: ${usage}\n\n`,
+        'data: [DONE]\n\n',
+      ],
+      streamContext(),
+    )
     expect(out).toContain('"total_tokens":15')
   })
 
@@ -615,7 +627,9 @@ describe('S2d6 stream state machine (§3.4/§4)', () => {
       ],
       streamContext(),
     )
-    expect(out).toContain('"event":"response.output_item.done"' + '\ndata: {"type":"response.output_item.done","item":{"id":"rs_chatcmpl-x_0","type":"reasoning","encrypted_content":"","summary":[{"type":"summary_text","text":"P"}]},"output_index":0,"sequence_number":7}')
+    expect(out).toContain(
+      'event: response.output_item.done\ndata: {"type":"response.output_item.done","item":{"id":"rs_chatcmpl-x_0","type":"reasoning","encrypted_content":"","summary":[{"type":"summary_text","text":"P"}]},"output_index":0,"sequence_number":8}',
+    )
     expect(out).toContain('"output_index":1,"item":{"id":"msg_chatcmpl-x_0"')
   })
 
@@ -658,10 +672,13 @@ describe('S2d6 stream state machine (§3.4/§4)', () => {
       ],
       streamContext({ tools: [{ chatName: 't', originalName: 't', custom: false }] }),
     )
-    expect(out).toContain('"event":"response.output_item.added"')
+    expect(out).toContain('"item":{"id":"fc_c1","type":"function_call","status":"in_progress"')
     expect(out).not.toContain('function_call_arguments.done')
-    // No message and no completed function item -> terminal suppressed -> CloseError.
-    expect(out).toContain('upstream stream closed before a terminal event')
+    // The added event already went out, so the terminal still emits - with
+    // the dropped tool absent from its output.
+    expect(out).toContain('event: response.completed')
+    expect(out).toContain('"status":"completed","background":false,"error":null,"model":"mock-model"}')
+    expect(out).not.toContain('"output":[{"id"')
   })
 
   it('finalizes open items at clean EOF without [DONE] and fails in-stream', async () => {
@@ -669,7 +686,7 @@ describe('S2d6 stream state machine (§3.4/§4)', () => {
       [`data: ${chunk({ content: 'A' })}\n\n`, 'data: [DONE_MISSING]\n\n'],
       streamContext(),
     )
-    expect(out).toContain('"event":"response.output_item.done"')
+    expect(out).toContain('event: response.output_item.done')
     expect(out).toContain('upstream stream closed before [DONE]')
     expect(out).not.toMatch(/\n\n\n$/)
   })
@@ -711,28 +728,33 @@ describe('S2d6 stream state machine (§3.4/§4)', () => {
     const out = await collectFrames(
       [
         `data: ${chunk({ role: 'assistant' })}\n\n`,
+        `data: ${chunk({ content: 'A' })}\n\n`,
         `data: ${chunk({}, 'stop')}\n\n`,
         'data: [DONE]\n\n',
         `data: ${chunk({ content: 'LATE' })}\n\n`,
       ],
       streamContext(),
     )
-    expect(out).toContain('response.completed')
+    expect(out).toContain('event: response.completed')
     expect(out).not.toContain('LATE')
     expect(out.endsWith('\n\n\n')).toBe(true)
   })
 
   it('echoes original request fields in the terminal event, deep-sorted', async () => {
     const out = await collectFrames(
-      [`data: ${chunk({ role: 'assistant' })}\n\n`, `data: ${chunk({}, 'stop')}\n\n`, 'data: [DONE]\n\n'],
+      [
+        `data: ${chunk({ role: 'assistant' })}\n\n`,
+        `data: ${chunk({ content: 'A' })}\n\n`,
+        `data: ${chunk({}, 'stop')}\n\n`,
+        'data: [DONE]\n\n',
+      ],
       streamContext({
         originalBody:
           '{"model":"mock-model","instructions":"sys","max_output_tokens":32,"reasoning":{"effort":"high"},"tools":[{"type":"function","name":"t","parameters":{"b":1,"a":2}}],"text":{"format":{"type":"text"}},"stream":true}',
       }),
     )
-    expect(out).toContain('"max_output_tokens":32,"model":"mock-model","reasoning":{"effort":"high"}')
-    expect(out).toContain('"text":{"format":{"type":"text"}},"tools":[{"description":"","name":"t","parameters":{"a":2,"b":1},"type":"function"}]')
-    expect(out).not.toContain('"instructions"')
+    expect(out).toContain('"instructions":"sys","max_output_tokens":32,"model":"mock-model","reasoning":{"effort":"high"}')
+    expect(out).toContain('"text":{"format":{"type":"text"}},"tools":[{"name":"t","parameters":{"a":2,"b":1},"type":"function"}],"output":[')
   })
 
   it('suppresses the terminal event for reasoning-only streams and emits the CloseError frame', async () => {

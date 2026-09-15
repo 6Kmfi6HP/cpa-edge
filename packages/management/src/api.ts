@@ -293,10 +293,9 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
     if (hashedSecret !== undefined) {
       editor.setScalar(['remote-management'], 'secret-key', hashedSecret)
     }
-    const rawRecord = loadEffectiveConfig(editor.getText())
-    for (const key of OMIT_WHEN_ZERO) {
-      const value = (rawRecord as unknown as { [key: string]: JsonValue })[key]
-      if (value === 0) editor.removeKey([], key)
+    const loaded = loadEffectiveConfig(editor.getText())
+    if (loaded.logsMaxTotalSizeMb === 0) {
+      for (const key of OMIT_WHEN_ZERO) editor.removeKey([], key)
     }
     editor.ensureTrailingNewline()
     return editor.getText()

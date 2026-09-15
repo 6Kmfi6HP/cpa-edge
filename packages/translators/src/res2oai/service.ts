@@ -21,7 +21,6 @@
  */
 import type { JsonValue, Store } from '@cpa-edge/core'
 import { isPlainObject, parseStrictJson, rawValueAt, remarshalJson, serializeOrdered } from './json'
-import type { WireObject } from './json'
 import { RawJson } from './json'
 import { translateCompactPassthrough } from './compact'
 import {
@@ -68,6 +67,11 @@ export interface Res2OaiCredential {
   readonly baseUrl: string
   /** Provider name rendered into the `model_cooldown` message. */
   readonly provider?: string
+  /**
+   * Per-credential fixed headers applied after the gateway-owned set
+   * (OPTIONAL, config-gated; no golden exercises it - S2d6 3.2).
+   */
+  readonly headers?: Readonly<Record<string, string>>
   readonly models: readonly Res2OaiModelEntry[]
 }
 
@@ -276,7 +280,11 @@ export function createRes2OaiService(options: Res2OaiServiceOptions): Res2OaiSer
     const stream = record['stream'] === true
     const body = stream ? withStreamOptions(translated.body) : translated.body
     const url = joinUrl(candidate.credential.baseUrl, CHAT_COMPLETIONS_PATH)
-    const headers = orderUpstreamHeaders(buildUpstreamHeaders({ apiKey: candidate.credential.apiKey, stream }), url, body)
+    const headers = orderUpstreamHeaders(
+      withCredentialHeaders(buildUpstreamHeaders({ apiKey: candidate.credential.apiKey, stream }), candidate.credential),
+      url,
+      body,
+    )
     let upstream: Res2OaiUpstreamResponse
     try {
       upstream = await send({ method: 'POST', url, headers, body })
@@ -390,7 +398,11 @@ export function createRes2OaiService(options: Res2OaiServiceOptions): Res2OaiSer
   async function compactAttempt(candidate: Candidate, request: Res2OaiRequest, send: Res2OaiUpstreamSender): Promise<AttemptOutcome> {
     const body = translateCompactPassthrough(request.body, candidate.entry.name)
     const url = joinUrl(candidate.credential.baseUrl, RESPONSES_COMPACT_PATH)
-    const headers = orderUpstreamHeaders(buildUpstreamHeaders({ apiKey: candidate.credential.apiKey, stream: false }), url, body)
+    const headers = orderUpstreamHeaders(
+      withCredentialHeaders(buildUpstreamHeaders({ apiKey: candidate.credential.apiKey, stream: false }), candidate.credential),
+      url,
+      body,
+    )
     let upstream: Res2OaiUpstreamResponse
     try {
       upstream = await send({ method: 'POST', url, headers, body })
@@ -516,6 +528,21 @@ function jsonBody(status: number, body: string, contentType: string): Res2OaiRes
 
 function joinUrl(baseUrl: string, path: string): string {
   return `${baseUrl.replace(/\/+$/, '')}${path}`
+}
+
+/**
+ * Applies a credential's optional fixed headers after the gateway-owned
+ * set (config-gated extension, off in the anchor configuration).
+ */
+function withCredentialHeaders(
+  base: Record<string, string>,
+  credential: Res2OaiCredential,
+): Record<string, string> {
+  const merged: Record<string, string> = { ...base }
+  for (const [name, value] of Object.entries(credential.headers ?? {})) {
+    merged[name] = value
+  }
+  return merged
 }
 
 /**

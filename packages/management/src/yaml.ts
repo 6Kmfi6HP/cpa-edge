@@ -145,6 +145,9 @@ function nextContentLine(state: ParseState, indent: number): DocLine | undefined
 function parseInlineValue(text: string, line: number): { readonly node: BlockNode; readonly empty: boolean } {
   const trimmed = text.trim()
   if (trimmed === '') return { node: { kind: 'scalar', raw: '', value: null, line }, empty: true }
+  if (isUnsupportedFlow(trimmed)) {
+    throw new YamlError(`yaml: line ${line}: did not find expected node content`)
+  }
   return { node: parseScalarLiteral(trimmed, line), empty: false }
 }
 
@@ -373,7 +376,12 @@ export function renderScalar(value: JsonValue): string {
   if (typeof value !== 'string') return '""'
   const text: string = value
   if (text === '') return '""'
-  if (/^[A-Za-z0-9_./:@+=-][A-Za-z0-9_./:@+= -]*$/.test(text) && !text.includes('  ')) {
+  const plainSafe =
+    /^[A-Za-z0-9_./:@+=-][A-Za-z0-9_./:@+= -]*$/.test(text) &&
+    !text.includes('  ') &&
+    !text.includes(': ') &&
+    !text.endsWith(':')
+  if (plainSafe) {
     const resolved = resolvePlain(text)
     if (typeof resolved === 'string') return text
   }

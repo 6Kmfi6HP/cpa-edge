@@ -86,11 +86,10 @@ function scriptedByteStream(
 }
 
 /** Script events for a control: embedded fixture events, else the default. */
-function scriptEventsFor(control: Record<string, unknown>, embedded: readonly Record<string, unknown>[]): readonly MockEvent[] {
+function scriptEventsFor(embedded: readonly Record<string, unknown>[]): readonly MockEvent[] {
   if (embedded.length > 0) {
     return embedded.map((entry) => ({ event: String(entry['event'] ?? ''), data: entry['data'] }))
   }
-  void control
   return DEFAULT_SCRIPT
 }
 
@@ -108,7 +107,7 @@ function buildMockResponse(
     const bodyText = bodyObject !== undefined ? pythonJson(bodyObject) : ''
     return { status, headers: [['Content-Type', 'application/json']], body: scriptedByteStream([encoder.encode(bodyText)]) }
   }
-  const events = scriptEventsFor(control, embedded)
+  const events = scriptEventsFor(embedded)
   const chunks = events.map((mockEvent) => {
     const data = pythonJson(mockEvent.data)
     return encoder.encode(`event: ${mockEvent.event}\ndata: ${data}\n\n`)

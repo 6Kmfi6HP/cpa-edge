@@ -196,7 +196,7 @@ export function openUsageWireConnection(deps: WireDeps): UsageWireConnection {
       case 'subscribe': {
         const channel = (args[1] ?? '').toLowerCase()
         if (channel !== 'usage' && channel !== 'errors') {
-          emit(errorFrame(`unsupported channel '${channel}'`))
+          emit(errorFrame(`ERR unsupported channel '${channel}'`))
           return
         }
         if (subscribed !== undefined) {
@@ -216,7 +216,7 @@ export function openUsageWireConnection(deps: WireDeps): UsageWireConnection {
       case 'unsubscribe': {
         const channel = (args[1] ?? '').toLowerCase()
         if (channel !== 'usage' && channel !== 'errors') {
-          emit(errorFrame(`unsupported channel '${channel}'`))
+          emit(errorFrame(`ERR unsupported channel '${channel}'`))
           return
         }
         if (subscribed === undefined) {
@@ -238,11 +238,11 @@ export function openUsageWireConnection(deps: WireDeps): UsageWireConnection {
       case 'rpop': {
         const channel = (args[1] ?? '').toLowerCase()
         if (channel === 'errors') {
-          emit(errorFrame(`unsupported channel 'errors'`))
+          emit(errorFrame(`ERR unsupported channel 'errors'`))
           return
         }
         if (channel !== 'usage') {
-          emit(errorFrame(`unsupported channel '${channel}'`))
+          emit(errorFrame(`ERR unsupported channel '${channel}'`))
           return
         }
         if (args.length === 2) {

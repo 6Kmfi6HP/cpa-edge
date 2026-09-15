@@ -25,9 +25,8 @@ import { normalizeCodexParameters, normalizeCodexToolSchemasInBody, sanitizeTool
 import { translateChatToCodex, translateReasoning, translateToolChoice } from './request'
 import { deriveCodexSessionId, truncateRunes, uuidV5 } from './session'
 import { CodexStreamChunkTranslator, codexUsageObject, imageMimeType } from './response'
-import { parseDownstreamSse } from './sse'
 import { createOai2CodexService } from './service'
-import type { Oai2CodexChatRequest, Oai2CodexUpstreamRequest, Oai2CodexUpstreamResponse, Oai2CodexUpstreamSender } from './service'
+import type { Oai2CodexChatRequest, Oai2CodexUpstreamResponse, Oai2CodexUpstreamSender } from './service'
 
 const UPSTREAM_MODEL = 'gpt-mock-codex'
 
@@ -40,7 +39,7 @@ async function translate(body: unknown, options: { readonly thinking?: boolean; 
   return JSON.parse(result.body) as Record<string, unknown>
 }
 
-function rawTranslate(body: string): Promise<ReturnType<typeof translateChatToCodex>> {
+function rawTranslate(body: string): ReturnType<typeof translateChatToCodex> {
   return translateChatToCodex(body, { upstreamModel: UPSTREAM_MODEL, session: { apiKey: 'client-key' } })
 }
 
@@ -187,7 +186,8 @@ describe('tool-name shortening + restoration (2.10)', () => {
     expect(keys.length).toBe(2)
     expect(keys[0]).not.toBe(keys[1])
     for (const key of keys) expect(key.length).toBeLessThanOrEqual(64)
-    expect(new Set([map[keys[0]], map[keys[1]]]).size).toBe(2)
+    const values = keys.map((key) => map[key])
+    expect(new Set(values).size).toBe(2)
   })
 
   it('repeated originals share one short name', () => {
@@ -555,7 +555,7 @@ describe('stream translation corners (2.6-2.8)', () => {
       line('response.completed', { response: { id: 'r', status: 'completed', usage: { input_tokens: 1, output_tokens: 2, total_tokens: 3 } } }),
     ]) {
       const result = translator.translateDataLine(data)
-      for (const frame of result.frames) out.push(frame)
+      if (result.kind === 'frames' || result.kind === 'stop') out.push(...result.frames)
     }
     expect(out).toEqual([
       '{"id":"r","object":"chat.completion.chunk","created":5,"model":"m","choices":[{"index":0,"delta":{"role":"assistant","content":"a"},"finish_reason":null,"native_finish_reason":null}],"service_tier":"priority"}',
@@ -584,9 +584,11 @@ describe('stream translation corners (2.6-2.8)', () => {
 
     const empty = streamTranslator()
     const added = empty.translateDataLine(line('response.output_item.added', { output_index: 0, item: { type: 'function_call', id: 'i', call_id: 'c', name: 'f' } }))
-    expect(added.frames.length).toBe(1)
-    expect(empty.translateDataLine(line('response.function_call_arguments.done', { item_id: 'i', arguments: '' })).frames).toEqual([])
-    expect(empty.translateDataLine(line('response.output_item.done', { output_index: 0, item: { type: 'function_call', id: 'i', call_id: 'c', name: 'f', arguments: '' } })).frames).toEqual([])
+    expect(added.kind === 'frames' ? added.frames.length : 0).toBe(1)
+    const doneEmpty = empty.translateDataLine(line('response.function_call_arguments.done', { item_id: 'i', arguments: '' }))
+    expect(doneEmpty.kind === 'frames' ? doneEmpty.frames : []).toEqual([])
+    const itemDoneEmpty = empty.translateDataLine(line('response.output_item.done', { output_index: 0, item: { type: 'function_call', id: 'i', call_id: 'c', name: 'f', arguments: '' } }))
+    expect(itemDoneEmpty.kind === 'frames' ? itemDoneEmpty.frames : []).toEqual([])
   })
 
   it('an unannounced done item emits one complete chunk with the full arguments', () => {
@@ -594,7 +596,7 @@ describe('stream translation corners (2.6-2.8)', () => {
     const done = translator.translateDataLine(
       line('response.output_item.done', { output_index: 0, item: { type: 'function_call', id: 'i', call_id: 'c', name: 'f', arguments: '{"x":1}' } }),
     )
-    expect(done.frames[0]).toContain('"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"c","type":"function","function":{"name":"f","arguments":"{\\"x\\":1}"}}]}')
+    expect(done.kind === 'frames' ? done.frames[0] ?? '' : '').toContain('"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"c","type":"function","function":{"name":"f","arguments":"{\\"x\\":1}"}}]}')
   })
 
   it('custom_tool_call items use the input field for arguments deltas', () => {
@@ -618,10 +620,13 @@ describe('stream translation corners (2.6-2.8)', () => {
     const first = translator.translateDataLine(line('response.image_generation_call.partial_image', payload))
     const repeat = translator.translateDataLine(line('response.image_generation_call.partial_image', payload))
     const second = translator.translateDataLine(line('response.image_generation_call.partial_image', { ...payload, partial_image_b64: 'BBB' }))
-    expect(first.frames.length).toBe(1)
-    expect(repeat.frames.length).toBe(0)
-    expect(second.frames.length).toBe(1)
-    expect(first.frames[0]).toContain('"images":[{"index":0,"type":"image_url","image_url":{"url":"data:image/png;base64,AAA"}}')
+    const firstFrames = first.kind === 'frames' ? first.frames : []
+    const repeatFrames = repeat.kind === 'frames' ? repeat.frames : []
+    const secondFrames = second.kind === 'frames' ? second.frames : []
+    expect(firstFrames.length).toBe(1)
+    expect(repeatFrames.length).toBe(0)
+    expect(secondFrames.length).toBe(1)
+    expect(firstFrames[0]).toContain('"images":[{"index":0,"type":"image_url","image_url":{"url":"data:image/png;base64,AAA"}}')
     expect(imageMimeType('jpg')).toBe('image/jpeg')
     expect(imageMimeType('image/custom')).toBe('image/custom')
     expect(imageMimeType('weird')).toBe('image/png')
@@ -634,7 +639,8 @@ describe('stream translation corners (2.6-2.8)', () => {
   })
 
   it('reasoning done events emit the \\n\\n separator chunk', () => {
-    const frames = streamTranslator().translateDataLine(line('response.reasoning_text.done', {})).frames
+    const separatorResult = streamTranslator().translateDataLine(line('response.reasoning_text.done', {}))
+    const frames = separatorResult.kind === 'frames' ? separatorResult.frames : []
     expect(frames[0]).toContain('"reasoning_content":"\\n\\n"')
   })
 
@@ -818,19 +824,6 @@ function errorResponse(status: number, body: string, headers: Array<[string, str
   return { status, headers, body: stream }
 }
 
-async function readBody(response: { readonly body: string | ReadableStream<Uint8Array> }): Promise<string> {
-  if (typeof response.body === 'string') return response.body
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let out = ''
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    out += decoder.decode(value, { stream: true })
-  }
-  return out + decoder.decode()
-}
-
 describe('facade behavior', () => {
   it('NE-LENIENT: malformed bodies fail with 400 before any upstream call', async () => {
     let calls = 0
@@ -886,7 +879,7 @@ describe('facade behavior', () => {
   })
 
   it('an upstream Retry-After hint floors the window at 10 seconds', async () => {
-    let clockMs = 5_000_000
+    const clockMs = 5_000_000
     const store = new MemoryStore({ now: () => clockMs })
     const service = createOai2CodexService({ ...SERVICE_OPTIONS, store, now: () => clockMs })
     const send: Oai2CodexUpstreamSender = async () => errorResponse(429, '{"error":{"message":"x"}}', [['Retry-After', '2']])
@@ -937,4 +930,3 @@ function parseDownstreamHeaders(headers: ReadonlyArray<readonly [string, string]
   return record
 }
 
-void parseDownstreamSse

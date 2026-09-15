@@ -1513,21 +1513,14 @@
       "case": "OpenAI chat -> vertex-api-key upstream (Vertex-compatible endpoints)",
       "classification": "RECORDABLE-LOCALLY but DEFERRED",
       "reason": "Wire is Gemini-compatible but requires service-account-shaped credentials and a vertex mock; deferred to a later recording mission (not part of S2d1 fixtures)."
-    },
-    {
-      "case": "Multi-candidate STREAMING (candidateCount>1 streams; usage filter keys on candidates.0.finishReason)",
-      "classification": "DEFERRED (non-credential)",
-      "reason": "Specified from source; golden C09 covers non-stream n=2 only. Record later if a consumer needs it. [SUPERSEDED 2026-09-16: recorded as C22/C23 after adversary ruling B1.]",
-      "status": "RESOLVED (gate round 1, B1): stream fixtures C22/C23 recorded 2026-09-16; remove from deferral."
     }
   ],
   "recording_status": {
     "worker": "oracle-runner-2 (after reroute from oracle-runner via oracle-runner-5)",
     "recorded": 23,
     "deferred": [
-      "gemini OAuth (cloudcode-pa) transport",
-      "vertex-api-key wire",
-      "multi-candidate streaming"
+      "gemini OAuth (cloudcode-pa) transport — CREDENTIALED-ONLY (R-FIXTURE)",
+      "vertex-api-key wire — recordable, out of scope for S2d1 (registry-tracked pending mission)"
     ],
     "fixture_root_verified": "tests/fixtures/S2d1/ (23 case dirs, RECIPES layout)",
     "recorded_vs_predicted_deviations": [
@@ -1535,7 +1528,7 @@
       "C07: reasoning_effort thinkingConfig is STRIPPED (generationConfig left {}), not converted to thinkingBudget 1024 — config-declared gemini-api-key models resolve with UserDefined=false/Thinking=nil (internal/modelconfig/model_info.go), contradicting the doc comment in internal/thinking/apply.go",
       "C08: model-suffix thinking intent DROPPED (no generationConfig in outbound body), not thinkingBudget 24576"
     ],
-    "gate_round2_addendum_status": "C22 + C23 recorded by oracle-runner-2 in a fresh happy window (2026-09-16); both verified byte-exact against expectations; B1 closed."
+    "gate_round2_addendum_status": "C22 + C23 recorded by oracle-runner-2 in a fresh happy window (2026-09-16); both verified byte-exact against expectations; B1 closed. Multi-candidate streaming is NO LONGER deferred (C22/C23 recorded); removed from the deferred lists at orchestrator request after round-2 admission."
   },
   "gate_round2_addendum": {
     "date": "2026-09-16",

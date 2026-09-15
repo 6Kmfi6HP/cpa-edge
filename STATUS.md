@@ -48,7 +48,7 @@
 | I-exec-antigravity | packages/executors: antigravity executor | 2 | — | pending | 0 |  |
 | I-exec-custom-openai | packages/executors: custom-openai executor | 2 | — | pending | 0 |  |
 | I-mgmt | packages/management: /v0/management | 2 | impl-i-mgmt | impl | 0 |  |
-| T1 | runtimes/node integration + full contract tests | 3 | — | pending | 0 |  |
+| T1 | runtimes/node integration + full contract tests | 3 | integrator-t1 | impl | 0 |  |
 | T2 | runtimes/cloudflare (DO store, alarms, WS hibernation) | 3 | — | pending | 0 |  |
 | T3 | runtimes/vercel (degraded per S7) | 3 | — | pending | 0 |  |
 | T4 | end-to-end smoke: fixture replay vs upstream diff | 3 | — | pending | 0 |  |
@@ -57,4 +57,3 @@
 
 ## Verdict / escalation log
 (appended by orchestrator)
-- 2026-09-16 05:3x S2d1 GATE: PASS (round 2). PHASE 1 COMPLETE: all 16/16 spec sections admitted through adversarial gates (S1,S2d1-d10,S3-S7), 400+ oracle-recorded goldens total. I-tr-S2d1 queued; contract-s2d1 writer dispatched.
