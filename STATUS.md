@@ -38,7 +38,7 @@
 | I-tr-S2d6 | packages/translators: Responses→OpenAI chat | 2 | — | merged | 1 | MERGED: res2oai PASS-WITH-NONBLOCKING round 1. 107 module + 29 contract live. Ledger: N1 depth-cap (T1 uniform hardening), N2-N4 unpinned corners (spec notes), N5 auth-transport (route layer owns), N6/N7 trivia. |
 | I-tr-S2d7 | packages/translators: Gemini→Claude | 2 | — | merged | 2 | MERGED: gem2cla complete (spec 2 rounds, impl gate 2 rounds incl. S2d7-31 recorded ruling). 108 module + 33 contract green. |
 | I-tr-S2d8 | packages/translators: Claude→Gemini | 2 | — | merged | 2 | MERGED: cla2gem complete (impl gate 2 rounds). 105 module + contract 22/22 incl. S2d8-21. Ledger: NR1 depth-cap asymmetry 7-10k response-side; N2/N4/N5/N6 carried. |
-| I-tr-S2d9 | packages/translators: Codex passthrough | 2 | impl-i-tr-s2d9 | fix | 1 | adv-impl-2 R1: FAIL (B1 duplicate gateway-set headers on SSE commits); fixer B1+N1+N2+N8; N3-N7/N9/N10 ledger |
+| I-tr-S2d9 | packages/translators: Codex passthrough | 2 | — | merged | 2 | MERGED: codex-passthrough complete (impl gate 2 rounds). 96 module + contract 18/18. Ledger: N3-N7/N9/N10. |
 | I-tr-S2d10 | packages/translators: Antigravity redirect | 2 | — | pending | 0 |  |
 | I-exec-openai | packages/executors: openai executor | 2 | — | merged | 0 | SATISFIED via direction modules per R-EXECS |
 | I-exec-claude | packages/executors: claude executor | 2 | — | merged | 0 | SATISFIED via direction modules per R-EXECS |
@@ -57,3 +57,4 @@
 
 ## Verdict / escalation log
 (appended by orchestrator)
+- 2026-09-16 07:5x I-tr-S2d9 MERGED (impl gate round 2 PASS). codex-passthrough complete: 10 modules merged. Remaining: core + oai2gem (gate) + oai2oai (implementing).

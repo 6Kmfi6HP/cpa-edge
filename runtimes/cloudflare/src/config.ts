@@ -1,0 +1,410 @@
+/**
+ * Runtime configuration ingestion for the Workers runtime (S6 section
+ * 3.1 config document shape; S7 sections 2.1/2.3-F1 proxy semantics).
+ *
+ * The runtime has no filesystem: config bytes arrive from a KV binding,
+ * a plain-text binding, or the Durable Object's own stored copy (written
+ * back after management mutations). Everything defensive happens here
+ * once; handlers work on the normalized result only.
+ */
+import { asPlainObject, readNumber, readObject, readString } from '@cpa-edge/auth'
+
+/** Provider families the registry and dispatch table know about. */
+export type ProviderFamily =
+  | 'openai-compatibility'
+  | 'gemini-api-key'
+  | 'claude-api-key'
+  | 'codex-api-key'
+  | 'xai-api-key'
+  | 'meta-api-key'
+  | 'interactions-api-key'
+  | 'vertex-api-key'
+
+/**
+ * Registration order of the provider families. The reference resolves
+ * aliases by registration sequence; api-key sections register in this
+ * fixed family order (S4 owns the precise cross-provider ordering).
+ */
+export const FAMILY_ORDER: readonly ProviderFamily[] = [
+  'openai-compatibility',
+  'gemini-api-key',
+  'claude-api-key',
+  'codex-api-key',
+  'xai-api-key',
+  'meta-api-key',
+  'interactions-api-key',
+  'vertex-api-key',
+]
+
+/** One model entry of a provider block (S6 section 3.1.4 `models[]`). */
+export interface ProviderModelEntry {
+  /** Upstream model id (alias target). */
+  readonly name: string
+  /** Client-facing id; defaults to `name`. */
+  readonly alias: string
+  /** LIST-only display name (`display-name`). */
+  readonly displayName?: string
+  /** openai-compatibility model flag: image-capable model. */
+  readonly image: boolean
+  /** claude `is-compat` flag (assistant reasoning replay). */
+  readonly isCompat: boolean
+  /** `force-mapping` (response model rewrite back to the alias). */
+  readonly forceMapping: boolean
+  /** Thinking capability block, config verbatim. */
+  readonly thinking?: {
+    readonly min?: number
+    readonly max?: number
+    readonly levels?: readonly string[]
+  }
+}
+
+/** Resolved proxy transport mode of one credential (S7 section 2.1 F1). */
+export type ProxyMode = 'inherit' | 'direct' | 'proxy' | 'invalid'
+
+/** One normalized api-key provider entry. */
+export interface ProviderEntry {
+  readonly family: ProviderFamily
+  /** Provider id (openai-compatibility `name`) or the family default. */
+  readonly providerName: string
+  readonly apiKey: string
+  readonly baseUrl: string
+  /** Provider-level static header map (trimmed, non-empty). */
+  readonly headers: Readonly<Record<string, string>>
+  /** `fingerprint-profile` (claude-api-key). */
+  readonly fingerprintProfile?: string
+  /** Per-credential `proxy-url`, verbatim. */
+  readonly proxyUrl: string
+  /** Effective proxy mode after own-then-global resolution. */
+  readonly proxyMode: ProxyMode
+  readonly models: readonly ProviderModelEntry[]
+}
+
+/** Four-state image gate (S1 section 3.2). */
+export type ImageGenerationMode = false | true | 'chat' | 'passthrough'
+
+/** Normalized gateway configuration. */
+export interface NormalizedConfig {
+  readonly port: number
+  /** Top-level client api-keys (verbatim; auth normalizes them). */
+  readonly apiKeys: readonly string[]
+  /** `ws-auth`; absent means REQUIRED (the loader presets true, S7 F4). */
+  readonly wsAuth: boolean
+  /** Global `proxy-url` (verbatim). */
+  readonly proxyUrl: string
+  readonly remoteManagement: {
+    readonly allowRemote: boolean
+    readonly secretKey: string
+    readonly disableControlPanel: boolean
+  }
+  /** true only for the literal `true` state (images routes absent). */
+  readonly imageGenerationMode: ImageGenerationMode
+  readonly disableCloakingModelList: boolean
+  readonly requestRetry: number
+  readonly transientErrorCooldownSeconds: number
+  /** `redis-usage-queue-retention-seconds`, normalized (S6 section 3.1.2). */
+  readonly usageRetentionSeconds: number
+  readonly providers: readonly ProviderEntry[]
+}
+
+/**
+ * The YAML-shaped input object. Keys are the public config names
+ * (`api-keys`, `remote-management`, provider sections, ...); values are
+ * plain JSON scalars/maps/lists. Unknown keys are ignored.
+ */
+export type RuntimeConfigInput = Readonly<Record<string, unknown>>
+
+/** Default Claude upstream when `claude-api-key` omits `base-url` (S6). */
+export const DEFAULT_CLAUDE_BASE_URL = 'https://api.anthropic.com'
+
+/** Retention floor applied when the configured value is missing or <= 0. */
+export const USAGE_RETENTION_FLOOR_SECONDS = 60
+
+/** Retention ceiling; larger configured values clamp with this cap (S6). */
+export const USAGE_RETENTION_MAX_SECONDS = 3_600
+
+const readStringArray = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return []
+  const out: string[] = []
+  for (const item of value) {
+    if (typeof item === 'string' && item.length > 0) out.push(item)
+  }
+  return out
+}
+
+const readHeaderMap = (value: unknown): Record<string, string> => {
+  const source = asPlainObject(value)
+  const out: Record<string, string> = {}
+  if (source === undefined) return out
+  for (const [key, raw] of Object.entries(source)) {
+    const name = key.trim()
+    const val = typeof raw === 'string' ? raw.trim() : ''
+    if (name.length === 0 || val.length === 0) continue
+    out[name] = val
+  }
+  return out
+}
+
+/**
+ * Classifies one raw proxy-url value the way the reference's proxy
+ * parser does: empty inherits, `direct`/`none` dial explicitly, a URL
+ * with a `socks5|socks5h|http|https` scheme is proxy mode, anything
+ * else is a parse error. Invalid values never block traffic - the
+ * request proceeds direct (S7 section 2.3-F1-5).
+ */
+export function classifyProxyUrl(raw: string): ProxyMode {
+  const value = raw.trim()
+  if (value.length === 0) return 'inherit'
+  const lowered = value.toLowerCase()
+  if (lowered === 'direct' || lowered === 'none') return 'direct'
+  try {
+    const parsed = new URL(value)
+    const scheme = parsed.protocol.replace(':', '').toLowerCase()
+    if (
+      (scheme === 'socks5' || scheme === 'socks5h' || scheme === 'http' || scheme === 'https') &&
+      parsed.host.length > 0
+    ) {
+      return 'proxy'
+    }
+    return 'invalid'
+  } catch {
+    return 'invalid'
+  }
+}
+
+/**
+ * Effective mode per credential: own value first, then the global
+ * value, then inherit (which is direct on every CPA-Edge runtime -
+ * environment proxies are ignored project-wide, NE-S7-04).
+ */
+export function resolveProxyMode(ownProxyUrl: string, globalProxyUrl: string): ProxyMode {
+  if (ownProxyUrl.trim().length > 0) return classifyProxyUrl(ownProxyUrl)
+  if (globalProxyUrl.trim().length > 0) return classifyProxyUrl(globalProxyUrl)
+  return 'inherit'
+}
+
+interface RawModelSource {
+  readonly name: string
+  readonly alias: string
+  readonly displayName?: string
+  readonly image: boolean
+  readonly isCompat: boolean
+  readonly forceMapping: boolean
+  readonly thinking?: { min?: number; max?: number; levels?: readonly string[] }
+}
+
+const readModels = (value: unknown): readonly RawModelSource[] => {
+  if (!Array.isArray(value)) return []
+  const out: RawModelSource[] = []
+  for (const item of value) {
+    const record = asPlainObject(item)
+    if (record === undefined) continue
+    const name = readString(record, 'name')
+    if (name === undefined || name.length === 0) continue
+    const alias = readString(record, 'alias')
+    const displayName = readString(record, 'display-name')
+    const thinkingSource = readObject(record, 'thinking')
+    let thinking: RawModelSource['thinking']
+    if (thinkingSource !== undefined) {
+      const levels = readStringArray(thinkingSource['levels'])
+      const min = readNumber(thinkingSource, 'min')
+      const max = readNumber(thinkingSource, 'max')
+      thinking = {
+        ...(min === undefined ? {} : { min }),
+        ...(max === undefined ? {} : { max }),
+        ...(levels.length === 0 ? {} : { levels }),
+      }
+    }
+    out.push({
+      name,
+      alias: alias !== undefined && alias.length > 0 ? alias : name,
+      ...(displayName === undefined || displayName.length === 0 ? {} : { displayName }),
+      image: record['image'] === true,
+      isCompat: record['is-compat'] === true,
+      forceMapping: record['force-mapping'] === true,
+      ...(thinking === undefined ? {} : { thinking }),
+    })
+  }
+  return out
+}
+
+const readImageGenerationMode = (value: unknown): ImageGenerationMode => {
+  if (value === true) return true
+  if (value === 'chat') return 'chat'
+  if (value === 'passthrough') return 'passthrough'
+  return false
+}
+
+const providerNameOf = (family: ProviderFamily, raw: Readonly<Record<string, unknown>>): string => {
+  const configured = readString(raw, 'name')
+  if (configured !== undefined && configured.length > 0) return configured
+  // Family default ids double as `owned_by` and cooldown `provider` names.
+  return family === 'openai-compatibility'
+    ? 'openai-compatibility'
+    : family.replace('-api-key', '').replace('-compatibility', '')
+}
+
+const baseUrlOf = (family: ProviderFamily, raw: Readonly<Record<string, unknown>>): string => {
+  const configured = readString(raw, 'base-url')
+  if (configured !== undefined && configured.length > 0) return configured
+  return family === 'claude-api-key' ? DEFAULT_CLAUDE_BASE_URL : ''
+}
+
+/**
+ * Reads and normalizes one provider family section. Entries without an
+ * `api-key` (or without `base-url` where the reference drops the entry)
+ * are skipped; models without a `name` are skipped. Every entry keeps
+ * its resolved proxy mode so scheduling can exclude proxy-credentialed
+ * candidates on this proxyTransport-less runtime (NE-S7-01).
+ */
+const readProviderSection = (
+  family: ProviderFamily,
+  value: unknown,
+  globalProxyUrl: string,
+): ProviderEntry[] => {
+  if (!Array.isArray(value)) return []
+  const out: ProviderEntry[] = []
+  for (const item of value) {
+    const raw = asPlainObject(item)
+    if (raw === undefined) continue
+    const apiKey = readString(raw, 'api-key') ?? ''
+    const baseUrl = baseUrlOf(family, raw)
+    if (apiKey.length === 0 && baseUrl.length === 0) continue
+    const requiresBaseUrl =
+      family === 'codex-api-key' ||
+      family === 'xai-api-key' ||
+      family === 'meta-api-key' ||
+      family === 'openai-compatibility'
+    if (requiresBaseUrl && baseUrl.length === 0) continue
+    const fingerprintProfile = readString(raw, 'fingerprint-profile') ?? ''
+    const proxyUrl = readString(raw, 'proxy-url') ?? ''
+    out.push({
+      family,
+      providerName: providerNameOf(family, raw),
+      apiKey,
+      baseUrl,
+      headers: readHeaderMap(raw['headers']),
+      ...(fingerprintProfile.length === 0 ? {} : { fingerprintProfile }),
+      proxyUrl,
+      proxyMode: resolveProxyMode(proxyUrl, globalProxyUrl),
+      models: readModels(raw['models']),
+    })
+  }
+  return out
+}
+
+/** Normalizes the YAML-shaped config object into the runtime form. */
+export function normalizeRuntimeConfig(input: RuntimeConfigInput): NormalizedConfig {
+  const remoteManagementSource = readObject(input, 'remote-management') ?? {}
+  const globalProxyUrl = readString(input, 'proxy-url') ?? ''
+  const providers: ProviderEntry[] = []
+  for (const family of FAMILY_ORDER) {
+    providers.push(...readProviderSection(family, input[family], globalProxyUrl))
+  }
+  const claudeCodeSource = readObject(input, 'claude-code') ?? {}
+  const retentionRaw = readNumber(input, 'redis-usage-queue-retention-seconds') ?? USAGE_RETENTION_FLOOR_SECONDS
+  const retention =
+    retentionRaw <= 0
+      ? USAGE_RETENTION_FLOOR_SECONDS
+      : Math.min(retentionRaw, USAGE_RETENTION_MAX_SECONDS)
+  return {
+    port: readNumber(input, 'port') ?? 0,
+    apiKeys: readStringArray(input['api-keys']),
+    // Absent ws-auth means REQUIRED: the reference loader presets the
+    // flag to true before unmarshalling (S7 section 2.1 F4).
+    wsAuth: input['ws-auth'] === undefined ? true : input['ws-auth'] === true,
+    proxyUrl: globalProxyUrl,
+    remoteManagement: {
+      allowRemote: remoteManagementSource['allow-remote'] === true,
+      secretKey: readString(remoteManagementSource, 'secret-key') ?? '',
+      disableControlPanel: remoteManagementSource['disable-control-panel'] === true,
+    },
+    imageGenerationMode: readImageGenerationMode(input['disable-image-generation']),
+    disableCloakingModelList: claudeCodeSource['disable-cloaking-model-list'] === true,
+    requestRetry: readNumber(input, 'request-retry') ?? 0,
+    transientErrorCooldownSeconds: readNumber(input, 'transient-error-cooldown-seconds') ?? 0,
+    usageRetentionSeconds: retention,
+    providers,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Proxy-aware scheduling views (S7 section 2.3-F1)
+// ---------------------------------------------------------------------------
+
+/** True when the entry can carry traffic on this runtime. */
+export function entrySchedulable(entry: ProviderEntry): boolean {
+  return entry.proxyMode !== 'proxy'
+}
+
+/** Entries of one family, config order, schedulable ones only. */
+export function eligibleProvidersOf(
+  config: NormalizedConfig,
+  family: ProviderFamily,
+): readonly ProviderEntry[] {
+  return config.providers.filter((entry) => entry.family === family && entrySchedulable(entry))
+}
+
+/**
+ * Whether the family offers the model through at least one schedulable
+ * entry. When false and the model resolves to this family, the request
+ * gets the F1-501 client body instead of a facade dispatch.
+ */
+export function familyModelEligible(
+  config: NormalizedConfig,
+  family: ProviderFamily,
+  clientModel: string,
+): boolean {
+  for (const entry of config.providers) {
+    if (entry.family !== family || !entrySchedulable(entry)) continue
+    for (const model of entry.models) {
+      if (model.alias === clientModel || model.name === clientModel) return true
+    }
+  }
+  return false
+}
+
+// ---------------------------------------------------------------------------
+// Config source resolution (R5: no filesystem)
+// ---------------------------------------------------------------------------
+
+/** Where the active config text came from. */
+export type ConfigSource = 'stored' | 'kv' | 'binding' | 'empty'
+
+/** Result of resolving the deployment's config.yaml text. */
+export interface ResolvedConfigText {
+  readonly text: string
+  readonly source: ConfigSource
+}
+
+/**
+ * Resolves the runtime's config text. Precedence: the copy persisted in
+ * the Durable Object (management mutations live there), then a KV
+ * binding value, then a plain-text binding, then the empty config.
+ */
+export async function resolveConfigText(sources: {
+  readonly stored?: () => Promise<string | undefined>
+  readonly kv?: ConfigKvSource
+  readonly bindingText?: string
+  readonly kvKey?: string
+}): Promise<ResolvedConfigText> {
+  const stored = sources.stored === undefined ? undefined : await sources.stored()
+  if (stored !== undefined && stored.length > 0) return { text: stored, source: 'stored' }
+  if (sources.kv !== undefined) {
+    const fromKv = await sources.kv.get(sources.kvKey ?? 'config.yaml')
+    if (fromKv !== null && fromKv.length > 0) return { text: fromKv, source: 'kv' }
+  }
+  const binding = sources.bindingText ?? ''
+  if (binding.length > 0) return { text: binding, source: 'binding' }
+  return { text: '', source: 'empty' }
+}
+
+/** Minimal KV read surface for config bytes. */
+export interface ConfigKvSource {
+  get(key: string): Promise<string | null>
+}
+
+/** Config document family the runtime persists its config text under. */
+export const CONFIG_NAMESPACE = 'config'
+
+/** Store key holding the raw config.yaml text (runtime-owned bytes). */
+export const CONFIG_TEXT_KEY = 'config-yaml'
