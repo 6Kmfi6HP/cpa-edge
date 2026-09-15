@@ -234,7 +234,8 @@ describe('refresh registry bookkeeping (Store)', () => {
     expect(doc.next_refresh_after).toBeUndefined()
     await registry.recordSuccess('claude-a.json', false)
     doc = await registry.get('claude-a.json')
-    expect(doc.next_refresh_after).toBe('2026-10-09T11:33:22Z')
+    const expectedIneffective = new Date(1_760_000_000_000 + 30_000).toISOString().slice(0, 19) + 'Z'
+    expect(doc.next_refresh_after).toBe(expectedIneffective)
     await registry.recordFailure('claude-a.json', 'upstream unavailable')
     doc = await registry.get('claude-a.json')
     expect(doc.status).toBe('error')

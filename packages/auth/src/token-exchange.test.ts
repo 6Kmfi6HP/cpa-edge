@@ -205,7 +205,8 @@ describe('device credential builders (§2.6)', () => {
     )
     expect(result.fileName).toBe('kimi-1760000000000.json')
     expect(result.document['type']).toBe('kimi')
-    expect(result.document['expired']).toBe('2025-10-09T11:40:00Z')
+    const expectedExpiry = new Date(1_760_000_000_000 + 600_000).toISOString().slice(0, 19) + 'Z'
+    expect(result.document['expired']).toBe(expectedExpiry)
   })
 
   it('builds the xai document from the id_token claims', async () => {
