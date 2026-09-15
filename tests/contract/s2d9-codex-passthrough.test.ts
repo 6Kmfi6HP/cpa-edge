@@ -1466,7 +1466,8 @@ function assertDownstreamClauses(
   if (caseId === 'S2d9-02' || caseId === 'S2d9-03' || caseId === 'S2d9-05' || caseId === 'S2d9-06' || caseId === 'S2d9-07' || caseId === 'S2d9-17') {
     // §4.6 output repair: the mock's terminal frame ships an EMPTY output; the gateway
     // rebuilds it from the recorded output_item.done items. (The derived replay of
-    // S2d9-02 terminates with response.done after the §4.2 rename — same repair.)
+    // S2d9-02 terminates with response.completed — the §4.2 rename normalizes the
+    // response.done frame before forwarding.)
     const terminal = frames.find(
       (frame) => frame.event === 'response.completed' || frame.event === 'response.done',
     )
@@ -1606,8 +1607,6 @@ async function loadCaseFiles(caseId: CaseId): Promise<CaseFiles> {
 interface ReplayOptions {
   /** Override the scripted mock behavior (the derived test patches the canned script). */
   readonly script?: MockScript
-  /** Override the expected downstream body (the derived test swaps the terminal event name). */
-  readonly expectedBody?: string
 }
 
 /** One recorded request, replayed against the session's service; asserts both golds. */
@@ -1645,9 +1644,7 @@ async function replayStep(session: ReplaySession, caseId: CaseId, options: Repla
     assertUpstreamClauses(caseId, captured, files.sessionPolicy)
   }
 
-  const expected =
-    options.expectedBody === undefined ? files.recorded : { ...files.recorded, body: options.expectedBody }
-  const result = await assertDownstreamStep(produced, expected, caseId, step)
+  const result = await assertDownstreamStep(produced, files.recorded, caseId, step)
   assertDownstreamClauses(caseId, result, files.clientBody)
 }
 
@@ -2071,8 +2068,10 @@ describe('S2d9 fixture inventory (harness self-check, adapter-independent)', () 
       expect(result?.http_status, `S2d9-17: variant ${variant} recorded HTTP 200 (no stall policy)`).toBe(200)
     }
 
-    // Derived-test surgery anchors: the S2d9-02 script and golden carry exactly one
-    // occurrence of each response.done rename target.
+    // Derived-test surgery anchors: the S2d9-02 script carries exactly one occurrence
+    // of each rename target, and the golden's terminal event line is unique — after the
+    // §4.2 rename (event line + payload) the derived replay must reproduce this golden
+    // byte-identically, so both surfaces are pinned.
     expect(countOccurrences(script02, 'event: response.completed'), 'S2d9-02 script: one terminal event line').toBe(1)
     expect(countOccurrences(script02, '"type":"response.completed"'), 'S2d9-02 script: one terminal payload type').toBe(1)
     expect(countOccurrences(recorded02.body, 'event: response.completed'), 'S2d9-02 golden: one terminal event line').toBe(1)
@@ -2126,16 +2125,14 @@ suite(suiteTitle, () => {
     await replayStep(session, 'S2d9-18')
   })
 
-  it('derived (no golden): an upstream response.done data payload is renamed to response.completed (§4.2)', async () => {
+  it('derived (no golden): an upstream response.done frame is renamed to response.completed on the event line AND the payload (§4.2)', async () => {
     // The S2d9-02 script is patched so the terminal frame arrives as
-    // `event: response.done` + data `{"type":"response.done",...}`. Spec §4.2 renames the
-    // DATA payload type to response.completed; the recorded event-preservation note keeps
-    // the event line as the upstream sent it. Expected surface: the recorded S2d9-02
-    // golden with exactly the terminal event line swapped to `event: response.done` — the
-    // renamed payload, usage-detail injection, output repair, terminal close, and the
-    // WriteDone `\n` all match the recorded bytes. The event-line half of this expectation
-    // is interpretation (the spec sentence pins only the payload rename) — see OPEN
-    // QUESTIONS in the mission reply; the inventory asserts the surgery anchors.
+    // `event: response.done` + data `{"type":"response.done",...}`. Per the orchestrator
+    // ruling (2026-09-16) the reference renames the frame BEFORE forwarding: BOTH the
+    // event line and the payload type come back as response.completed. Expected surface:
+    // the recorded S2d9-02 golden BYTE-IDENTICAL — a rename that misses either half, a
+    // missed terminal close, or a lost WriteDone `\n` fails the byte gold loudly. The
+    // inventory asserts the script surgery anchors.
     const caseId = 'S2d9-02' as CaseId
     const scriptBytes = await mockScriptBytes(caseId)
     const patchedScript: MockScript = {
@@ -2147,15 +2144,8 @@ suite(suiteTitle, () => {
         'derived response.done script (payload type)',
       ),
     }
-    const recorded = parseDownstreamFile(await readFixtureText(caseId, 'downstream.md'))
-    const expectedBody = replaceUnique(
-      recorded.body,
-      'event: response.completed',
-      'event: response.done',
-      'derived response.done golden (terminal event line)',
-    )
     const session = makeSession()
-    await replayStep(session, caseId, { script: patchedScript, expectedBody })
+    await replayStep(session, caseId, { script: patchedScript })
   })
 })
 
