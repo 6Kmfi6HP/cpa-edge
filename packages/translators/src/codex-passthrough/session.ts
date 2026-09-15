@@ -14,7 +14,7 @@
  * presence, equality, stability, verbatim passthrough - are contract.
  */
 import { deriveCodexSessionId, truncateRunes } from '../oai2codex'
-import { isPlainObject } from './json'
+import { isPlainObject, wireValueOf } from './json'
 
 /** Instructions text cap of the identity root (per the shared chain). */
 const IDENTITY_INSTRUCTION_RUNES = 50
@@ -100,7 +100,7 @@ function identityUserParts(parsed: Record<string, unknown>): readonly unknown[] 
     if (raw['role'] !== 'user') continue
     const content = raw['content']
     if (typeof content === 'string') return [{ type: 'input_text', text: content }]
-    if (Array.isArray(content)) return content
+    if (Array.isArray(content)) return content.map((part) => wireValueOf(part))
   }
   return []
 }

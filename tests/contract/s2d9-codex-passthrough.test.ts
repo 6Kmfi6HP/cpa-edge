@@ -166,8 +166,8 @@
  * names are re-emitted with canonical MIME casing — the Lite header is recorded as
  * `X-Openai-Internal-Codex-Responses-Lite`), the §4 SSE passthrough (line-level
  * forwarding, `data: ` re-prefixing, comment glue, `\n\n` frame completion, terminal
- * event-stop + the response.done -> response.completed payload rename, the WriteDone
- * trailing `\n`, §4.3 model injection into created/in_progress and force-mapping rewrites
+ * event-stop + the response.done -> response.completed frame rename (event line AND
+ * payload type), the WriteDone trailing `\n`, §4.3 model injection into created/in_progress and force-mapping rewrites
  * of every model field, §4.6 output repair + id hydration, per-frame usage-detail
  * defaulting), §4.7 non-stream aggregation, §6 compact passthrough (verbatim body, no
  * usage defaulting for object == response.compaction), §5.1 upstream error mapping incl.
@@ -252,13 +252,14 @@
  *   §3-§5 in readable failures; they never loosen the byte gold.
  *
  * • DERIVED TEST (clearly labeled — no golden exists): the §4.2 response.done ->
- *   response.completed payload rename. The S2d9-02 script is patched so the terminal
- *   frame arrives as `event: response.done` + data `{"type":"response.done",...}`; the
- *   suite expects the recorded golden with exactly the terminal event line changed to
- *   `event: response.done` (event names are preserved — recorded wire note — while the
- *   data payload type is renamed to response.completed, the stream still terminates,
- *   and the WriteDone `\n` still lands). The event-line half of this expectation is
- *   interpretation (the spec pins only the payload rename); see OPEN QUESTIONS.
+ *   response.completed rename. The S2d9-02 script is patched so the terminal frame
+ *   arrives as `event: response.done` + data `{"type":"response.done",...}`; per the
+ *   orchestrator ruling (2026-09-16) the reference renames the frame BEFORE forwarding
+ *   (the same completion-normalization path the S2d5 family documented): BOTH the
+ *   event line and the payload type come back as response.completed, so the expected
+ *   downstream surface is the recorded S2d9-02 golden BYTE-IDENTICAL — the rename must
+ *   fully normalize the frame, the stream still terminates on it, and the WriteDone
+ *   `\n` still lands. The inventory asserts the surgery anchors.
  *
  * ─────────────────────────────────────────────────────────────────────────────────────
  * COMPARISON RULES
