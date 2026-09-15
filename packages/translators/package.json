@@ -9,7 +9,8 @@
     "./gem2oai": "./src/gem2oai/index.ts",
     "./gem2cla": "./src/gem2cla/index.ts",
     "./oai2codex": "./src/oai2codex/index.ts",
-    "./cla2gem": "./src/cla2gem/index.ts"
+    "./cla2gem": "./src/cla2gem/index.ts",
+    "./res2oai": "./src/res2oai/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"
