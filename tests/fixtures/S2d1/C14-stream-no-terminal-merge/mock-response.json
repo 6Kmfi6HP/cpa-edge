@@ -1,0 +1,47 @@
+{
+ "mode": "happy",
+ "control_file": {
+  "mode": "happy"
+ },
+ "alias": "mock-gemini-split",
+ "upstream_model": "gemini-mock-model-split",
+ "scripted_mock_response": {
+  "stream_events": [
+   {
+    "candidates": [
+     {
+      "content": {
+       "parts": [
+        {
+         "text": "Partial"
+        }
+       ],
+       "role": "model"
+      },
+      "index": 0
+     }
+    ]
+   },
+   {
+    "candidates": [
+     {
+      "content": {
+       "parts": [],
+       "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 0
+     }
+    ]
+   },
+   {
+    "usageMetadata": {
+     "promptTokenCount": 5,
+     "candidatesTokenCount": 2,
+     "totalTokenCount": 7
+    },
+    "modelVersion": "gemini-mock-model-split"
+   }
+  ]
+ }
+}

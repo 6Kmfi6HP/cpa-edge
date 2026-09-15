@@ -1,0 +1,11 @@
+POST /v1/chat/completions HTTP/1.1
+Host: 127.0.0.1:8387
+Authorization: Bearer oracle-local-key-1
+Content-Type: application/json
+Accept: */*
+User-Agent: oracle-s3-probe/1.0
+Accept: */*
+Connection: close
+Content-Length: 307
+
+{"model": "mock-gemini-img", "messages": [{"role": "user", "content": [{"type": "text", "text": "Describe this image."}, {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="}}]}], "stream": false}

@@ -134,12 +134,10 @@ export function readRecordedDownstream(caseId: string): RecordedDownstream {
   const hasSse = text.includes(sseMarker)
   const bodyMarker = hasSse ? sseMarker : '## body'
   let body = fenced(bodyMarker)
-  if (hasSse) {
-    // Strip the recorder template's two trailing newlines.
-    if (body.endsWith('\n\n')) body = body.slice(0, -2)
-  } else if (body.endsWith('\n')) {
-    body = body.slice(0, -1)
-  }
+  // The line-join drops the terminator of the last content line, so the
+  // joined fence content carries exactly one newline more than the
+  // recorded bytes; strip it.
+  if (body.endsWith('\n')) body = body.slice(0, -1)
   return { status: Number(statusMatch[1]), headers, body, sse: hasSse }
 }
 

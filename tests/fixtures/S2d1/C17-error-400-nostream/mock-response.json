@@ -1,0 +1,17 @@
+{
+ "mode": "error (control file: {\"mode\":\"error\",\"status\":400,\"error_body\":{\"error\":{\"code\":400,\"message\":\"Invalid JSON payload received. Unknown name 'bogus'.\",\"status\":\"INVALID_ARGUMENT\"}}})",
+ "control_file": {
+  "mode": "error",
+  "status": 400,
+  "error_body": {
+   "error": {
+    "code": 400,
+    "message": "Invalid JSON payload received. Unknown name 'bogus'.",
+    "status": "INVALID_ARGUMENT"
+   }
+  }
+ },
+ "alias": "mock-gemini-err400",
+ "upstream_model": "gemini-mock-model-err400",
+ "scripted_mock_response": "control-file error body"
+}

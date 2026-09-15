@@ -1,0 +1,30 @@
+{
+ "mode": "happy",
+ "control_file": {
+  "mode": "happy"
+ },
+ "alias": "mock-gemini-maxtok",
+ "upstream_model": "gemini-mock-model-maxtok",
+ "scripted_mock_response": {
+  "candidates": [
+   {
+    "content": {
+     "parts": [
+      {
+       "text": "The sea is vast and deep and full of"
+      }
+     ],
+     "role": "model"
+    },
+    "finishReason": "MAX_TOKENS",
+    "index": 0
+   }
+  ],
+  "usageMetadata": {
+   "promptTokenCount": 7,
+   "candidatesTokenCount": 8,
+   "totalTokenCount": 15
+  },
+  "modelVersion": "gemini-mock-model-maxtok"
+ }
+}

@@ -1412,10 +1412,9 @@ async function replayCase(session: ReplaySession, caseId: CaseId, options: Repla
     return mock.response
   }
 
+  const callsBefore = session.captured.length
   currentRequest = files.request
   const produced = await session.service.handleResponses(files.request, send)
-
-  const callsBefore = session.captured.length
   const callsThisCase = session.captured.slice(callsBefore)
   expect(callsThisCase.length, `S2d6[${caseId}]: upstream call count (gateway-local cases call nothing)`).toBe(
     files.meta.upstream_hits,

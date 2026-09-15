@@ -1,0 +1,65 @@
+{
+ "mode": "happy",
+ "control_file": {
+  "mode": "happy"
+ },
+ "alias": "mock-gemini-tools",
+ "upstream_model": "gemini-mock-model-tools",
+ "scripted_mock_response": {
+  "stream_events": [
+   {
+    "candidates": [
+     {
+      "content": {
+       "parts": [
+        {
+         "text": "Let me check."
+        }
+       ],
+       "role": "model"
+      },
+      "index": 0
+     }
+    ]
+   },
+   {
+    "candidates": [
+     {
+      "content": {
+       "parts": [
+        {
+         "functionCall": {
+          "name": "get_weather",
+          "args": {
+           "city": "Paris"
+          }
+         }
+        }
+       ],
+       "role": "model"
+      },
+      "index": 0
+     }
+    ]
+   },
+   {
+    "candidates": [
+     {
+      "content": {
+       "parts": [],
+       "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 0
+     }
+    ],
+    "usageMetadata": {
+     "promptTokenCount": 11,
+     "candidatesTokenCount": 5,
+     "totalTokenCount": 16
+    },
+    "modelVersion": "gemini-mock-model-tools"
+   }
+  ]
+ }
+}

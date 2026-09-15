@@ -108,8 +108,24 @@ function mapMessageRole(role: unknown): 'user' | 'model' | 'system-reminder' | u
   return undefined
 }
 
-/** Reorders one user-turn part list: text parts first, then the rest. */
+/**
+ * Reorders one user-turn part list (rule 3): only when a functionResponse
+ * part is followed by a text part do all text parts move ahead of all
+ * non-text parts (relative order preserved inside each group - images
+ * stay glued to their own functionResponse). Recorded: S2d8-06 keeps an
+ * image-before-text turn untouched, S2d8-05 reorders.
+ */
 function reorderUserParts(parts: WireObject[]): WireObject[] {
+  let sawFunctionResponse = false
+  let needsReorder = false
+  for (const part of parts) {
+    if (part['functionResponse'] !== undefined) sawFunctionResponse = true
+    else if (part['text'] !== undefined && sawFunctionResponse) {
+      needsReorder = true
+      break
+    }
+  }
+  if (!needsReorder) return parts
   const texts: WireObject[] = []
   const others: WireObject[] = []
   for (const part of parts) {
@@ -119,18 +135,25 @@ function reorderUserParts(parts: WireObject[]): WireObject[] {
   return [...texts, ...others]
 }
 
+/** One content block paired with its position in the RAW client body. */
+interface BlockRef {
+  readonly block: Record<string, unknown>
+  readonly position: number
+}
+
 /**
  * Aligns the tool_result blocks of one user message with the tool_use ids
  * of the preceding assistant turn - only when the two id lists match
- * one-to-one; otherwise the original order survives.
+ * one-to-one; otherwise the original order survives. Each block keeps its
+ * RAW-body position so byte splices keep pointing at the right member.
  */
-function alignToolResults(blocks: readonly unknown[], assistantIds: readonly string[]): unknown[] {
+function alignToolResults(blocks: readonly BlockRef[], assistantIds: readonly string[]): BlockRef[] {
   const slots: number[] = []
   const resultIds: string[] = []
   for (let i = 0; i < blocks.length; i++) {
-    const block = blocks[i]
-    if (!isPlainObject(block) || block['type'] !== 'tool_result') continue
-    const id = block['tool_use_id']
+    const ref = blocks[i]
+    if (ref.block['type'] !== 'tool_result') continue
+    const id = ref.block['tool_use_id']
     if (typeof id !== 'string') continue
     slots.push(i)
     resultIds.push(id)
@@ -220,18 +243,19 @@ function resolveToolResultName(
 
 /** Translates the blocks of one Claude message into Gemini parts. */
 function messageParts(
-  blocks: readonly unknown[],
+  blocks: readonly BlockRef[],
   role: 'user' | 'model',
   messageIndex: number,
   rawBody: string,
   tools: ToolUseIndex,
   turnToolUseIds: string[],
 ): WireObject[] {
+  void role
   const parts: WireObject[] = []
   let firstCallOfTurn = true
-  for (let position = 0; position < blocks.length; position++) {
-    const block = blocks[position]
-    if (!isPlainObject(block)) continue
+  for (const ref of blocks) {
+    const block = ref.block
+    const position = ref.position
     const basePath = ['messages', String(messageIndex), 'content', String(position)]
     const type = block['type']
 
@@ -351,16 +375,22 @@ export function buildContents(
     }
     if (!Array.isArray(content)) continue
 
+    const blockRefs: BlockRef[] = []
+    for (let position = 0; position < content.length; position++) {
+      const block = content[position]
+      if (isPlainObject(block)) blockRefs.push({ block, position })
+    }
+
     if (mapped === 'model') {
       const turnToolUseIds: string[] = []
-      const parts = messageParts(content, 'model', index, rawBody, tools, turnToolUseIds)
+      const parts = messageParts(blockRefs, 'model', index, rawBody, tools, turnToolUseIds)
       tools.lastAssistantToolUseIds = turnToolUseIds
       if (parts.length === 0) continue
       contents.push({ role: 'model', parts })
       continue
     }
 
-    const blocks = alignToolResults(content, tools.lastAssistantToolUseIds)
+    const blocks = alignToolResults(blockRefs, tools.lastAssistantToolUseIds)
     const parts = reorderUserParts(messageParts(blocks, 'user', index, rawBody, tools, []))
     if (parts.length === 0) continue
     appendUserTurn(contents, parts)
@@ -400,7 +430,11 @@ function appendUserTurn(contents: ContentTurn[], parts: WireObject[]): void {
 // tool_choice
 // ---------------------------------------------------------------------------
 
-/** `tool_choice` -> `toolConfig.functionCallingConfig` (section 3.1 ladder). */
+/**
+ * `tool_choice` -> `toolConfig.functionCallingConfig` (section 3.1 ladder):
+ * auto -> AUTO, none -> NONE, any -> ANY, a named `tool` -> ANY plus the
+ * sanitized `allowedFunctionNames`; anything else omits the key.
+ */
 export function buildToolConfig(request: Record<string, unknown>): WireObject | undefined {
   const choice = request['tool_choice']
   let type: string | undefined
@@ -413,13 +447,11 @@ export function buildToolConfig(request: Record<string, unknown>): WireObject | 
   } else {
     return undefined
   }
-  if (type === 'auto') return { toolConfig: { functionCallingConfig: { mode: 'AUTO' } } }
-  if (type === 'none') return { toolConfig: { functionCallingConfig: { mode: 'NONE' } } }
-  if (type === 'any') return { toolConfig: { functionCallingConfig: { mode: 'ANY' } } }
+  if (type === 'auto') return { functionCallingConfig: { mode: 'AUTO' } }
+  if (type === 'none') return { functionCallingConfig: { mode: 'NONE' } }
+  if (type === 'any') return { functionCallingConfig: { mode: 'ANY' } }
   if (type === 'tool' && name !== undefined) {
-    return {
-      toolConfig: { functionCallingConfig: { mode: 'ANY', allowedFunctionNames: [sanitizeFunctionName(name)] } },
-    }
+    return { functionCallingConfig: { mode: 'ANY', allowedFunctionNames: [sanitizeFunctionName(name)] } }
   }
   return undefined
 }
@@ -532,7 +564,7 @@ export function translateClaudeToGemini(
     model: ctx.upstreamModel,
   }
   if (systemInstruction !== undefined) body['systemInstruction'] = systemInstruction
-  if (tools !== undefined && !forCountTokens) body['tools'] = tools
+  if (tools !== undefined && !forCountTokens) body['tools'] = [tools]
   if (toolConfig !== undefined && !forCountTokens) body['toolConfig'] = toolConfig
   if (generationConfig !== undefined && !forCountTokens) body['generationConfig'] = generationConfig
   if (!forCountTokens) body['safetySettings'] = [...SAFETY_SETTINGS.map((entry) => ({ ...entry }))]

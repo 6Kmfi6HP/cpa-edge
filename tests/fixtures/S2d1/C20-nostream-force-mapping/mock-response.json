@@ -1,0 +1,9 @@
+{
+ "mode": "happy",
+ "control_file": {
+  "mode": "happy"
+ },
+ "alias": "mock-gemini-force",
+ "upstream_model": "gemini-mock-model-force",
+ "scripted_mock_response": "default (modelVersion echoes body model 'gemini-mock-model-force')"
+}

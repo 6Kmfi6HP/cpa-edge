@@ -1,0 +1,10 @@
+{
+ "mode": "error (control file: {\"mode\":\"error\",\"status\":429} with default gemini error body {\"error\":{\"code\":429,\"message\":\"mock rate limit\",\"status\":\"RESOURCE_EXHAUSTED\"}})",
+ "control_file": {
+  "mode": "error",
+  "status": 429
+ },
+ "alias": "mock-gemini-err429",
+ "upstream_model": "gemini-mock-model-err429",
+ "scripted_mock_response": "control-file error body"
+}

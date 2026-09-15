@@ -791,5 +791,19 @@
     "S2d9-01..08, 15, 16, 13, 14, 10 matched the case expectations (13/14 terminal frames event:error vs event:response.failed as specified; 16 = 400 with zero upstream calls; 10 = 404 body verbatim).",
     "Upstream 404 model_not_found (S2d9-10) puts the credential into a cooldown that SURVIVES transient-error-cooldown-seconds:-1 and lasts LONGER than 2s: with the originally specified >=2s waits, S2d9-11, S2d9-12 and S2d9-09 all returned HTTP 503 cooldown-family errors with ZERO upstream calls (polluted, not contract-pinning).",
     "S2d9-17 (slow-chunks) returned HTTP 408 instead of 200-with-reassembled-bytes even though the mock wrote the documented writes exactly (chunked, with the documented sleeps). Unresolved whether this is a reference trickle/stall policy or an SSE-reader interaction; needs a fresh investigation run (see S2d9-17 notes)."
-  ]
+  ],
+  "recording_status": {
+    "state": "COMPLETE",
+    "recorded_by": "oracle-runner-2 (worker-2), single provenance; worker-1's cancelled set wiped per orchestrator direction",
+    "recorded_at": "2026-09-15/16",
+    "fixtures": "tests/fixtures/S2d9/S2d9-01 .. S2d9-17 (plain case-id dirs), 17/17 recorded",
+    "ports_used": "reference 8387, mock 20003 (worker-2 stack; masked dynamic fields per meta.yaml)",
+    "sequencing_used": "restarts before S2d9-10, between S2d9-10 and the 11->12 window, and before S2d9-09; S2d9-12 <1s after S2d9-11",
+    "expectation_corrections_after_recording": [
+      "S2d9-10/S2d9-11: HTTP-level upstream error bodies are CONTENT-verbatim but RE-SERIALIZED downstream (alphabetical keys, compact separators) — not byte-identical; compare structurally.",
+      "S2d9-12: model_cooldown envelope is richer than sketched (last_upstream_error='<type>: <message>', plus model, provider, reset_seconds, reset_time) and carries Retry-After: 3600; cooldown window = resets_in_seconds (3600 -> 1h), ~1s only when the 429 body has no reset fields.",
+      "S2d9-08: synthesized disconnect frame confirmed as event: error / request_timeout / invalid_request_error with sequence_number = forwarded data-frame count, preceded by one blank line.",
+      "S2d9-17: worker-1's 408 was a mock bug (writes-wrapper iteration); fixed mock shows no stall policy — 200 expectation stands (as-specified 1.08s, halved 0.55s, single-pause 0.31s, all 200)."
+    ]
+  }
 }

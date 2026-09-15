@@ -1,0 +1,11 @@
+POST /v1/chat/completions HTTP/1.1
+Host: 127.0.0.1:8387
+Authorization: Bearer oracle-local-key-1
+Content-Type: application/json
+Accept: */*
+User-Agent: oracle-s3-probe/1.0
+Accept: */*
+Connection: close
+Content-Length: 330
+
+{"model": "mock-gemini-tools", "messages": [{"role": "user", "content": "What is the weather in Paris?"}], "tools": [{"type": "function", "function": {"name": "get-weather", "description": "Get current weather", "parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}}}], "stream": true}

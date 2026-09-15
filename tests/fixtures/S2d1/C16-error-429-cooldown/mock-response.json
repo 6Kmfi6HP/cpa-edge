@@ -1,0 +1,10 @@
+{
+ "mode": "error (unchanged from C15)",
+ "control_file": {
+  "mode": "error",
+  "status": 429
+ },
+ "alias": "mock-gemini-err429",
+ "upstream_model": "gemini-mock-model-err429",
+ "scripted_mock_response": "none (no upstream attempt expected)"
+}

@@ -454,8 +454,9 @@ export class GeminiToClaudeStreamTranslator {
     const name = readString(call, 'name') ?? ''
     if (name.length === 0 && this.mode === 'tool') {
       // Follow-up call with an empty name: an argument delta of the open
-      // tool block (native Gemini streaming shape).
-      const raw = rawValueAt(this.currentChunk, [...partPath, 'args'])
+      // tool block (native Gemini streaming shape). partial_json carries
+      // the raw argument bytes as a string value.
+      const raw = rawValueAt(this.currentChunk, [...partPath, 'functionCall', 'args'])
       if (raw === undefined) return ''
       this.hasContent = true
       return formatClaudeEvent(
@@ -463,7 +464,7 @@ export class GeminiToClaudeStreamTranslator {
         serializeOrdered({
           type: 'content_block_delta',
           index: this.index,
-          delta: { type: 'input_json_delta', partial_json: new RawJson(raw) },
+          delta: { type: 'input_json_delta', partial_json: raw },
         }),
       )
     }
@@ -484,15 +485,17 @@ export class GeminiToClaudeStreamTranslator {
     this.hasContent = true
     this.sawFunctionCall = true
     if (call['args'] !== undefined) {
-      const raw = rawArgsAt(this.currentChunk, partPath)
-      out += formatClaudeEvent(
-        'content_block_delta',
-        serializeOrdered({
-          type: 'content_block_delta',
-          index: this.index,
-          delta: { type: 'input_json_delta', partial_json: raw },
-        }),
-      )
+      const raw = rawValueAt(this.currentChunk, [...partPath, 'functionCall', 'args'])
+      if (raw !== undefined) {
+        out += formatClaudeEvent(
+          'content_block_delta',
+          serializeOrdered({
+            type: 'content_block_delta',
+            index: this.index,
+            delta: { type: 'input_json_delta', partial_json: raw },
+          }),
+        )
+      }
     }
     return out
   }

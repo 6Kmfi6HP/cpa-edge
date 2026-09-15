@@ -1,0 +1,11 @@
+POST /v1/chat/completions HTTP/1.1
+Host: 127.0.0.1:8387
+Authorization: Bearer oracle-local-key-1
+Content-Type: application/json
+Accept: */*
+User-Agent: oracle-s3-probe/1.0
+Accept: */*
+Connection: close
+Content-Length: 105
+
+{"model": "mock-gemini-think(high)", "messages": [{"role": "user", "content": "Hello"}], "stream": false}

@@ -1,0 +1,11 @@
+POST /v1/chat/completions HTTP/1.1
+Host: 127.0.0.1:8387
+Authorization: Bearer oracle-local-key-1
+Content-Type: application/json
+Accept: */*
+User-Agent: oracle-s3-probe/1.0
+Accept: */*
+Connection: close
+Content-Length: 358
+
+{"model": "mock-gemini-flash", "messages": [{"role": "system", "content": "Answer in one short sentence."}, {"role": "user", "content": "What is the capital of France?"}, {"role": "assistant", "content": "The capital of France is Paris."}, {"role": "user", "content": "And its population?"}, {"role": "system", "content": "Keep it brief."}], "stream": false}

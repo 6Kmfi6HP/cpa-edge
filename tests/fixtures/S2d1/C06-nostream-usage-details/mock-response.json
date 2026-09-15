@@ -1,0 +1,36 @@
+{
+ "mode": "happy",
+ "control_file": {
+  "mode": "happy"
+ },
+ "alias": "mock-gemini-usage",
+ "upstream_model": "gemini-mock-model-usage",
+ "scripted_mock_response": {
+  "candidates": [
+   {
+    "content": {
+     "parts": [
+      {
+       "text": "Adding two and two gives four.",
+       "thought": true
+      },
+      {
+       "text": "2+2 equals 4."
+      }
+     ],
+     "role": "model"
+    },
+    "finishReason": "STOP",
+    "index": 0
+   }
+  ],
+  "usageMetadata": {
+   "promptTokenCount": 10,
+   "candidatesTokenCount": 4,
+   "thoughtsTokenCount": 12,
+   "totalTokenCount": 26,
+   "cachedContentTokenCount": 3
+  },
+  "modelVersion": "gemini-mock-model-usage"
+ }
+}

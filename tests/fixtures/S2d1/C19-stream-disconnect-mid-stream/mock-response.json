@@ -1,0 +1,61 @@
+{
+ "mode": "disconnect (control file: {\"mode\":\"disconnect\",\"after\":2})",
+ "control_file": {
+  "mode": "disconnect",
+  "after": 2
+ },
+ "alias": "mock-gemini-disc",
+ "upstream_model": "gemini-mock-model-disc",
+ "scripted_mock_response": {
+  "stream_events": [
+   {
+    "candidates": [
+     {
+      "content": {
+       "parts": [
+        {
+         "text": "one"
+        }
+       ],
+       "role": "model"
+      },
+      "index": 0
+     }
+    ]
+   },
+   {
+    "candidates": [
+     {
+      "content": {
+       "parts": [
+        {
+         "text": "two"
+        }
+       ],
+       "role": "model"
+      },
+      "index": 0
+     }
+    ]
+   },
+   {
+    "candidates": [
+     {
+      "content": {
+       "parts": [],
+       "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 0
+     }
+    ],
+    "usageMetadata": {
+     "promptTokenCount": 4,
+     "candidatesTokenCount": 2,
+     "totalTokenCount": 6
+    },
+    "modelVersion": "gemini-mock-model-disc"
+   }
+  ]
+ }
+}

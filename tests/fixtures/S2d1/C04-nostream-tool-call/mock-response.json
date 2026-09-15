@@ -1,0 +1,35 @@
+{
+ "mode": "happy",
+ "control_file": {
+  "mode": "happy"
+ },
+ "alias": "mock-gemini-tools",
+ "upstream_model": "gemini-mock-model-tools",
+ "scripted_mock_response": {
+  "candidates": [
+   {
+    "content": {
+     "parts": [
+      {
+       "functionCall": {
+        "name": "get_weather",
+        "args": {
+         "city": "Paris"
+        }
+       }
+      }
+     ],
+     "role": "model"
+    },
+    "finishReason": "STOP",
+    "index": 0
+   }
+  ],
+  "usageMetadata": {
+   "promptTokenCount": 11,
+   "candidatesTokenCount": 3,
+   "totalTokenCount": 14
+  },
+  "modelVersion": "gemini-mock-model-tools"
+ }
+}

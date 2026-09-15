@@ -865,7 +865,11 @@ async function replayCase(caseId: CaseId): Promise<void> {
         `S2d8[${caseId}]: zero-dispatch golden — the adapter must not call upstream (recorded upstream_hits: 0)`,
       )
     }
-    return buildMockResponse(meta.mock_control, caseId)
+    const control = meta.mock_control
+    if (control === undefined) {
+      throw new Error(`S2d8[${caseId}]: a dispatching golden must embed the mock control`)
+    }
+    return buildMockResponse(control, caseId)
   }
 
   const response = await service.handleV1Messages(request, send)
@@ -894,8 +898,9 @@ describe('S2d8 fixture inventory (harness self-check, adapter-independent)', () 
       const upstream = parseRecordedUpstream(await readFixtureText(caseId, 'upstream.jsonl'), caseId)
 
       expect(meta.id, `${caseId}: meta.id echoes the directory name`).toBe(caseId)
-      if (meta.upstream_hits > 0) {
-        expect(meta.mock_control, `${caseId}: a dispatching golden must embed the mock control`).toBeDefined()
+      const control = meta.mock_control
+      if (meta.upstream_hits > 0 && control === undefined) {
+        throw new Error(`${caseId}: a dispatching golden must embed the mock control`)
       }
       maskProfile(caseId, meta.dynamic_fields) // fails loudly on unknown dynamic fields
 
@@ -931,7 +936,7 @@ describe('S2d8 fixture inventory (harness self-check, adapter-independent)', () 
         expect(
           caseId,
           `${caseId}: a non-JSON request body is legal only in the strict-JSON golden (NE-LENIENT)`,
-        ).toBe('S2d8-20-strictjson-400')
+        ).toBe('S2d8-20-strict-json-400')
       } else {
         throw new Error(`${caseId}: unexpected client model ${JSON.stringify(clientModel)}`)
       }
@@ -974,7 +979,7 @@ describe('S2d8 fixture inventory (harness self-check, adapter-independent)', () 
           ).toBe(true)
           orderCursor += 1
         }
-        const expectedMockStatus = meta.mock_control.mode === 'error' ? meta.mock_control.status : 200
+        const expectedMockStatus = control !== undefined && control.mode === 'error' ? control.status : 200
         expect(
           recorded.response_status,
           `${caseId}: recorded mock reply status agrees with the mock control`,
@@ -984,8 +989,7 @@ describe('S2d8 fixture inventory (harness self-check, adapter-independent)', () 
       // Mock control shape vs the request: streams need a canned chunk script (slow and
       // disconnect wrap it), non-streams need a canned JSON body, errors need a reply.
       // The zero-dispatch goldens (S2d8-19/20) carry no mock control — nothing is served.
-      if (meta.upstream_hits > 0 && meta.mock_control !== undefined) {
-        const control = meta.mock_control
+      if (control !== undefined) {
         const mode = control.mode ?? 'happy'
         expect(['happy', 'error', 'slow', 'disconnect'].includes(mode), `${caseId}: known mock mode`).toBe(true)
         const cannedFields = [control.canned_nonstream, control.canned_stream, control.canned_count].filter(

@@ -1,0 +1,45 @@
+{
+ "mode": "happy",
+ "control_file": {
+  "mode": "happy"
+ },
+ "alias": "mock-gemini-maxtok",
+ "upstream_model": "gemini-mock-model-maxtok",
+ "scripted_mock_response": {
+  "stream_events": [
+   {
+    "candidates": [
+     {
+      "content": {
+       "parts": [
+        {
+         "text": "The sea is "
+        }
+       ],
+       "role": "model"
+      },
+      "index": 0
+     }
+    ]
+   },
+   {
+    "candidates": [
+     {
+      "content": {
+       "parts": [],
+       "role": "model"
+      },
+      "finishReason": "MAX_TOKENS",
+      "index": 0
+     }
+    ],
+    "usageMetadata": {
+     "promptTokenCount": 7,
+     "candidatesTokenCount": 8,
+     "totalTokenCount": 15
+    },
+    "modelVersion": "gemini-mock-model-maxtok"
+   }
+  ]
+ }
+}

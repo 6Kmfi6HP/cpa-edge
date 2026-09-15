@@ -1,0 +1,9 @@
+{
+ "mode": "happy",
+ "control_file": {
+  "mode": "happy"
+ },
+ "alias": "mock-gemini-img",
+ "upstream_model": "gemini-mock-model-img",
+ "scripted_mock_response": "default (existing mock_gemini.py): {candidates:[{content:{parts:[{text:'Hello from mock gemini upstream more'}],role:'model'},finishReason:'STOP',index:0}],usageMetadata:{promptTokenCount:9,candidatesTokenCount:6,totalTokenCount:15},modelVersion:<body model>}"
+}
