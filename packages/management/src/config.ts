@@ -640,11 +640,14 @@ export function providerEntryWire(
   entry: ProviderEntry,
   family: 'gemini' | 'interactions' | 'claude' | 'codex' | 'xai' | 'meta' | 'vertex' | 'openai-compatibility',
   extra?: ReadonlyArray<[string, WireValue]>,
+  options?: { readonly includeDisabled?: boolean },
 ): OrderedObject {
   const members: Array<[string, WireValue]> = []
   if (family === 'openai-compatibility') {
     members.push(['name', entry.name ?? ''])
-    members.push(['disabled', entry.disabled === true])
+    if (options?.includeDisabled === true || entry.disabled === true) {
+      members.push(['disabled', entry.disabled === true])
+    }
     if (entry.priority !== undefined) members.push(['priority', entry.priority])
     if (entry.prefix !== undefined) members.push(['prefix', entry.prefix])
     members.push(['base-url', entry.baseUrl ?? ''])

@@ -1348,6 +1348,13 @@
       "All 12 cases are stateless for the credential; any order. Run AFTER a fresh config load; no control files needed (happy mode).",
       "Three cases assert an EMPTY upstream wire slice (thinking-budget-invalid, thinking-adaptive-unknown, count-tokens-bad-budget — validation fails before dispatch); the rest capture the usual wire request.",
       "S2d4-thinking-adaptive-noeffort is the discriminator between the two derivations — record the actual reasoning_effort byte value."
-    ]
+    ],
+    "recording_outcome": {
+      "status": "12/12 recorded by oracle-runner-4 on 2026-09-16 (round 2, gate-round-1 fixes)",
+      "fixture_dir": "tests/fixtures/S2d4/",
+      "raw_evidence": "_cpa_edge_ref/run4/probes/S2d4/round2/",
+      "verification": "12/12 byte-exact, ZERO mismatches: all effective thinking rows (disabled->low, budget 0->low, 300->low, 30000->high, adaptive auto->medium, max->high), both 400 validation messages byte-exact with EMPTY upstream wire slices, count_tokens thinking-pipeline 400, stream-null SSE path, top_p forward",
+      "discriminator_result": "S2d4-thinking-adaptive-noeffort: recorded reasoning_effort = 'high' — the stage-2 clamp derivation wins; the gate ruling's 'xhigh passes through' parenthetical is disproven by recorded bytes"
+    }
   }
 }

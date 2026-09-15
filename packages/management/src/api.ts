@@ -997,7 +997,7 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
                 return ['entry', ordered(members)]
               }),
             )
-            const wire = providerEntryWire(entry, 'openai-compatibility')
+            const wire = providerEntryWire(entry, 'openai-compatibility', undefined, { includeDisabled: true })
             const apiKeyEntries = subs.map(([, wireValue]) => wireValue)
             const replaced = ordered(
               wire.members.map(([key, value]) => [
@@ -1008,7 +1008,7 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
             return replaced
           }
           const index = await listAuthIndexOf(spec, entry)
-          return providerEntryWire(entry, spec.family, index === undefined ? [] : [['auth-index', index]])
+          return providerEntryWire(entry, spec.family, index === undefined ? [] : [['auth-index', index]], { includeDisabled: true })
         }),
       )
       return json(200, goJson({ [path]: entries }))

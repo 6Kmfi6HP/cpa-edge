@@ -211,17 +211,16 @@
  *         otherwise);
  *       · Retry-After (exact when present — the ONLY recorded value is S2D5-24 R2's
  *         `4`, byte-pinned; absent when the recording has none);
- *       · X-Cpa-Trace-Id — PRESENCE ONLY, matching the recorded head (value never
- *         compared). The recorded trace-ABSENT surfaces are S2D5-20 (gateway-local 400)
- *         and S2D5-24 R2 (the cooldown envelope, spec §7 item 15); the suite pins that
- *         the adapter mirrors those absences instead of papering over them.
+ *       · X-Cpa-Trace-Id — NEVER compared (family ruling: transport/S1 territory;
+ *         translator facades do not emit it). The recorded trace-ABSENT surfaces
+ *         (S2D5-20, S2D5-24 R2; spec §7 item 15) stay documented but unasserted.
  *   - `Date`, `Connection`, `Content-Length`, `Transfer-Encoding` and the CORS block are
  *     S1/transport territory and are not compared.
  *
  * MASKS — applied identically to recorded and produced bytes, derived from each case's
  * meta.yaml `dynamic_fields` (unknown entries fail the suite loudly):
- *   - X-Cpa-Trace-Id / Date: declared volatile; Date is never compared, the trace id is
- *     compared for PRESENCE only.
+ *   - X-Cpa-Trace-Id / Date: declared volatile; neither is ever compared (family ruling:
+ *     transport/S1 territory — the meta.yaml entries stay recognized only).
  *   - Session-Id / prompt_cache_key: masked where DERIVED; kept byte-exact where the
  *     CLIENT fixed the value (meta: "mask per-case when derived, keep when fixed by the
  *     case"):
@@ -985,14 +984,6 @@ async function assertDownstreamStep(
     // deterministic under the frozen clock (see header: CLOCK).
     expect(retryAfter, `${context}: Retry-After`).toBe(expectedRetryAfter)
   }
-
-  // Presence-only: the trace id VALUE is dynamic; the recorded absences (S2D5-20 and
-  // S2D5-24 R2) are part of the contract surface (spec §7 item 15).
-  const expectedTrace = headerValue(expected.headers, 'x-cpa-trace-id') !== undefined
-  expect(
-    headerValue(response.headers, 'x-cpa-trace-id') !== undefined,
-    `${context}: X-Cpa-Trace-Id presence must match the recorded head`,
-  ).toBe(expectedTrace)
 
   if (expectedContentType === 'text/event-stream') {
     for (const line of body.split('\n')) {

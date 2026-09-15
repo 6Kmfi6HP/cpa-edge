@@ -24,9 +24,9 @@
       "Keep X-Mock-* control-header support for direct-to-mock probes (it already exists)."
     ]
   },
-  "config_fragment": "port: 18317\napi-keys: [\"oracle-local-key-1\"]\nremote-management: {allow-remote: true, secret-key: \"oracle-mgmt-key-1\", disable-control-panel: true}\nrequest-retry: 0\ntransient-error-cooldown-seconds: -1\nusage-statistics-enabled: false\ngemini-api-key:\n  - api-key: \"mock-gemini-upstream-key\"\n    base-url: \"http://host.docker.internal:19001\"\n    models:\n      - name: \"gemini-mock-model\"          # basic + stream-basic\n        alias: \"mock-gemini-flash\"\n      - name: \"gemini-mock-model-tools\"     # tools history, tool-call roundtrip, stream tool-call\n        alias: \"mock-gemini-tools\"\n      - name: \"gemini-mock-model-maxtok\"    # max-tokens edge (nostream + stream)\n        alias: \"mock-gemini-maxtok\"\n      - name: \"gemini-mock-model-usage\"    # reasoning parts + usage details\n        alias: \"mock-gemini-usage\"\n      - name: \"gemini-mock-model-think\"     # reasoning_effort + model-suffix (assertions on upstream request)\n        alias: \"mock-gemini-think\"\n      - name: \"gemini-mock-model-n2\"        # n=2 candidates\n        alias: \"mock-gemini-n2\"\n      - name: \"gemini-mock-model-img\"       # image data-url (assertions on upstream request)\n        alias: \"mock-gemini-img\"\n      - name: \"gemini-mock-model-split\"     # stream with split finish/usage chunks\n        alias: \"mock-gemini-split\"\n      - name: \"gemini-mock-model-err429\"    # 429 verbatim + cooldown case\n        alias: \"mock-gemini-err429\"\n      - name: \"gemini-mock-model-err400\"    # 400 INVALID_ARGUMENT verbatim\n        alias: \"mock-gemini-err400\"\n      - name: \"gemini-mock-model-streamerr\" # stream error before first byte\n        alias: \"mock-gemini-streamerr\"\n      - name: \"gemini-mock-model-disc\"      # stream disconnect mid-stream\n        alias: \"mock-gemini-disc\"\n      - name: \"gemini-mock-model-force\"     # force-mapping echo\n        alias: \"mock-gemini-force\"\n        force-mapping: true\n",
+  "config_fragment": "port: 18317\napi-keys: [\"oracle-local-key-1\"]\nremote-management: {allow-remote: true, secret-key: \"oracle-mgmt-key-1\", disable-control-panel: true}\nrequest-retry: 0\ntransient-error-cooldown-seconds: -1\nusage-statistics-enabled: false\ngemini-api-key:\n  - api-key: \"mock-gemini-upstream-key\"\n    base-url: \"http://host.docker.internal:19001\"\n    models:\n      - name: \"gemini-mock-model\"          # basic + stream-basic\n        alias: \"mock-gemini-flash\"\n      - name: \"gemini-mock-model-tools\"     # tools history, tool-call roundtrip, stream tool-call\n        alias: \"mock-gemini-tools\"\n      - name: \"gemini-mock-model-maxtok\"    # max-tokens edge (nostream + stream)\n        alias: \"mock-gemini-maxtok\"\n      - name: \"gemini-mock-model-usage\"    # reasoning parts + usage details\n        alias: \"mock-gemini-usage\"\n      - name: \"gemini-mock-model-think\"     # reasoning_effort + model-suffix (assertions on upstream request)\n        alias: \"mock-gemini-think\"\n      - name: \"gemini-mock-model-n2\"        # n=2 candidates\n        alias: \"mock-gemini-n2\"\n      - name: \"gemini-mock-model-n2stream\"  # multi-candidate STREAM (C22/C23)\n        alias: \"mock-gemini-n2stream\"\n      - name: \"gemini-mock-model-img\"       # image data-url (assertions on upstream request)\n        alias: \"mock-gemini-img\"\n      - name: \"gemini-mock-model-split\"     # stream with split finish/usage chunks\n        alias: \"mock-gemini-split\"\n      - name: \"gemini-mock-model-err429\"    # 429 verbatim + cooldown case\n        alias: \"mock-gemini-err429\"\n      - name: \"gemini-mock-model-err400\"    # 400 INVALID_ARGUMENT verbatim\n        alias: \"mock-gemini-err400\"\n      - name: \"gemini-mock-model-streamerr\" # stream error before first byte\n        alias: \"mock-gemini-streamerr\"\n      - name: \"gemini-mock-model-disc\"      # stream disconnect mid-stream\n        alias: \"mock-gemini-disc\"\n      - name: \"gemini-mock-model-force\"     # force-mapping echo\n        alias: \"mock-gemini-force\"\n        force-mapping: true\n",
   "recording_order": [
-    "Phase 1 (happy, control {\"mode\":\"happy\"}): C01, C02, C03, C04, C05, C06, C07, C08, C09, C10, C20, C11, C12, C13, C14 (C21 optional)",
+    "Phase 1 (happy, control {\"mode\":\"happy\"}): C01, C02, C03, C04, C05, C06, C07, C08, C09, C10, C20, C11, C12, C13, C14, C22 (+C21, C23 optional) [round-2 gate additions: C22 required, C23 optional]",
     "Phase 2 (error window, control {\"mode\":\"error\",\"status\":429}): C15 then C16 back-to-back (<0.5s gap, same driver script)",
     "Phase 3 (control {\"mode\":\"error\",\"status\":400,\"error_body\":{INVALID_ARGUMENT}}): C17",
     "Phase 4 (control {\"mode\":\"error\"} default 429): C18",
@@ -45,7 +45,7 @@
     "Fixture layout per case: meta.yaml, request.http, downstream.md, upstream.jsonl, mock-response.json (upstream.jsonl empty/absent is expected for C16).",
     "For stream cases downstream.md must contain the FULL SSE byte stream (headers + every frame + terminator)."
   ],
-  "case_count": 20,
+  "case_count": 21,
   "cases": [
     {
       "id": "S2d1-C01-nostream-basic",
@@ -1265,6 +1265,102 @@
         "downstream model == 'mock-gemini-force' (rewritten to the alias; modelVersion 'gemini-mock-model-force' replaced)"
       ],
       "recorded": true
+    },
+    {
+      "id": "S2d1-C22-stream-n2-candidates",
+      "fixture_dir": "tests/fixtures/S2d1/C22-stream-n2-candidates/",
+      "purpose": "Multi-candidate STREAMING (gate B1, R-FIXTURE): n=2 stream; upstream chunks with 2 candidates fan out to ONE downstream frame PER candidate in candidate order; per-candidate state (role, FunctionIndex, UpstreamFinishReason); terminal chunk with candidates.0.finishReason + usageMetadata -> BOTH candidate final frames carry finish_reason + the SAME duplicated usage object.",
+      "alias": "mock-gemini-n2stream",
+      "upstream_model": "gemini-mock-model-n2stream",
+      "mock_mode": "happy",
+      "stream": true,
+      "client_request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json",
+          "Accept": "*/*"
+        },
+        "body": {
+          "model": "mock-gemini-n2stream",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Give me two short facts about the moon."
+            }
+          ],
+          "n": 2,
+          "stream": true
+        }
+      },
+      "scripted_mock_response": {
+        "stream_events": [
+          {
+            "candidates": [
+              {
+                "content": {
+                  "parts": [
+                    {
+                      "text": "Fact one."
+                    }
+                  ],
+                  "role": "model"
+                },
+                "index": 0
+              },
+              {
+                "content": {
+                  "parts": [
+                    {
+                      "text": "Fact two."
+                    }
+                  ],
+                  "role": "model"
+                },
+                "index": 1
+              }
+            ]
+          },
+          {
+            "candidates": [
+              {
+                "content": {
+                  "parts": [],
+                  "role": "model"
+                },
+                "finishReason": "STOP",
+                "index": 0
+              },
+              {
+                "content": {
+                  "parts": [],
+                  "role": "model"
+                },
+                "finishReason": "STOP",
+                "index": 1
+              }
+            ],
+            "usageMetadata": {
+              "promptTokenCount": 9,
+              "candidatesTokenCount": 6,
+              "totalTokenCount": 15
+            },
+            "modelVersion": "gemini-mock-model-n2stream"
+          }
+        ]
+      },
+      "record": [
+        "downstream FULL SSE byte stream (decoded frames are the contract per R-SSE)",
+        "upstream.jsonl (URL must be :streamGenerateContent?alt=sse; body candidateCount 2)",
+        "mock-response.json"
+      ],
+      "expect": [
+        "upstream body generationConfig.candidateCount == 2",
+        "decoded frame sequence: [cand0 content 'Fact one.' role assistant] [cand1 content 'Fact two.' role assistant] [cand0 delta-nulls finish_reason 'stop' native 'stop' + usage] [cand1 delta-nulls finish_reason 'stop' native 'stop' + usage] [DONE]",
+        "both final frames carry the SAME usage object {completion_tokens:6,total_tokens:15,prompt_tokens:9} (usage duplicated per candidate frame)",
+        "each frame's choices[0].index matches its candidate index (0/1)"
+      ]
     }
   ],
   "optional_cases": [
@@ -1306,6 +1402,100 @@
       ],
       "notes": "Skip if recording time is tight; the non-stream force-mapping behavior is already pinned by C20 and the same rewriter handles streams.",
       "recorded": true
+    },
+    {
+      "id": "S2d1-C23-OPTIONAL-stream-c1-only-finish",
+      "fixture_dir": "tests/fixtures/S2d1/C23-stream-c1-only-finish/",
+      "purpose": "OPTIONAL variant (gate B1): terminal upstream chunk where ONLY candidate 1 carries a finishReason — the usage filter keys on candidates.0.finishReason, so the chunk is NOT terminal: usageMetadata is renamed/hidden and NO candidate ever emits finish_reason; the client gets delta-null frames then [DONE].",
+      "alias": "mock-gemini-n2stream",
+      "upstream_model": "gemini-mock-model-n2stream",
+      "mock_mode": "happy",
+      "stream": true,
+      "client_request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json",
+          "Accept": "*/*"
+        },
+        "body": {
+          "model": "mock-gemini-n2stream",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Two moon facts again."
+            }
+          ],
+          "n": 2,
+          "stream": true
+        }
+      },
+      "scripted_mock_response": {
+        "stream_events": [
+          {
+            "candidates": [
+              {
+                "content": {
+                  "parts": [
+                    {
+                      "text": "Fact one."
+                    }
+                  ],
+                  "role": "model"
+                },
+                "index": 0
+              },
+              {
+                "content": {
+                  "parts": [
+                    {
+                      "text": "Fact two."
+                    }
+                  ],
+                  "role": "model"
+                },
+                "index": 1
+              }
+            ]
+          },
+          {
+            "candidates": [
+              {
+                "content": {
+                  "parts": [],
+                  "role": "model"
+                },
+                "index": 0
+              },
+              {
+                "content": {
+                  "parts": [],
+                  "role": "model"
+                },
+                "finishReason": "STOP",
+                "index": 1
+              }
+            ],
+            "usageMetadata": {
+              "promptTokenCount": 8,
+              "candidatesTokenCount": 5,
+              "totalTokenCount": 13
+            },
+            "modelVersion": "gemini-mock-model-n2stream"
+          }
+        ]
+      },
+      "record": [
+        "downstream FULL SSE byte stream",
+        "upstream.jsonl",
+        "mock-response.json"
+      ],
+      "expect": [
+        "decoded frame sequence: [cand0 content 'Fact one.'] [cand1 content 'Fact two.'] [cand0 delta-nulls finish_reason null] [cand1 delta-nulls finish_reason null] [DONE]",
+        "NO frame carries finish_reason, native_finish_reason, or usage (candidates.0.finishReason absent -> usage filter hid usageMetadata; candidate 1's finishReason alone does not produce a finish_reason because the chunk has no visible usage)"
+      ],
+      "notes": "Requested variant per adversary ruling B1; record if cheap — the mock extension already supports per-model keyed streams."
     }
   ],
   "deferred": [
@@ -1340,5 +1530,15 @@
       "C07: reasoning_effort thinkingConfig is STRIPPED (generationConfig left {}), not converted to thinkingBudget 1024 — config-declared gemini-api-key models resolve with UserDefined=false/Thinking=nil (internal/modelconfig/model_info.go), contradicting the doc comment in internal/thinking/apply.go",
       "C08: model-suffix thinking intent DROPPED (no generationConfig in outbound body), not thinkingBudget 24576"
     ]
+  },
+  "gate_round2_addendum": {
+    "date": "2026-09-16",
+    "trigger": "adversary review round 1 FAIL, blocking B1 (reports/adversary/S2d1.md)",
+    "adds": [
+      "S2d1-C22-stream-n2-candidates (required)",
+      "S2d1-C23-OPTIONAL-stream-c1-only-finish (optional variant)"
+    ],
+    "config_delta": "gemini-api-key models += gemini-mock-model-n2stream / mock-gemini-n2stream",
+    "notes": "All other cases already recorded; run these two in a fresh happy window on the existing worker stack (ports dynamic per your stack)."
   }
 }

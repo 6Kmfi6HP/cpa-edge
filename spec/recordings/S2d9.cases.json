@@ -49,7 +49,7 @@
   ],
   "ordering_rules": [
     "RESTART the reference container before S2d9-10 and again between S2d9-10 and the S2d9-11 -> S2d9-12 window (the 404 model_not_found cooldown outlives 2s waits and pollutes 4xx-flavored cases).",
-    "S2d9-12 fires <1s after S2d9-11 completes.",
+    "S2d9-12 fires immediately (<1s) after S2d9-11 completes (the window is 1h with the scripted resets_in_seconds:3600 body).",
     "RESTART the reference container before S2d9-09 (upstream 401) so it records the classified-401 contract, not a cooldown error.",
     "S2d9-09 runs LAST overall.",
     "cases 01-08, 15-17 have no cross-case credential side effects and may run back-to-back on one container (S2d9-17 investigation may need extra runs; see notes)."
@@ -716,7 +716,7 @@
         "body": "{\"error\":{\"message\":\"You have exceeded your usage limit\",\"type\":\"usage_limit_reached\",\"code\":\"usage_limit_reached\",\"resets_in_seconds\":3600}}"
       },
       "upstream_call_count": "one",
-      "notes": "Fire on a FRESH reference container (restart after S2d9-10). S2d9-12 must follow <1s after this case completes."
+      "notes": "Fire on a FRESH reference container (restart after S2d9-10). S2d9-12 must follow immediately after this case completes. Note: the 429 puts the credential into a rate-limit cooldown whose window is driven by the body's resets_in_seconds (1h with this scripted body); when a 429 body carries no reset fields the default is provider policy (recorded codex figure ~4s, S2d5 S2D5-24)."
     },
     {
       "id": "S2d9-12",
@@ -747,7 +747,7 @@
         "no upstream call logged by the mock for this case"
       ],
       "upstream_call_count": "zero",
-      "notes": "Fire <1s after S2d9-11 on the same fresh container. Worker-1's attempt was polluted by S2d9-10's cooldown (503 shape, 0 upstream calls) — re-record cleanly."
+      "notes": "Fire immediately (<1s) after S2d9-11 on the same fresh container — well inside the 1h window declared by the 429 body. Worker-1's attempt was polluted by S2d9-10's cooldown (503 shape, 0 upstream calls) — re-recorded cleanly by worker-2."
     },
     {
       "id": "S2d9-09",
@@ -786,7 +786,7 @@
       "notes": "Fire on a FRESH reference container (worker-1's attempt was polluted by S2d9-10's cooldown: 503, 0 upstream calls). Runs LAST."
     }
   ],
-  "port_substitution_note": "Ports are per-worker conventions and are MASKED DYNAMIC FIELDS in fixtures (listed in meta.yaml). Originally drafted for worker-1 (reference 18317, mock 19012). Recording assigned to worker-5: reference downstream port 8417, mock port 23001 (fallback: any of 23001-23007). If worker-5 must use a different port, substitute everywhere consistently and record it in meta.yaml dynamic_fields; no assertion in the section depends on the literal port number.",
+  "port_substitution_note": "Ports are per-worker conventions and are MASKED DYNAMIC FIELDS in fixtures (listed in meta.yaml). Originally drafted for worker-1 (reference 18317, mock 19012). Recording assigned to worker-5: reference downstream port 8417, mock port 23001 (fallback: any of 23001-23007). If worker-5 must use a different port, substitute everywhere consistently and record it in meta.yaml dynamic_fields; no assertion in the section depends on the literal port number. FINAL: the run was recorded by worker-2 with reference port 8387 and mock port 20003; each meta.yaml records the actual values and they win over the draft numbers in this file.",
   "recorded_findings_worker1_run_2026_09_16": [
     "S2d9-01..08, 15, 16, 13, 14, 10 matched the case expectations (13/14 terminal frames event:error vs event:response.failed as specified; 16 = 400 with zero upstream calls; 10 = 404 body verbatim).",
     "Upstream 404 model_not_found (S2d9-10) puts the credential into a cooldown that SURVIVES transient-error-cooldown-seconds:-1 and lasts LONGER than 2s: with the originally specified >=2s waits, S2d9-11, S2d9-12 and S2d9-09 all returned HTTP 503 cooldown-family errors with ZERO upstream calls (polluted, not contract-pinning).",

@@ -42,7 +42,7 @@ MUST (evidence: `internal/api/server_routes.go` — both routes in the `/v1` gro
 - The two routes are the ONLY Claude-protocol entry points in scope. `/v1/messages` is NOT aliased at any other path.
 - A request to either route without credentials → **401 `{"error":"Missing API key"}`**; with a credential that does not match the configured api-keys → **401 `{"error":"Invalid API key"}`**. This is the shared middleware's plain string shape (`{"error":"<string>"}`), NOT the Claude error object shape — a Claude client sees the non-Anthropic shape for auth failures. (Evidence: `internal/api/server_middleware.go` `accessAuthMiddleware`; `sdk/access/errors.go`; recorded probe 05/06 **[R]**.)
 - Accepted credential transports: `Authorization: Bearer <key>`, `X-Api-Key: <key>`, `X-Goog-Api-Key: <key>`, query `?key=`, query `?auth_token=` — the shared access middleware, cross-referenced to S2d2's recorded golden `gem2oai-auth-transports` (same middleware, same transport set; not re-recorded here). (Code evidence: `internal/access/config_access/provider.go`.) `anthropic-version` and `anthropic-beta` headers are NOT validated and NOT forwarded upstream. The S2d4 golden S2d4-min-nonstream pins the `X-Api-Key` style on the Claude route.
-- `POST /v1/messages` routes stream vs non-stream from the request body's `stream` field read via JSON path `stream`: non-stream iff the field is absent or JSON `false`. Any other JSON type for `stream` (e.g. `null`, `"false"`) selects the STREAMING path. (Evidence: `code_handlers.go` `ClaudeMessages`: `!streamResult.Exists() || streamResult.Type == gjson.False`.) Testable edge; flagged in §7 as unrecorded.
+- `POST /v1/messages` routes stream vs non-stream from the request body's `stream` field read via JSON path `stream`: non-stream iff the field is absent or JSON `false`. Any other JSON type for `stream` (e.g. `null`, `"false"`) selects the STREAMING path. (Evidence: `code_handlers.go` `ClaudeMessages`: `!streamResult.Exists() || streamResult.Type == gjson.False`.) RECORDED in S2d4-stream-truthy-null: `"stream": null` yields SSE headers + the full event stream downstream, and the upstream body carries `stream:true` + `stream_options` — byte-identical to the explicit-stream golden S2d4-stream-text.
 - `POST /v1/messages/count_tokens` never dispatches an upstream HTTP request for `openai-compatibility` credentials; it is synthesized locally (§3.6) **[R — S1 recorded fact + executor design]**.
 - Model resolution: the body's `model` string is looked up in the provider registry. If no provider serves it → **400 Claude error shape** with message `unknown provider for model <model>` (§5.2). If it matches an `openai-compatibility` alias, the alias is rewritten to the configured upstream model name on the way out (§3.3). Cloaking-form model ids `claude-fable-5-dd-<reversed name>` are first decoded back to the underlying model name before routing (evidence: `sdk/api/handlers/claude/code_handlers.go` `rewriteClaudeDDModelInBody`; unrecorded edge, golden OPTIONAL).
 
@@ -82,7 +82,7 @@ Field-by-field MUSTs:
 | `model` | `model` | The **alias-resolved upstream model name** (`mock-model` → `mock-gpt-model`), never the client alias **[R]**. Resolution happens in the auth manager before translation. |
 | `max_tokens` | `max_tokens` | Copied when present (integer). Absent → **omitted** (no default injected). |
 | `temperature` | `temperature` | Copied when present. |
-| `top_p` | `top_p` | Copied **only when `temperature` is absent**. If both present, `temperature` wins and `top_p` is dropped. |
+| `top_p` | `top_p` | Copied **only when `temperature` is absent**. If both present, `temperature` wins and `top_p` is dropped. (Goldens: S2d4-params pins the both-present drop; S2d4-topp-no-temperature pins the absent-temperature forward.) |
 | `top_k` | — | **Always dropped.** |
 | `stop_sequences` | `stop` | Array of strings, copied when a non-empty array. Empty array / non-array → omitted. |
 | `stream` | `stream` | Always set: `true`/`false` mirrors the server-side execution mode (which follows the client `stream` truthiness rule §2.1). |
@@ -100,7 +100,7 @@ Field-by-field MUSTs:
 
 Stage 1 — translator (`openai_claude_request.go` + `internal/thinking/convert.go` `ConvertBudgetToLevel`): writes a PROVISIONAL `reasoning_effort` — `budget_tokens`: `-1`→`auto`, `0`→`none`, `1..512`→`minimal`, `513..1024`→`low`, `1025..8192`→`medium`, `8193..24576`→`high`, `≥24577`→`xhigh`; enabled without budget → `auto`; `adaptive`/`auto` → `output_config.effort` (lowercased/trimmed) or `xhigh`; disabled → `none`.
 
-Stage 2 — thinking pipeline (`helps.ApplyRequestThinking` → `internal/thinking/{apply,validate}.go` + `internal/thinking/provider/openai/apply.go`): runs AFTER translation, re-reads the thinking config from the ORIGINAL Claude body (`extractClaudeConfig`), validates it against the selected model's capability, and REWRITES `reasoning_effort` in the already-translated body in place (key position preserved). For openai-compatibility models configured WITHOUT a per-model `thinking:` block, the capability is `ThinkingSupport{Levels:["low","medium","high"]}` with disable not allowed and dynamic not allowed (evidence: `sdk/cliproxy/auth/api_key_model_capabilities.go` `compileOpenAICompatibleModelCapabilities`; `internal/modelconfig/model_info.go` — `UserDefined=false` for configured models, so the validated stage-2 path runs). The EFFECTIVE mapping for that default capability — the values the upstream actually receives (goldens: S2d4-thinking-budget round 1; S2d4-thinking-* round 2 below; cross-evidence: the same executor+capability shape is recorded in S2d2 goldens `gem2oai-thinking-clamps` and `gem2oai-thinking-invalid`):
+Stage 2 — thinking pipeline (`helps.ApplyRequestThinking` → `internal/thinking/{apply,validate}.go` + `internal/thinking/provider/openai/apply.go`): runs AFTER translation, re-reads the thinking config from the ORIGINAL Claude body (`extractClaudeConfig`), validates it against the selected model's capability, and REWRITES `reasoning_effort` in the already-translated body in place (key position preserved). For openai-compatibility models configured WITHOUT a per-model `thinking:` block, the capability is `ThinkingSupport{Levels:["low","medium","high"]}` with disable not allowed and dynamic not allowed (evidence: `sdk/cliproxy/auth/api_key_model_capabilities.go` `compileOpenAICompatibleModelCapabilities`; `internal/modelconfig/model_info.go` — `UserDefined=false` for configured models, so the validated stage-2 path runs). The EFFECTIVE mapping for that default capability — the values the upstream actually receives. Every row below is oracle-recorded (S2d4-thinking-budget, round 1; the S2d4-thinking-* / S2d4-count-tokens-bad-budget goldens, round 2, all zero-mismatch; cross-evidence: the same executor+capability shape is recorded in S2d2 goldens `gem2oai-thinking-clamps` and `gem2oai-thinking-invalid`):
 
 | Claude `thinking` | Effective upstream `reasoning_effort` |
 |---|---|
@@ -120,7 +120,7 @@ Stage 2 — thinking pipeline (`helps.ApplyRequestThinking` → `internal/thinki
 | `… + output_config.effort:"xhigh"` | `high` |
 | `… + output_config.effort:"max"` | `high` |
 | `… + output_config.effort:<any other string>` | request fails **400** — `level "<value>" not supported, valid levels: low, medium, high` (§5.2; fails before dispatch) |
-| `{"type":"adaptive"}` WITHOUT `output_config.effort` | `high` (stage 2 re-reads the stage-1 provisional `xhigh` from the translated body and clamps it; recorded in S2d4-thinking-adaptive-noeffort) |
+| `{"type":"adaptive"}` WITHOUT `output_config.effort` | `high` (stage 2 re-reads the stage-1 provisional `xhigh` from the translated body and clamps it). Recorded in S2d4-thinking-adaptive-noeffort — the recorded bytes settle a conflicting derivation: `xhigh` does NOT pass through |
 
 MUST: stage-1 values are never visible to the upstream on their own — only the effective (stage-2) values are. Models configured WITH a per-model `thinking:` block (or a registry entry) take their effective values from that capability definition — config-dependent, out of golden scope.
 
@@ -307,7 +307,7 @@ Recordings: CLIProxyAPI v7.3.4 (docker image digest `sha256:97825da3009f98acf78b
 
 Recording environment (@oracle-runner-4 stack, recorded 2026-09-16): reference on `127.0.0.1:8407` (mission config `config.s2d4.yaml`: fleet config + second openai-compatibility entry `mock-openai-compat`), openai mock on port `21999` (base-url `http://host.docker.internal:21999/v1`), extended with the requested control-file "script" mode; client api key `oracle-local-key-1`; upstream provider key `mock-upstream-key`; alias `mock-model` → upstream model `mock-gpt-model`; second alias `mock-model-compat` (is-compat: true) → `mock-gpt-model`. Raw transcripts: `_cpa_edge_ref/run4/probes/S2d4/` (README + per-case raw request/response + upstream slices + `cooldown-probe.json`). Port numbers anywhere in a transcript are masked dynamic fields; all other bytes are compared exactly (§4.5).
 
-Fixtures live in `tests/fixtures/S2d4/<case-id>/` per the RECIPES layout (`meta.yaml`, `request.http`, `downstream.md`, `upstream.jsonl`, `mock-response.json`) — **22/22 recorded**.
+Fixtures live in `tests/fixtures/S2d4/<case-id>/` per the RECIPES layout (`meta.yaml`, `request.http`, `downstream.md`, `upstream.jsonl`, `mock-response.json`) — **34/34 recorded** (round 1: 22; round 2: 12).
 
 | case-id | pins | stream | mock mode |
 |---|---|---|---|
@@ -333,15 +333,27 @@ Fixtures live in `tests/fixtures/S2d4/<case-id>/` per the RECIPES layout (`meta.
 | S2d4-cooldown-second | model_cooldown error on the Claude wire (recorded status+body) | no | error (not reached) |
 | S2d4-stream-error-429 | pre-stream failure → plain JSON 429, no SSE headers | yes | error |
 | S2d4-stream-disconnect | 200 + partial events + `event: error` `unexpected EOF` frame | yes | disconnect |
+| S2d4-thinking-disabled | effective thinking row: disabled → `low` | no | happy (round 2) |
+| S2d4-thinking-budget-0 | effective thinking row: budget 0 → `low` | no | happy (round 2) |
+| S2d4-thinking-budget-300 | effective thinking row: budget 300 → `low` (minimal clamps) | no | happy (round 2) |
+| S2d4-thinking-budget-30000 | effective thinking row: budget 30000 → `high` (xhigh clamps) | no | happy (round 2) |
+| S2d4-thinking-budget-invalid | budget -5 → 400 `budget -5 cannot be converted to a valid level`, empty wire log | no | none — validation before dispatch (round 2) |
+| S2d4-thinking-adaptive-auto | effective thinking row: adaptive effort `auto` → `medium` | no | happy (round 2) |
+| S2d4-thinking-adaptive-max | effective thinking row: adaptive effort `max` → `high` | no | happy (round 2) |
+| S2d4-thinking-adaptive-noeffort | discriminator: adaptive without effort → `high` (xhigh does NOT pass through) | no | happy (round 2) |
+| S2d4-thinking-adaptive-unknown | adaptive effort `ultra` → 400 `level "ultra" not supported, valid levels: low, medium, high`, empty wire log | no | none — validation before dispatch (round 2) |
+| S2d4-count-tokens-bad-budget | count_tokens runs the thinking pipeline: same 400, empty wire log | no | none — validation before dispatch (round 2) |
+| S2d4-stream-truthy-null | `"stream": null` → streaming path (SSE + stream_options upstream), byte-identical to S2d4-stream-text | yes | happy (round 2) |
+| S2d4-topp-no-temperature | top_p forwarded when temperature absent | no | happy (round 2) |
 
-RECORDING STATUS: **22/22 recorded** by @oracle-runner-4 (initially requested from oracle-runner-5, rerouted). Verification outcome: 21/22 byte-exact against the pre-recording derivations in `spec/recordings/S2d4.cases.json`, including all four deterministic token counts (message_start estimates 3/33/7/6 and count_tokens 43), all SSE byte streams, all upstream paths/bodies/header include+omit assertions, and the four empty-wire-log assertions (count-tokens, auth-missing, unknown-model, cooldown-second). Recorded divergences (recorded bytes are the golden; also captured per-case in `meta.yaml`): the cooldown-second body's provider string (`openai-compatible-mock-openai`) and verbatim last-error embedding (§5.2); upstream tool_calls key order and HTML-escaped `<system-reminder>` text (informative-only per §4.5, documented in §3.2). Deferred: none (all cases RECORDABLE-LOCALLY).
+RECORDING STATUS: **34/34 recorded** by @oracle-runner-4 (round 1: 22 cases — initially requested from oracle-runner-5, rerouted; round 2: 12 cases for the gate-round-1 fixes). Round-1 verification: 21/22 byte-exact against the pre-recording derivations in `spec/recordings/S2d4.cases.json`, including all four deterministic token counts (message_start estimates 3/33/7/6 and count_tokens 43), all SSE byte streams, all upstream paths/bodies/header include+omit assertions, and the four empty-wire-log assertions (count-tokens, auth-missing, unknown-model, cooldown-second). Round-2 verification: **12/12 byte-exact, zero mismatches** — the two-stage effective thinking table is fully recorded, both 400 validation message strings byte-exact, the `"stream": null` edge recorded, and the adaptive-no-effort discriminator settled (`high`; the gate ruling's xhigh-passthrough parenthetical is disproven by the recorded bytes). Recorded divergences (recorded bytes are the golden; also captured per-case in `meta.yaml`): the round-1 cooldown-second body's provider string (`openai-compatible-mock-openai`) and verbatim last-error embedding (§5.2/§7.8); upstream tool_calls key order and HTML-escaped `<system-reminder>` text (informative-only per §4.5, documented in §3.2). Deferred: none (all cases RECORDABLE-LOCALLY).
 
 ---
 
 ## 7. Open questions and intentional non-equivalences
 
-Open questions:
-1. **`stream` truthiness edge** — `"stream": null` / `"stream": "false"` select the STREAMING path in the reference (§2.1). Recorded? No (low value); flagged for a possible later batch. Contract tests from this section MAY pin it via direct replay once recorded.
+Open questions (resolved items kept struck for traceability):
+1. ~~`stream` truthiness edge~~ — RESOLVED by recording: `"stream": null` selects the STREAMING path; downstream SSE + upstream `stream:true`+`stream_options` byte-identical to the explicit-stream golden (S2d4-stream-truthy-null, §2.1). The `"false"`-string variant remains unrecorded (same code path; OPTIONAL).
 2. ~~Cooldown second-request status~~ — RESOLVED by recording: **429** with `Retry-After: 1` (S2d4-cooldown-second, §5.2).
 3. **Cooldown window vs Retry-After** — the measured effective cooldown for this provider type is 2–4 s while the surfaced `Retry-After` is 1 (§5.2(e)); the internal re-arm policy behind the gap is S4 territory, not pinned here.
 4. **`force-mapping: true`** response model rewrite and **provider `headers:`** custom-header injection are config-dependent OPTIONAL behaviors (documented §2.2/§3.3, unrecorded). Recording them needs a config variant similar to S2d4-compat-thinking; deferred by mutual agreement unless the implementer needs them.
