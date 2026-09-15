@@ -6,7 +6,7 @@
 HTTP/1.1 101 Switching Protocols
 Upgrade: websocket
 Connection: Upgrade
-Sec-WebSocket-Accept: vU/GkVNTQ9Ww2p3h0s2mw9oImi0=
+Sec-WebSocket-Accept: F0HGDSg+oEpVAUtRFv52FshuplU=
 
 
 ```
@@ -24,8 +24,8 @@ Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS
 Access-Control-Allow-Origin: *
 Access-Control-Expose-Headers: X-CPA-TRACE-ID, X-CPA-VERSION, X-CPA-COMMIT, X-CPA-BUILD-DATE, X-CPA-SUPPORT-PLUGIN, X-CPA-HOME-VERSION, X-CPA-HOME-BUILD-DATE, X-SERVER-VERSION, X-SERVER-BUILD-DATE, Location, Retry-After, X-Request-Id, OpenAI-Request-Id
 Content-Type: application/json
-X-Cpa-Trace-Id: 20260916021849-f8131d354f71b829-bfec5ba5
-Date: Tue, 15 Sep 2026 18:18:49 GMT
+X-Cpa-Trace-Id: 20260916041039-f8131d354f71b829-b4607f77
+Date: Tue, 15 Sep 2026 20:10:39 GMT
 Content-Length: 361
 
 ```
@@ -41,7 +41,7 @@ Content-Length: 361
 HTTP/1.1 101 Switching Protocols
 Upgrade: websocket
 Connection: Upgrade
-Sec-WebSocket-Accept: hHYx5gK/NZNnjfE+KuAMfDGOA4A=
+Sec-WebSocket-Accept: rLpfs/DKhE5X67wfzgL/PBHcQuM=
 
 
 ```

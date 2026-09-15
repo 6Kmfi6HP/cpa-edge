@@ -31,7 +31,7 @@
 | I-core | packages/core: scheduling algorithms | 2 | — | pending | 0 |  |
 | I-auth | packages/auth: OAuth/device/refresh | 2 | impl-i-auth | impl | 0 |  |
 | I-tr-S2d1 | packages/translators: OpenAI→Gemini | 2 | — | pending | 0 |  |
-| I-tr-S2d2 | packages/translators: Gemini→OpenAI | 2 | — | pending | 0 |  |
+| I-tr-S2d2 | packages/translators: Gemini→OpenAI | 2 | impl-i-tr-s2d2 | impl | 0 |  |
 | I-tr-S2d3 | packages/translators: OpenAI→Claude | 2 | — | merged | 2 | MERGED: oai2cla complete (spec 2 rounds, impl-review 2 rounds). 141 unit + 28 contract green. Residual: Store-get-throw hardening -> T2; N6 UA default blessed; N9 js-tiktoken kept (R-TOK) |
 | I-tr-S2d4 | packages/translators: Claude→OpenAI | 2 | — | pending | 0 |  |
 | I-tr-S2d5 | packages/translators: OpenAI→Codex/Responses | 2 | — | pending | 0 |  |
@@ -57,4 +57,3 @@
 
 ## Verdict / escalation log
 (appended by orchestrator)
-- 2026-09-16 03:1x S2d2 GATE: PASS (round 2). gem2oai admitted: two-mode alt contract, 5 auth transports, thinking clamps, reproducible countTokens formula. Mass-stall recovery producing results.
