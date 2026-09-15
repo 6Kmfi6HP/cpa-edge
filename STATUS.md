@@ -57,4 +57,5 @@
 
 ## Verdict / escalation log
 (appended by orchestrator)
+- 2026-09-16 07:0x REGISTRY INCIDENT + RESTORATION: the post-S7-admission SPEC §5 appends (R-ORDER, R-SYNCREDS, R-EXECS) had silently no-op'd — the S7-admission edit consumed the append anchor without re-adding it, so three later .replace() calls matched nothing while their commits' messages claimed registration. Detected by the cla2oai implementer (Q7). All three restored + R-TRACE formalized (commit 4b7b9ba); presence programmatically verified. LESSON (binding on orchestrator): every SPEC.md append MUST assert the anchor pre-replace and the content post-write; commit messages are not evidence.
 - 2026-09-16 06:5x I-tr-S2d8 MERGED (impl gate round 2 PASS). cla2gem complete: 7 modules merged (auth + 6 directions). 3 directions remain (codex-passthrough, cla2oai, oai2gem implementing).
