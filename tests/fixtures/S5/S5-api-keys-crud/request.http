@@ -1,0 +1,135 @@
+### S5-api-keys-crud STEP 1 — PUT /v0/management/api-keys
+PUT /v0/management/api-keys HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 37
+
+["oracle-local-key-1","s5-extra-key"]
+
+### S5-api-keys-crud STEP 2 — GET /v0/management/api-keys
+GET /v0/management/api-keys HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-api-keys-crud STEP 3 — PATCH /v0/management/api-keys
+PATCH /v0/management/api-keys HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 32
+
+{"index":1,"value":"s5-renamed"}
+
+### S5-api-keys-crud STEP 4 — GET /v0/management/api-keys
+GET /v0/management/api-keys HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-api-keys-crud STEP 5 — PATCH /v0/management/api-keys
+PATCH /v0/management/api-keys HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 37
+
+{"old":"s5-renamed","new":"s5-extra"}
+
+### S5-api-keys-crud STEP 6 — GET /v0/management/api-keys
+GET /v0/management/api-keys HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-api-keys-crud STEP 7 — DELETE /v0/management/api-keys?index=1
+DELETE /v0/management/api-keys?index=1 HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-api-keys-crud STEP 8 — GET /v0/management/api-keys
+GET /v0/management/api-keys HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-api-keys-crud STEP 9 — PUT /v0/management/api-keys
+PUT /v0/management/api-keys HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 8
+
+not json
+
+### S5-api-keys-crud STEP 10 — PUT /v0/management/api-keys
+PUT /v0/management/api-keys HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 12
+
+{"items":[]}
+
+### S5-api-keys-crud STEP 11 — PATCH /v0/management/api-keys
+PATCH /v0/management/api-keys HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 23
+
+{"index":9,"value":"x"}
+
+### S5-api-keys-crud STEP 12 — PATCH /v0/management/api-keys
+PATCH /v0/management/api-keys HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 2
+
+{}
+
+### S5-api-keys-crud STEP 13 — DELETE /v0/management/api-keys
+DELETE /v0/management/api-keys HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-api-keys-crud STEP 14 — DELETE /v0/management/api-keys?value=ghost
+DELETE /v0/management/api-keys?value=ghost HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-api-keys-crud STEP 15 — PUT /v0/management/api-keys
+PUT /v0/management/api-keys HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 22
+
+["oracle-local-key-1"]

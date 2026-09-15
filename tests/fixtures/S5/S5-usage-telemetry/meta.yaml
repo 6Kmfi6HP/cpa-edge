@@ -25,7 +25,7 @@
    "note": null,
    "aux": false,
    "http_status": 200,
-   "expect_status": null
+   "expect_status": 200
   },
   {
    "seq": 2,
@@ -35,7 +35,7 @@
    "note": null,
    "aux": false,
    "http_status": 200,
-   "expect_status": null
+   "expect_status": 200
   },
   {
    "seq": 3,
@@ -45,7 +45,7 @@
    "note": null,
    "aux": false,
    "http_status": 400,
-   "expect_status": null
+   "expect_status": 400
   },
   {
    "seq": 4,
@@ -55,7 +55,7 @@
    "note": null,
    "aux": false,
    "http_status": 400,
-   "expect_status": null
+   "expect_status": 400
   },
   {
    "seq": 5,
@@ -65,7 +65,7 @@
    "note": null,
    "aux": false,
    "http_status": 200,
-   "expect_status": null
+   "expect_status": 200
   }
  ],
  "mismatches": [],

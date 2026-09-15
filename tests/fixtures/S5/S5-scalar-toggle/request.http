@@ -1,0 +1,73 @@
+### S5-scalar-toggle STEP 1 — GET /v0/management/debug
+GET /v0/management/debug HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-scalar-toggle STEP 2 — PUT /v0/management/debug
+PUT /v0/management/debug HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 14
+
+{"value":true}
+
+### S5-scalar-toggle STEP 3 — GET /v0/management/debug
+GET /v0/management/debug HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-scalar-toggle STEP 4 — PATCH /v0/management/debug
+PATCH /v0/management/debug HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 14
+
+{"value":true}
+
+### S5-scalar-toggle STEP 5 — PUT /v0/management/debug
+PUT /v0/management/debug HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 15
+
+{"value":"yes"}
+
+### S5-scalar-toggle STEP 6 — PUT /v0/management/debug
+PUT /v0/management/debug HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 2
+
+{}
+
+### S5-scalar-toggle STEP 7 — PUT /v0/management/debug
+PUT /v0/management/debug HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 15
+
+{"value":false}
+
+### S5-scalar-toggle STEP 8 — GET /v0/management/debug
+GET /v0/management/debug HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+

@@ -1,0 +1,55 @@
+### S5-vertex-key-validation STEP 1 — PUT /v0/management/vertex-api-key
+PUT /v0/management/vertex-api-key HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 50
+
+[{"base-url":"http://host.docker.internal:22007"}]
+
+### S5-vertex-key-validation STEP 2 — PUT /v0/management/vertex-api-key
+PUT /v0/management/vertex-api-key HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 132
+
+[{"api-key":"s5-vertex-key","base-url":"http://host.docker.internal:22007","models":[{"name":"vertex-mock-model","alias":"s5-vm"}]}]
+
+### S5-vertex-key-validation STEP 3 — GET /v0/management/vertex-api-key
+GET /v0/management/vertex-api-key HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-vertex-key-validation STEP 4 — PATCH /v0/management/vertex-api-key
+PATCH /v0/management/vertex-api-key HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 34
+
+{"index":0,"value":{"api-key":""}}
+
+### S5-vertex-key-validation STEP 5 — GET /v0/management/vertex-api-key
+GET /v0/management/vertex-api-key HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-vertex-key-validation STEP 6 — PUT /v0/management/vertex-api-key
+PUT /v0/management/vertex-api-key HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 131
+
+[{"api-key":"mock-vertex-key","base-url":"http://host.docker.internal:22007","models":[{"name":"vertex-mock-model","alias":"vm"}]}]

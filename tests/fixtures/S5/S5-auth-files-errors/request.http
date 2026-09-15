@@ -1,0 +1,167 @@
+### S5-auth-files-errors STEP 1 — POST /v0/management/auth-files?name=s5.txt
+POST /v0/management/auth-files?name=s5.txt HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Type: application/json
+Content-Length: 2
+
+{}
+
+### S5-auth-files-errors STEP 2 — POST /v0/management/auth-files?name=../evil.json
+POST /v0/management/auth-files?name=../evil.json HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Type: application/json
+Content-Length: 2
+
+{}
+
+### S5-auth-files-errors STEP 3 — POST /v0/management/auth-files
+POST /v0/management/auth-files HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Type: multipart/form-data; boundary=X
+Content-Length: 72
+
+--X
+Content-Disposition: form-data; name="note"
+
+plain-field
+--X--
+
+### S5-auth-files-errors STEP 4 — DELETE /v0/management/auth-files?name=missing.json
+DELETE /v0/management/auth-files?name=missing.json HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-auth-files-errors STEP 5 — DELETE /v0/management/auth-files
+DELETE /v0/management/auth-files HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-auth-files-errors STEP 6 — PATCH /v0/management/auth-files/status
+PATCH /v0/management/auth-files/status HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 2
+
+{}
+
+### S5-auth-files-errors STEP 7 — PATCH /v0/management/auth-files/status
+PATCH /v0/management/auth-files/status HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 23
+
+{"name":"s5-kimi.json"}
+
+### S5-auth-files-errors STEP 8 — PATCH /v0/management/auth-files/status
+PATCH /v0/management/auth-files/status HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 37
+
+{"name":"ghost.json","disabled":true}
+
+### S5-auth-files-errors STEP 9 — POST /v0/management/auth-files?name=s5-kimi.json
+POST /v0/management/auth-files?name=s5-kimi.json HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Type: application/json
+Content-Length: 40
+
+{"type":"kimi","email":"s5@example.com"}
+
+### S5-auth-files-errors STEP 10 — PATCH /v0/management/auth-files/fields
+PATCH /v0/management/auth-files/fields HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 23
+
+{"name":"s5-kimi.json"}
+
+### S5-auth-files-errors STEP 11 — PATCH /v0/management/auth-files/fields
+PATCH /v0/management/auth-files/fields HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 32
+
+{"name":"ghost.json","note":"x"}
+
+### S5-auth-files-errors STEP 12 — PATCH /v0/management/auth-files/fields
+PATCH /v0/management/auth-files/fields HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 38
+
+{"name":"s5-kimi.json","weight":"abc"}
+
+### S5-auth-files-errors STEP 13 — POST /v0/management/auth-files/refresh
+POST /v0/management/auth-files/refresh HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 2
+
+{}
+
+### S5-auth-files-errors STEP 14 — POST /v0/management/auth-files/refresh
+POST /v0/management/auth-files/refresh HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 21
+
+{"name":"ghost.json"}
+
+### S5-auth-files-errors STEP 15 — GET /v0/management/auth-files/models
+GET /v0/management/auth-files/models HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-auth-files-errors STEP 16 — GET /v0/management/auth-files/download?name=s5.txt
+GET /v0/management/auth-files/download?name=s5.txt HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-auth-files-errors STEP 17 — DELETE /v0/management/auth-files?name=s5-kimi.json
+DELETE /v0/management/auth-files?name=s5-kimi.json HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+

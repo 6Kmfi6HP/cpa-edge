@@ -5,7 +5,7 @@ Upstream anchor: CLIProxyAPI v7.3.4, commit `8335eac731946bd4eff18f500653f93736d
 Upstream evidence paths in this section are relative to the upstream repo root unless prefixed `_cpa_edge_ref/` (oracle sandbox artifacts).
 Oracle-recorded facts (WIRE NOTES in the mission brief, `_cpa_edge_ref/probes/mocks/codex/`, `_cpa_edge_ref/probes/mocks/README.md`) outrank static reading; where they conflict with source-derived statements, the recorded fact wins and is marked [RECORDED].
 
-Classification (R-FIXTURE, SPEC.md §5): client OpenAI chat → `codex-api-key` upstream is **RECORDABLE-LOCALLY**. Codex OAuth (fixed `https://chatgpt.com/backend-api/codex`, account headers, token refresh) is CREDENTIALED-ONLY; those behaviors are FIXTURE-DEFERRED here (§8).
+Classification (R-FIXTURE, SPEC.md §5): client OpenAI chat → `codex-api-key` upstream is **RECORDABLE-LOCALLY**. Codex OAuth (fixed `https://chatgpt.com/backend-api/codex`, account headers, token refresh) is CREDENTIALED-ONLY; those behaviors are FIXTURE-DEFERRED (details in §6, question 9 in §7).
 
 ---
 
@@ -25,10 +25,10 @@ OUT of scope (owned elsewhere):
 - Route inventory, auth middleware, CORS, 404/405 semantics (R-404) — S1.
 - Responses-client passthrough (`/v1/responses`) — S2d9; `/responses/compact`; websocket transport (`websockets: true`); `/v1/images/*` via codex; alpha search; live/realtime.
 - Scheduling, rotation, cooldown timers, request-retry — S4. Only the client-visible cooldown error shape is restated here.
-- Codex OAuth credential lifecycle (chatgpt.com default URL when `base-url` empty, `Chatgpt-Account-Id` header, token refresh) — S3; FIXTURE-DEFERRED for goldens (§8).
+- Codex OAuth credential lifecycle (chatgpt.com default URL when `base-url` empty, `Chatgpt-Account-Id` header, token refresh) — S3; FIXTURE-DEFERRED for goldens (§6).
 - Management API surface for `codex-api-key` lists — S5.
 - Usage statistics recording/reporting — S6.
-- OPTIONAL config-gated behaviors documented but NOT goldened (§7): reasoning replay cache, identity-confuse, Responses-Lite header, `disable-image-generation`, `disable-codex-cloaking`, model-header overrides, prompt-cache header forwarding, per-model payload overrides, tool-schema enum normalization, thinking-suffix model names.
+- OPTIONAL config-gated behaviors documented but NOT goldened (see §7): reasoning replay cache, identity-confuse, Responses-Lite header, `disable-image-generation`, `disable-codex-cloaking`, model-header overrides, prompt-cache header forwarding, per-model payload overrides, tool-schema enum normalization, thinking-suffix model names.
 
 ---
 
@@ -211,7 +211,8 @@ Content parts:
 
 - `response_format.type == "text"` → `text.format.type = "text"`.
 - `response_format.type == "json_schema"` with `json_schema` → `text.format` = `{"type":"json_schema","name":…?,["strict":…],"schema":<raw>}`.
-- Client `text.verbosity` (non-standard) → `text.verbosity` (when `response_format` absent, `text` object is created for verbosity alone). `response_format.type:"json_object"` is NOT mapped (no `text.format` emitted for it).
+- A `text` object is emitted whenever `response_format` OR `text.verbosity` is present. `response_format.type:"json_object"` (or any unmapped type) leaves an EMPTY `text:{}` object (no `format` key). When only `text.verbosity` is present (no `response_format`), the object carries just `verbosity`.
+- Key order inside `text`: `format` first (when mapped), then `verbosity`.
 
 ### 3.4 Terminal response shapes
 

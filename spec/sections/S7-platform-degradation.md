@@ -79,6 +79,13 @@ Owner: @spec-writer (S7). Feeds SPEC §5 non-equivalence registry; every degrada
 - Toggles: `GET/PUT/PATCH /v0/management/logging-to-file` → `200 {"logging-to-file": <bool>}` /
   `{"status":"ok"}`; same pattern for the two size keys (`{"value": <int>}`, negatives clamped per handler).
   Evidence: `internal/api/handlers/management/config_basic.go`.
+- Log files live under `<auth-dir>/logs/` (NOT next to `config.yaml`): recorded in S7-10
+  (`/root/.cli-proxy-api/logs/main.log` in the container, i.e. the mounted auth dir); empty until
+  `logging-to-file` is enabled. Independently of `logging-to-file`, per-request error dumps
+  (`error-*.log`, containing request+response bytes) are written to the same directory whenever an
+  error response is produced, subject to `error-logs-max-files` retention (recorded in S7-10: dumps
+  exist while `logging-to-file: false`). Evidence: `internal/api/handlers/management/logs.go`,
+  `internal/logging/` (rotation), S7-10 transcript + aux-logs.
 - File content API (`internal/api/handlers/management/logs.go`):
   - `GET /v0/management/logs` → if `logging-to-file` is false: `400 {"error":"logging to file disabled"}`.
     If true: `200 {"lines":[...],"line-count":N,"latest-timestamp":<epoch>,"next-cursor":"<string>"}`
@@ -88,17 +95,23 @@ Owner: @spec-writer (S7). Feeds SPEC §5 non-equivalence registry; every degrada
 
 **F4 — Inbound WebSocket (`GET /v1/ws`).**
 - The route is always registered on the main engine (GET only), wrapped in a conditional API-key
-  middleware that is active only while `ws-auth` is true (default false when the key is absent).
-  Evidence: `sdk/cliproxy/service_lifecycle.go` (`ensureWebsocketGateway`, `AttachWebsocketRoute`),
+  middleware that is active whenever `ws-auth` is not explicitly `false` — the config loader presets
+  `WebsocketAuth = true` before unmarshal, so an ABSENT key means AUTH REQUIRED.
+  Evidence: `internal/config/config_load.go` + `internal/config/parse.go` (both: `cfg.WebsocketAuth = true`
+  default), `sdk/cliproxy/service_lifecycle.go` (`ensureWebsocketGateway`, `AttachWebsocketRoute`),
   `internal/api/server_routes.go` (`AttachWebsocketRoute`), `internal/config/config.go` (`WebsocketAuth`),
-  `internal/wsrelay/manager.go` (`path "/v1/ws"`, `CheckOrigin` allows all origins).
-- Upgrade is gorilla/websocket v1.5.3 (`go.mod`): a plain GET (no `Connection: upgrade`) →
-  `400`, body `Bad Request\n` (`http.Error` writes `http.StatusText(400)`), header
-  `Sec-Websocket-Version: 13`, `Content-Type: text/plain; charset=utf-8`. A complete handshake →
-  `101 Switching Protocols` with `Sec-WebSocket-Accept: base64(SHA1(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))`.
+  `internal/wsrelay/manager.go` (`path "/v1/ws"`, `CheckOrigin` allows all origins);
+  recorded: S7-01 (unset → 401), S7-02 steps 2-6.
+- Upgrade is gorilla/websocket v1.5.3 (`go.mod`): a GET that passes the auth gate but lacks
+  `Connection: upgrade` → `400`, body `Bad Request\n` (`http.Error` writes `http.StatusText(400)`), header
+  `Sec-Websocket-Version: 13`, `Content-Type: text/plain; charset=utf-8`, `X-Content-Type-Options: nosniff`
+  (S7-02 recorded headers). A complete handshake →
+  `101 Switching Protocols` with `Sec-WebSocket-Accept: base64(SHA1(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))`
+  (verified live in S7-04; server sends nothing before the client's close frame and echoes it).
   Evidence: module cache `gorilla/websocket@v1.5.3/server.go` (`Upgrade`, `returnError`).
-- With `ws-auth: true`: missing key → `401 {"error":"Missing API key"}`, invalid key → `401 {"error":"Invalid API key"}`
-  (same middleware as all client routes; bootstrap probes 05/06).
+- Auth gate (active unless `ws-auth: false`): missing key → `401 {"error":"Missing API key"}`,
+  invalid key → `401 {"error":"Invalid API key"}` (same middleware as all client routes; bootstrap probes
+  05/06; recorded in S7-01/S7-02).
 - `POST /v1/ws` → gin `404` empty body (wrong method on a registered route, R-404); `OPTIONS /v1/ws` →
   auto-answered `204` + CORS, no auth (bootstrap probe 03).
 - On successful upgrade the session registers a synthetic runtime-only credential
@@ -123,8 +136,10 @@ Owner: @spec-writer (S7). Feeds SPEC §5 non-equivalence registry; every degrada
   - With `?is_webui=1` (values `1|true|yes|on`, case-insensitive) they ALSO bind a localhost forwarder:
     anthropic `0.0.0.0:54545`, codex `0.0.0.0:1455`, antigravity `0.0.0.0:51121`
     (`internal/api/handlers/management/auth_files_oauth_callback.go` + `internal/auth/antigravity/constants.go`).
-    The forwarder answers any path with `302 Found` → `http(s)://127.0.0.1:<server-port>/<provider>/callback?<same query>`
-    and `Cache-Control: no-store`; it stops when the session ends. Bind failure → `500 {"error":"failed to start callback server"}`.
+    The forwarder answers any path with `302 Found` → `http(s)://127.0.0.1:<server-config-port>/<provider>/callback?<same query>`
+    and `Cache-Control: no-store`; body is Go's default redirect HTML (`<a href="...">Found</a>.`), and it carries NO CORS
+    headers (raw Go http server, not the gin stack — recorded in S7-13). It stops when the session ends.
+    Bind failure → `500 {"error":"failed to start callback server"}`.
   - Device flows (kimi/xai/meta) call the vendor device-authorization endpoint and return
     `200 {"status":"ok","url":...,"state":"<vendor-prefixed UnixNano>","flow":"device","user_code":...,"expires_in":N}` —
     no inbound socket is involved. Evidence: `auth_files_provider_oauth.go` (`RequestXAIToken` etc.), `sdk/auth/{kimi,xai,meta}.go`.
@@ -135,8 +150,10 @@ Owner: @spec-writer (S7). Feeds SPEC §5 non-equivalence registry; every degrada
     malformed state → `400 ... "invalid state"` (state charset: `[A-Za-z0-9._-]`, no `/`, `\`, `..`, max 128 —
     `oauth_sessions.go` `ValidateOAuthState`); no code+error → `400 ... "code or error is required"`;
     unknown state → `404 ... "unknown or expired state"`.
-  - `GET /v0/management/get-auth-status` — no state → `200 {"status":"ok"}`; unknown valid-format state →
-    `200 {"status":"error","error":"unknown or expired state"}`; pending session → `200 {"status":"wait"}`.
+  - `GET /v0/management/get-auth-status` (management-authenticated; recorded 401
+    `{"error":"missing management key"}` without the key, S7-12 step 8) — no state → `200 {"status":"ok"}`;
+    unknown valid-format state → `200 {"status":"error","error":"unknown or expired state"}`;
+    pending session → `200 {"status":"wait"}`.
   - `DELETE /v0/management/oauth-session?state=` → `200 {"status":"ok","cancelled":<bool>}`; missing state →
     `400 {"status":"error","error":"missing state"}`; malformed → `400 ... "invalid state"`.
 - CLI `--login` UX (same binary): binds the same fixed ports locally (claude 54545, codex 1455 —
@@ -218,7 +235,8 @@ TUI mode; probe 16 recorded 404). Each of these is an INTENTIONAL-NON-EQUIVALENC
 1. `logging-to-file` / `logs-max-total-size-mb` / `error-logs-max-files` config + toggle endpoints are
    EQUIVALENT on every runtime (S7-09 golden), including the `400 {"error":"logging to file disabled"}`
    gating when the config value is false.
-2. `runtimes/node`: EQUIVALENT — rotating files under `<config-dir>/logs/`, byte-compatible API (S7-10 golden).
+2. `runtimes/node`: EQUIVALENT — rotating files under `<auth-dir>/logs/` (recorded location, S7-10),
+   byte-compatible API (S7-09/S7-10 goldens).
 3. `runtimes/cloudflare`: EQUIVALENT observable — the log ring is persisted through the DO-backed Store
    instead of a filesystem; `GET /v0/management/logs` (lines/line-count/latest-timestamp/next-cursor,
    `limit`/`after`/`cursor` params) and `DELETE /v0/management/logs` keep upstream shapes. Retention is
@@ -233,14 +251,17 @@ TUI mode; probe 16 recorded 404). Each of these is an INTENTIONAL-NON-EQUIVALENC
 
 **F4 — inbound WebSocket `/v1/ws`.**
 1. `runtimes/node` + `runtimes/cloudflare`: EQUIVALENT. Handshake outcomes are upstream-exact:
-   plain GET → 400 `Bad Request\n` + `Sec-Websocket-Version: 13` (S7-01 golden); auth gating when
-   `ws-auth: true` → 401 `{"error":"Missing API key"}` / `{"error":"Invalid API key"}` (S7-02 golden);
-   valid-key non-upgrade → 400 gorilla body; full handshake → 101 + `Sec-WebSocket-Accept` (S7-04 golden);
+   default config (`ws-auth` unset) → plain GET `401 {"error":"Missing API key"}` (S7-01 golden);
+   explicit `ws-auth: true` → 401 `{"error":"Missing API key"}` / `{"error":"Invalid API key"}` for
+   missing/invalid keys, and valid-key non-upgrade → 400 `Bad Request\n` + `Sec-Websocket-Version: 13`
+   (S7-02 golden); explicit `ws-auth: false` → plain GET without auth → the same 400 gorilla body
+   (S7-02 golden, step 6); full handshake → 101 + `Sec-WebSocket-Accept` (S7-04 golden);
    `POST /v1/ws` → 404 empty (R-404, S7-03 golden); `OPTIONS` → 204 + CORS. Cloudflare uses DO
    hibernation internally; observable outcomes are unchanged.
 2. `runtimes/vercel` (`inboundWebSocket: false`): the route still exists and its auth contract is
-   preserved — while `ws-auth: true`, missing/invalid API keys still return the upstream 401 bodies;
-   after auth passes (or when `ws-auth: false`), a request to `/v1/ws` that would require an upgrade
+   preserved — whenever `ws-auth` is not explicitly `false` (default/unset = required, S7-01 golden),
+   missing/invalid API keys still return the upstream 401 bodies; after auth passes, and in the
+   explicit `ws-auth: false` mode, a request to `/v1/ws` that would require an upgrade
    MUST return 501 with the F4-501 client body (§5). `POST /v1/ws` remains 404 empty; `OPTIONS` remains
    204 + CORS. `PUT/PATCH /v0/management/ws-auth` still accepts and echoes the flag (it just has no
    sessions to terminate).
@@ -269,6 +290,28 @@ TUI mode; probe 16 recorded 404). Each of these is an INTENTIONAL-NON-EQUIVALENC
    paths are the management API and Store writes. Both apply immediately (same observable class as 1).
    No 501 exists for this feature; the absence is only observable as "nothing outside the API can mutate
    runtime state" (documented, not probed).
+
+### 2.4 Rulings on cross-section inputs (S3 recorded findings)
+
+- **Ruling R-S7-A (S3 O-2: api-keys unconfigured ⇒ upstream proxies OPENLY, no auth).**
+  CPA-Edge MIRRORS upstream on every runtime: with `api-keys` absent, client routes accept
+  unauthenticated requests exactly as upstream does; with ≥1 key configured, the upstream 401 shapes
+  apply. This is a config-state behavior, not a platform degradation, so it stays uniform across
+  node/cloudflare/vercel — same config, same behavior. The fail-open default is a documented
+  inherited hazard: the deployment guide (D1) MUST warn that serverless deployments are public by
+  default and that omitting `api-keys` (and `remote-management.secret-key`) exposes an open proxy.
+  No golden is added here (S1/S3 own the auth fixtures); S7 records the ruling only.
+- **Ruling R-S7-B (S3 O-4: OAuth login flows bind loopback callback servers).**
+  Confirms §2.2 rows F5a/F5d. Redirect-based login (anthropic 54545, codex 1455, antigravity 51121,
+  devin `127.0.0.1:<port>/callback`) is viable only where the process can bind those loopback ports:
+  `runtimes/node` EQUIVALENT; cloudflare/vercel DEGRADED — the four redirect-flow auth-URL endpoints
+  return the F5-501 body (§3.2), and the CLI login UX is ABSENT. Device flows (xai/meta/kimi) remain
+  the supported serverless path (NE-S7-05).
+- **Ruling R-S7-C (S3 O-3: anthropic/codex callback routes 200-HTML-always; devin strict 400s).**
+  MIRRORED on every runtime. These are ordinary HTTP routes on the main port; no runtime lacks the
+  capability to serve them. Recorded in S7-11 (fixed 200 HTML body byte-for-byte; devin 400 ladder
+  `code or error is required` / `invalid or expired OAuth callback`); no runtime deviation exists to
+  declare.
 
 ## 3. Schemas
 
@@ -343,7 +386,7 @@ is a single compact JSON line + `\n`.
 
 | Body (code / message fragment) | Route class | Trigger |
 |---|---|---|
-| `websocket_unavailable` (client body) | `GET /v1/ws` | `!inboundWebSocket`, after auth |
+| `websocket_unavailable` (client body) | `GET /v1/ws` | `!inboundWebSocket`, after the auth gate (i.e. after auth passes, or when `ws-auth: false`) |
 | `proxy_unavailable` (client body) | any client completion route | `!proxyTransport` and every eligible credential for the model is proxy-credentialed |
 | `local callback server is not available on this runtime` | `{anthropic,codex,antigravity,devin}-auth-url` | `!localCallbackServer` |
 | `proxy transport is not available on this runtime` | `POST /v0/management/api-call` | `!proxyTransport` and resolved proxy mode is `proxy` |
@@ -386,30 +429,44 @@ Additional rules:
 
 ## 6. Golden samples index
 
-Recorded by @oracle-runner against CLIProxyAPI v7.3.4 (`eceasy/cli-proxy-api:v7.3.4`, digest
-`sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266`), per the RECIPES layout in
-`reports/oracle/BOOTSTRAP.md`. Case definitions: `spec/recordings/S7.cases.json`.
-Target directory: `tests/fixtures/S7/`. STATUS: requested from oracle-runner; see the table below
-(updated as fixtures land).
+Recorded by @oracle-runner (worker-3 stack: reference container `cpa-oracle-3` on 127.0.0.1:8397,
+openai mock on 20999, forwarder host publish 24545→54545) against CLIProxyAPI v7.3.4
+(`eceasy/cli-proxy-api:v7.3.4`, digest `sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266`).
+Per-case layout per RECIPES: `meta.yaml` (dynamic fields incl. port adaptations), `request.http`
+(all steps in order, `### step N` dividers), `downstream-<step>.md` (or `downstream.md`),
+`upstream.jsonl` (empty for mock-free cases), `mock-response.json`, `logs.md` (docker-log delta).
+Case definitions: `spec/recordings/S7.cases.json`. Raw `-v` transcripts: `_cpa_edge_ref/run3/probes/S7/`.
 
-| case-id | feature | purpose (short) | fixture path | status |
+**STATUS: 15/15 recordable cases RECORDED — 146 fixture files.** Fixture count per case = files listed.
+
+| case-id | feature | recorded behavior (one line) | fixture path | files |
 |---|---|---|---|---|
-| S7-01 | F4 | `/v1/ws` plain GET → gorilla 400 | tests/fixtures/S7/S7-01/ | requested |
-| S7-02 | F4+F6 | ws-auth toggle + 401 gating + gorilla 400 with valid key | tests/fixtures/S7/S7-02/ | requested |
-| S7-03 | F4 | POST → 404 empty (R-404), OPTIONS → 204 CORS | tests/fixtures/S7/S7-03/ | requested |
-| S7-04 | F4 | full 101 handshake + `Sec-WebSocket-Accept` verification | tests/fixtures/S7/S7-04/ | requested |
-| S7-05 | F1 | proxy-url management CRUD + config echo | tests/fixtures/S7/S7-05/ | requested |
-| S7-06 | F1 | api-call: direct 200 vs dead socks5 502 vs invalid 400 | tests/fixtures/S7/S7-06/ | requested |
-| S7-07 | F2+F6 | plugins config accepted via external edit, visible in list | tests/fixtures/S7/S7-07/ | requested |
-| S7-08 | F2 | plugin config ops + delete + 404 unknown | tests/fixtures/S7/S7-08/ | requested |
-| S7-09 | F3 | logs endpoints 400-gated while disabled; size keys echo | tests/fixtures/S7/S7-09/ | requested |
-| S7-10 | F3 | logging-to-file enabled: lines shape + clear + restore | tests/fixtures/S7/S7-10/ | requested |
-| S7-11 | F5c | callback routes: fixed HTML 200s + devin 400 ladder | tests/fixtures/S7/S7-11/ | requested |
-| S7-12 | F5c | oauth-callback/get-auth-status/oauth-session error ladder | tests/fixtures/S7/S7-12/ | requested |
-| S7-13 | F5a | anthropic auth-url + localhost:54545 forwarder 302 + cancel | tests/fixtures/S7/S7-13/ | requested |
-| S7-14 | F6 | external config edit hot-reloads API keys both directions | tests/fixtures/S7/S7-14/ | requested |
-| S7-15 | F6 | auth-dir file add/remove hot-registers credential | tests/fixtures/S7/S7-15/ | requested |
-| S7-16 | F5b | device-flow auth-url envelopes (xai/meta/kimi) | — | FIXTURE-DEFERRED (CREDENTIALED-ONLY) |
+| S7-01 | F4 | default config (`ws-auth` unset) plain GET → `401 {"error":"Missing API key"}` + CORS block | tests/fixtures/S7/S7-01/ | 6 |
+| S7-02 | F4+F6 | ws-auth toggle: PUT true → 401 Missing / 401 Invalid / valid-key 400 gorilla; PUT false → no-auth 400 gorilla; `{"status":"ok"}` echoes | tests/fixtures/S7/S7-02/ | 11 |
+| S7-03 | F4 | POST → 404 empty (R-404); OPTIONS → 204 + CORS no auth | tests/fixtures/S7/S7-03/ | 7 |
+| S7-04 | F4 | full 101 handshake; `Sec-WebSocket-Accept` == base64(SHA1(key+GUID)); server silent pre-close, echoes close frame; log `websocket provider connected: aistudio-<id>` | tests/fixtures/S7/S7-04/ | 6 |
+| S7-05 | F1 | proxy-url PUT/GET echo (incl. config echo with `proxy-url` field), `direct`, DELETE, empty | tests/fixtures/S7/S7-05/ | 11 |
+| S7-06 | F1 | api-call: direct control 200 + explicit `direct` 200 (2 mock hits in upstream.jsonl); dead socks5 → `502 {"error":"request failed"}`; `ftp://` → `400 {"error":"invalid proxy_url"}` | tests/fixtures/S7/S7-06/ | 9 |
+| S7-07 | F2+F6 | external config edit: plugins block live-reloads; list shows `configured:true, registered:false, effective_enabled:false` | tests/fixtures/S7/S7-07/ | 6 |
+| S7-08 | F2 | plugin ops: PATCH enabled, GET/PUT config echo, list, DELETE `{status:deleted, file_deleted:false, path:"", configured_removed:true}`, unknown id → 404 `plugin_not_found`; final config snapshot kept | tests/fixtures/S7/S7-08/ | 14 |
+| S7-09 | F3 | logs GET/DELETE → `400 {"error":"logging to file disabled"}`; size-key PUT/GET echo | tests/fixtures/S7/S7-09/ | 11 |
+| S7-10 | F3 | enabled: `{"lines":[...],"line-count":N,"latest-timestamp":N,"next-cursor":...}`; DELETE `{"success":true,"message":"Logs cleared successfully","removed":0}`; restore → 400 again; log files under `<auth-dir>/logs/`, error dumps present while disabled | tests/fixtures/S7/S7-10/ | 11 |
+| S7-11 | F5c | callback routes: anthropic/codex/antigravity 200 fixed HTML (byte-exact), devin 400 ladder, POST → 404 empty | tests/fixtures/S7/S7-11/ | 12 |
+| S7-12 | F5c | oauth-callback GET/POST error ladder (no mgmt auth on that route), get-auth-status: without key → 401 `missing management key`, with key → ok/error-ladder, oauth-session DELETE ladder | tests/fixtures/S7/S7-12/ | 16 |
+| S7-13 | F5a | anthropic-auth-url?is_webui=1 → 200 `{status,url,state}`; forwarder 54545 → `302` + `Cache-Control: no-store` + `Location: http://127.0.0.1:<server-port>/anthropic/callback?...` (no CORS — raw Go server); get-auth-status `wait`; DELETE session `cancelled:true` | tests/fixtures/S7/S7-13/ | 9 |
+| S7-14 | F6 | external api-keys edit: hot-added key serves GET /v1/models 200 (wired-template model list), removed key → 401 Invalid; live both directions; watcher log lines captured | tests/fixtures/S7/S7-14/ | 9 |
+| S7-15 | F6 | fake kimi JSON hot-registered (auth-files entry, oauth account type) and hot-removed on delete; `auth file changed (CREATE/REMOVE)` log lines | tests/fixtures/S7/S7-15/ | 8 |
+| S7-16 | F5b | device-flow auth-url envelopes (xai/meta/kimi) — NOT recorded | — | 0 |
+
+Recording-session notes (for the contract layer):
+- Port adaptations on the recording stack (8397/20999/24545 vs the bootstrap's 18317/18999) are listed
+  in each `meta.yaml` dynamic_fields; the forwarder 302 `Location` embeds the server's CONFIG port.
+- S7-01..06 and S7-09..12 shared one container (id order); S7-05's config echo carries the
+  `"ws-auth":false` value persisted by S7-02's restore step; S7-07+08 shared a container (external
+  plugins edit); S7-13 ran solo; S7-14 and S7-15 each used a fresh container.
+- S7-14's `/v1/models` body content is environment-specific (the recording template wires 8 providers);
+  the S7 claim is only "the hot-added key authenticates" — model-list content belongs to S1/S2 sections.
+- S7-15's fixture retains the fake auth file (`fake-auth-file.json`) as the input artifact.
 
 ## 7. Intentional non-equivalences & open questions
 
@@ -434,6 +491,7 @@ Intentional non-equivalences (to be appended to SPEC §5 registry by the orchest
   to reach `localhost:<54545|1455|51121>` on the CPA host; serverless hosts cannot bind those ports and
   the fixed redirect URIs cannot point at them. Substitute: 501 on the four redirect-flow auth-URL
   endpoints (§3.2); device flows (xai/meta/kimi) remain the supported path on serverless.
+  Confirmed by S3's recorded O-4 finding; see Ruling R-S7-B.
 - **NE-S7-06 (F6, cloudflare+vercel).** External-file watching does not exist (no filesystem); the
   management API and Store writes are the only mutation paths and apply immediately. On node, external
   watching is EQUIVALENT (S7-14/S7-15).
@@ -447,9 +505,13 @@ Open questions:
 - **OQ-S7-01.** Vercel "Fluid compute" WebSocket support, if it becomes generally available and
   stable, would flip `inboundWebSocket` for vercel; the 501 body is the compatibility seam. Decision
   deferred to a future SPEC revision; T3 ships with `false`.
-- **OQ-S7-02.** `request-error-logs` endpoints on `fileLogging: false` runtimes: 501 (no error files
-  can exist) vs always-200-empty-list. Proposal: 501 with the F3 body for symmetry; S5/S6 own the
-  final shape. Implementers should not add a third variant.
+- **OQ-S7-02.** Per-request error dumps (`error-*.log` under `<auth-dir>/logs/`) are a SEPARATE
+  upstream feature from `logging-to-file`: they are written even while `logging-to-file: false`
+  (recorded in S7-10 aux artifacts; retention by `error-logs-max-files`). On `fileLogging: false`
+  runtimes (vercel) these files cannot exist, so `GET /v0/management/request-error-logs*` /
+  `/request-log-by-id/:id` need an explicit degraded stance: proposal — 501 with the F3 body for
+  symmetry; on cloudflare the dumps can persist through the DO-backed Store with upstream-shaped
+  responses. S5/S6 own the final route shapes; implementers should not add a third variant.
 - **OQ-S7-03.** Cloudflare outbound `connect()`-based proxying (TCP sockets API) could make a subset of
   F1 (http CONNECT, socks5) possible on Workers; out of scope for T2 v1 — revisit if a real deployment
   needs it. The 501 contract is designed so flipping the capability later is non-breaking.

@@ -1,0 +1,1022 @@
+{
+  "mission": "S2d4 — Claude client (Messages API) -> OpenAI chat upstream via openai-compatibility provider",
+  "section": "spec/sections/S2d4-cla2oai.md",
+  "fixture_dir": "tests/fixtures/S2d4/",
+  "upstream_anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6 (docker eceasy/cli-proxy-api:v7.3.4)",
+  "oracle_env": {
+    "reference": "http://127.0.0.1:8417 (oracle-runner-5 stack; any port works — ports are masked dynamic fields)",
+    "mock_openai": "http://host.docker.internal:22999/v1 (mock_openai.py; fleet port for the openai wire)",
+    "config": "fleet config per reports/oracle/BOOTSTRAP.md + _cpa_edge_ref/run/config.yaml: api-keys [oracle-local-key-1], request-retry 0, transient-error-cooldown-seconds -1, openai-compatibility mock-openai (base-url -> mock, api-key mock-upstream-key, model mock-gpt-model alias mock-model)",
+    "config_additions_requested": [
+      {
+        "for_case": "S2d4-compat-thinking",
+        "openai-compatibility_entry": {
+          "name": "mock-openai-compat",
+          "base-url": "http://host.docker.internal:22999/v1",
+          "api-key-entries": [
+            {
+              "api-key": "mock-upstream-key"
+            }
+          ],
+          "models": [
+            {
+              "name": "mock-gpt-model",
+              "alias": "mock-model-compat",
+              "is-compat": true
+            }
+          ]
+        },
+        "note": "add as a SECOND provider entry (hot-reload is fine); stock mock-openai entry stays unchanged"
+      }
+    ]
+  },
+  "mock_control_protocol": {
+    "file": "mock/control/openai.json (re-read per request; X-Mock-* headers CANNOT be used through the gateway because the reference does not forward client headers upstream)",
+    "modes": {
+      "happy": "canned replies (non-stream JSON + 3-frame SSE, no [DONE])",
+      "error": "{\"mode\":\"error\",\"status\":429} -> status + default openai error body {\"error\":{\"message\":\"mock rate limit\",\"type\":\"rate_limit_exceeded\",\"code\":\"rate_limit_exceeded\"}}",
+      "disconnect": "{\"mode\":\"disconnect\",\"after\":2} -> SSE hard close after 2 events",
+      "script": "NEW MODE REQUESTED: {\"mode\":\"script\",\"non_stream\":<json object>} serves the given JSON as the non-stream reply (200); {\"mode\":\"script\",\"stream_events\":[[null,<chunk obj|string>],...]} serves the list as SSE frames (each [null, \"[DONE]\"] emits 'data: [DONE]'); needed by cases 11-14"
+    }
+  },
+  "state_and_ordering": [
+    "Run cases in run_order. Cases 1-18 are stateless against the credential.",
+    "Run S2d4-error-429 (19) then S2d4-cooldown-second (20) BACK-TO-BACK in the same shell (< 0.5s apart) — the rate-limit cooldown window is ~1s.",
+    "After case 20, pause > 1.2s before S2d4-stream-error-429 (21) so the cooldown has expired and the request reaches the mock.",
+    "Run S2d4-stream-disconnect (22) last; delete the control file afterwards (mode back to happy).",
+    "Cases 17, 18 and the count_tokens case 10 must show an EMPTY upstream wire log slice (no request reached the mock).",
+    "Slicing the shared mock wire log per case is the oracle's normal procedure (ts fields identify boundaries)."
+  ],
+  "comparison_rules": {
+    "downstream": "byte-exact after masking whitelisted dynamic fields (Date, X-CPA-TRACE-ID, ports, ts).",
+    "upstream_jsonl": "deep-equal JSON per line (arrays order-sensitive; object key order informative only) — the reference's emission order is documented in the section but not contract-pinned; assert headers semantically (presence/absence).",
+    "deterministic_values": "message_start usage.input_tokens and count_tokens input_tokens are DETERMINISTIC (o200k_base over fixed segments) — do NOT mask them; the recorded reference values are the goldens even if my precomputed numbers differ."
+  },
+  "deferred": [],
+  "cases": [
+    {
+      "id": "S2d4-min-nonstream",
+      "run_order": 1,
+      "purpose": "Baseline non-stream round trip. Pins: x-api-key auth accepted on the Claude route; alias->upstream model rewrite (mock-model -> mock-gpt-model); system STRING -> one system message whose content is an ARRAY of text parts; user string content preserved as string; max_tokens passthrough; explicit stream:false in the upstream body; canned chat.completion -> Claude message JSON with exact key order id/type/role/model/content/stop_reason/stop_sequence/usage and usage input 9 / output 6; upstream headers UA cli-proxy-openai-compat + Content-Type + Bearer, NO Accept, no client header forwarding; response model keeps the UPSTREAM name (no force-mapping).",
+      "request": {
+        "method": "POST",
+        "path": "/v1/messages",
+        "headers": {
+          "x-api-key": "oracle-local-key-1",
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json"
+        },
+        "body": "{\"model\":\"mock-model\",\"max_tokens\":64,\"stream\":false,\"system\":\"You are a helpful assistant.\",\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}]}"
+      },
+      "mock": {
+        "mode": "happy",
+        "control_file": null
+      },
+      "record": {
+        "downstream": "status + headers + body",
+        "upstream": "full wire request"
+      },
+      "expected": {
+        "status": 200,
+        "downstream_body": "{\"id\":\"chatcmpl-mock-0001\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"mock-gpt-model\",\"content\":[{\"type\":\"text\",\"text\":\"Hello from mock openai upstream more\"}],\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":9,\"output_tokens\":6}}",
+        "upstream_path": "/v1/chat/completions",
+        "upstream_body": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"system\",\"content\":[{\"type\":\"text\",\"text\":\"You are a helpful assistant.\"}]},{\"role\":\"user\",\"content\":\"Hi\"}],\"max_tokens\":64,\"stream\":false}",
+        "upstream_headers_include": {
+          "User-Agent": "cli-proxy-openai-compat",
+          "Content-Type": "application/json"
+        },
+        "upstream_headers_omit": [
+          "x-api-key",
+          "anthropic-version",
+          "anthropic-beta",
+          "Accept"
+        ]
+      }
+    },
+    {
+      "id": "S2d4-params",
+      "run_order": 2,
+      "purpose": "Sampling/stop/user params: system as 2-block array -> single system message with 2 text parts; temperature forwarded; top_k DROPPED; stop_sequences -> stop array; top-level user forwarded; metadata.user_id DROPPED; user content array -> content array of text parts.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "content-type": "application/json"
+        },
+        "body": "{\"model\":\"mock-model\",\"max_tokens\":128,\"temperature\":0.7,\"top_k\":40,\"stop_sequences\":[\"END\",\"STOP\"],\"metadata\":{\"user_id\":\"user-abc-123\"},\"user\":\"external-user-1\",\"system\":[{\"type\":\"text\",\"text\":\"You are a concise assistant.\"},{\"type\":\"text\",\"text\":\"Always answer in English.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Hello\"}]}]}"
+      },
+      "mock": {
+        "mode": "happy",
+        "control_file": null
+      },
+      "record": {
+        "downstream": "status + headers + body",
+        "upstream": "full wire request"
+      },
+      "expected": {
+        "status": 200,
+        "upstream_body": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"system\",\"content\":[{\"type\":\"text\",\"text\":\"You are a concise assistant.\"},{\"type\":\"text\",\"text\":\"Always answer in English.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Hello\"}]}],\"max_tokens\":128,\"temperature\":0.7,\"stop\":[\"END\",\"STOP\"],\"stream\":false,\"user\":\"external-user-1\"}"
+      }
+    },
+    {
+      "id": "S2d4-system-attribution-temperature",
+      "run_order": 3,
+      "purpose": "Claude Code attribution block dropped from system (text left-trimmed starting with 'x-anthropic-billing-header:'); temperature wins over top_p (top_p DROPPED when both present).",
+      "request": {
+        "method": "POST",
+        "path": "/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "content-type": "application/json"
+        },
+        "body": "{\"model\":\"mock-model\",\"max_tokens\":96,\"temperature\":0.5,\"top_p\":0.9,\"system\":[{\"type\":\"text\",\"text\":\"x-anthropic-billing-header: {\\\"tier\\\":\\\"free\\\",\\\"hash\\\":\\\"abc\\\"}\"},{\"type\":\"text\",\"text\":\"Real instructions here.\"}],\"messages\":[{\"role\":\"user\",\"content\":\"Ping\"}]}"
+      },
+      "mock": {
+        "mode": "happy",
+        "control_file": null
+      },
+      "record": {
+        "downstream": "status + headers + body",
+        "upstream": "full wire request"
+      },
+      "expected": {
+        "status": 200,
+        "upstream_body": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"system\",\"content\":[{\"type\":\"text\",\"text\":\"Real instructions here.\"}]},{\"role\":\"user\",\"content\":\"Ping\"}],\"max_tokens\":96,\"temperature\":0.5,\"stream\":false}"
+      }
+    },
+    {
+      "id": "S2d4-stream-text",
+      "run_order": 4,
+      "purpose": "Streaming baseline: canned 3-chunk SSE (role delta / content delta / finish stop; NO [DONE] frame) -> full Anthropic event sequence message_start..message_stop with exact JSON fields and framing 'event: X\\ndata: {...}\\n\\n'. message_start.usage.input_tokens is a LOCAL o200k_base estimate over the client request (expected 3). Upstream body gains stream_options.include_usage:true; upstream headers gain Accept: text/event-stream + Cache-Control: no-cache. Clean EOF without [DONE] still produces message_delta + message_stop (synthesized [DONE]).",
+      "request": {
+        "method": "POST",
+        "path": "/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "content-type": "application/json"
+        },
+        "body": "{\"model\":\"mock-model\",\"max_tokens\":64,\"stream\":true,\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}]}"
+      },
+      "mock": {
+        "mode": "happy",
+        "control_file": null,
+        "note": "canned SSE = 3 data frames then clean chunked terminator, NO [DONE]"
+      },
+      "record": {
+        "downstream": "status + headers + FULL SSE byte stream (concatenated; chunk boundaries irrelevant)",
+        "upstream": "full wire request"
+      },
+      "expected": {
+        "status": 200,
+        "downstream_headers_include": {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          "Connection": "keep-alive"
+        },
+        "downstream_sse": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"chatcmpl-mock-0001\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"mock-gpt-model\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":3,\"output_tokens\":0}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello from mock openai upstream\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"input_tokens\":0,\"output_tokens\":0}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+        "upstream_body": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}],\"max_tokens\":64,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+        "upstream_headers_include": {
+          "Accept": "text/event-stream",
+          "Cache-Control": "no-cache"
+        },
+        "note": "message_start input_tokens 3 = o200k_base('user\\nHi'); recorded value wins if different"
+      }
+    },
+    {
+      "id": "S2d4-thinking-budget",
+      "run_order": 5,
+      "purpose": "thinking.type=enabled + budget_tokens=8192 -> upstream reasoning_effort 'medium' (budget->level mapping); assistant thinking block WITHOUT a signature is DROPPED upstream (default config, is-compat off); assistant text part survives as content array.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "content-type": "application/json"
+        },
+        "body": "{\"model\":\"mock-model\",\"max_tokens\":256,\"thinking\":{\"type\":\"enabled\",\"budget_tokens\":8192},\"messages\":[{\"role\":\"user\",\"content\":\"Solve 2+2.\"},{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"I will compute it.\",\"signature\":\"\"},{\"type\":\"text\",\"text\":\"It is 4.\"}]},{\"role\":\"user\",\"content\":\"Now solve 3+3.\"}]}"
+      },
+      "mock": {
+        "mode": "happy",
+        "control_file": null
+      },
+      "record": {
+        "downstream": "status + headers + body",
+        "upstream": "full wire request"
+      },
+      "expected": {
+        "status": 200,
+        "upstream_body": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"user\",\"content\":\"Solve 2+2.\"},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"It is 4.\"}]},{\"role\":\"user\",\"content\":\"Now solve 3+3.\"}],\"max_tokens\":256,\"stream\":false,\"reasoning_effort\":\"medium\"}"
+      }
+    },
+    {
+      "id": "S2d4-tools-request",
+      "run_order": 6,
+      "purpose": "tools -> upstream functions array {type:function,function:{name,description,parameters}}; input_schema is RE-SERIALIZED (sorted map keys) and normalized: type=object without properties GAINS properties:{}; missing input_schema -> parameters {\"type\":\"object\",\"properties\":{}}; tool_choice {type:any} -> \"required\".",
+      "request": {
+        "method": "POST",
+        "path": "/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "content-type": "application/json"
+        },
+        "body": "{\"model\":\"mock-model\",\"max_tokens\":200,\"tool_choice\":{\"type\":\"any\"},\"tools\":[{\"name\":\"Get_Weather\",\"description\":\"Get current weather\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\"}},\"required\":[\"city\"]}},{\"name\":\"read_file\",\"description\":\"Read a file\",\"input_schema\":{\"type\":\"object\"}}],\"messages\":[{\"role\":\"user\",\"content\":\"List files.\"}]}"
+      },
+      "mock": {
+        "mode": "happy",
+        "control_file": null
+      },
+      "record": {
+        "downstream": "status + headers + body",
+        "upstream": "full wire request"
+      },
+      "expected": {
+        "status": 200,
+        "upstream_body": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"user\",\"content\":\"List files.\"}],\"max_tokens\":200,\"stream\":false,\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"Get_Weather\",\"description\":\"Get current weather\",\"parameters\":{\"properties\":{\"city\":{\"type\":\"string\"}},\"required\":[\"city\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"description\":\"Read a file\",\"parameters\":{\"properties\":{},\"type\":\"object\"}}}],\"tool_choice\":\"required\"}"
+      }
+    },
+    {
+      "id": "S2d4-tool-roundtrip",
+      "run_order": 7,
+      "purpose": "Full tool loop upstream shape: assistant tool_use -> assistant message with content:\"\" and tool_calls (arguments = RAW input bytes as a JSON string); tool_result blocks REORDERED to match the preceding tool_use id order (02,01 -> 01,02) and emitted as separate role:tool messages BEFORE any user content; mid-conversation system message becomes a user message wrapped in <system-reminder> tags, emitted AFTER the tool messages; remaining user text becomes the final user message.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "content-type": "application/json"
+        },
+        "body": "{\"model\":\"mock-model\",\"max_tokens\":300,\"tools\":[{\"name\":\"Get_Weather\",\"description\":\"Get current weather\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\"}},\"required\":[\"city\"]}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"What's the weather in Paris and London?\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_01ABC\",\"name\":\"Get_Weather\",\"input\":{\"city\":\"Paris\"}},{\"type\":\"tool_use\",\"id\":\"toolu_02XYZ\",\"name\":\"Get_Weather\",\"input\":{\"city\":\"London\"}}]},{\"role\":\"system\",\"content\":\"Use metric units.\"},{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_02XYZ\",\"content\":\"12C rain\"},{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_01ABC\",\"content\":\"18C sunny\"},{\"type\":\"text\",\"text\":\"Summarize.\"}]}]}"
+      },
+      "mock": {
+        "mode": "happy",
+        "control_file": null
+      },
+      "record": {
+        "downstream": "status + headers + body",
+        "upstream": "full wire request"
+      },
+      "expected": {
+        "status": 200,
+        "upstream_body": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"What's the weather in Paris and London?\"}]},{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"toolu_01ABC\",\"type\":\"function\",\"function\":{\"name\":\"Get_Weather\",\"arguments\":\"{\\\"city\\\":\\\"Paris\\\"}\"}},{\"id\":\"toolu_02XYZ\",\"type\":\"function\",\"function\":{\"name\":\"Get_Weather\",\"arguments\":\"{\\\"city\\\":\\\"London\\\"}\"}}]},{\"role\":\"tool\",\"tool_call_id\":\"toolu_01ABC\",\"content\":\"18C sunny\"},{\"role\":\"tool\",\"tool_call_id\":\"toolu_02XYZ\",\"content\":\"12C rain\"},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"<system-reminder>\\nUse metric units.\\n</system-reminder>\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Summarize.\"}]}],\"max_tokens\":300,\"stream\":false,\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"Get_Weather\",\"description\":\"Get current weather\",\"parameters\":{\"properties\":{\"city\":{\"type\":\"string\"}},\"required\":[\"city\"],\"type\":\"object\"}}}]}"
+      }
+    },
+    {
+      "id": "S2d4-images",
+      "run_order": 8,
+      "purpose": "Image content: base64 source -> image_url part with 'data:image/png;base64,<data>'; url source -> image_url passthrough; part order preserved.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "content-type": "application/json"
+        },
+        "body": "{\"model\":\"mock-model\",\"max_tokens\":150,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Compare these images.\"},{\"type\":\"image\",\"source\":{\"type\":\"base64\",\"media_type\":\"image/png\",\"data\":\"aWNvbg==\"}},{\"type\":\"image\",\"source\":{\"type\":\"url\",\"url\":\"https://example.com/pic.png\"}}]}]}"
+      },
+      "mock": {
+        "mode": "happy",
+        "control_file": null
+      },
+      "record": {
+        "downstream": "status + headers + body",
+        "upstream": "full wire request"
+      },
+      "expected": {
+        "status": 200,
+        "upstream_body": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Compare these images.\"},{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,aWNvbg==\"}},{\"type\":\"image_url\",\"image_url\":{\"url\":\"https://example.com/pic.png\"}}]}],\"max_tokens\":150,\"stream\":false}"
+      }
+    },
+    {
+      "id": "S2d4-toolresult-image-relay",
+      "run_order": 9,
+      "purpose": "tool_result carrying only an image: role:tool content becomes the placeholder '[Tool returned image content; the images follow in the next user message.]' and the image is relayed as a FOLLOWING user message whose first content part is the notice 'Images returned by the preceding tool call(s):'; no extra empty user message is emitted.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "content-type": "application/json"
+        },
+        "body": "{\"model\":\"mock-model\",\"max_tokens\":150,\"messages\":[{\"role\":\"user\",\"content\":\"Show me the diagram.\"},{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_img01\",\"name\":\"render_diagram\",\"input\":{\"name\":\"flow\"}}]},{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_img01\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"base64\",\"media_type\":\"image/png\",\"data\":\"aWNvbg==\"}}]}]}]}"
+      },
+      "mock": {
+        "mode": "happy",
+        "control_file": null
+      },
+      "record": {
+        "downstream": "status + headers + body",
+        "upstream": "full wire request"
+      },
+      "expected": {
+        "status": 200,
+        "upstream_body": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"user\",\"content\":\"Show me the diagram.\"},{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"toolu_img01\",\"type\":\"function\",\"function\":{\"name\":\"render_diagram\",\"arguments\":\"{\\\"name\\\":\\\"flow\\\"}\"}}]},{\"role\":\"tool\",\"tool_call_id\":\"toolu_img01\",\"content\":\"[Tool returned image content; the images follow in the next user message.]\"},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Images returned by the preceding tool call(s):\"},{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,aWNvbg==\"}}]}],\"max_tokens\":150,\"stream\":false}"
+      }
+    },
+    {
+      "id": "S2d4-count-tokens",
+      "run_order": 10,
+      "purpose": "POST /v1/messages/count_tokens is SYNTHESIZED LOCALLY (matches S1 recorded fact: no count forwarding for openai-compatibility upstreams): the body is translated claude->openai and counted with the o200k_base tokenizer over the translated segments (message roles + content texts + tool type/name/description/parameters), joined by newlines. 200 {\"input_tokens\":N}. The mock must NOT be called (upstream wire log empty for this case).",
+      "request": {
+        "method": "POST",
+        "path": "/v1/messages/count_tokens",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "content-type": "application/json"
+        },
+        "body": "{\"model\":\"mock-model\",\"max_tokens\":256,\"system\":\"You are terse.\",\"messages\":[{\"role\":\"user\",\"content\":\"Hello there, count me.\"}],\"tools\":[{\"name\":\"Get_Weather\",\"description\":\"Get current weather\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\"}},\"required\":[\"city\"]}}]}"
+      },
+      "mock": {
+        "mode": "happy",
+        "control_file": null,
+        "note": "assert NO wire request was logged for this case"
+      },
+      "record": {
+        "downstream": "status + headers + body",
+        "upstream": "assert empty"
+      },
+      "expected": {
+        "status": 200,
+        "downstream_body": "{\"input_tokens\":43}",
+        "note": "43 = o200k_base count of: 'system' + 'You are terse.' + 'user' + 'Hello there, count me.' + 'function' + 'Get_Weather' + 'Get current weather' + '{\"properties\":{\"city\":{\"type\":\"string\"}},\"required\":[\"city\"],\"type\":\"object\"}' joined with newlines. RECORDED value wins if different."
+      }
+    },
+    {
+      "id": "S2d4-nostream-rich",
+      "run_order": 11,
+      "purpose": "Scripted rich non-stream response pins the full response mapping: message.reasoning_content -> leading thinking block; message.content string -> text block; message.tool_calls -> tool_use blocks with id SANITIZED to ^[a-zA-Z0-9_-]+$ ('call:rich:1' -> 'call_rich_1') and name RESTORED to the request's casing via the tool-name map ('get_weather' -> 'Get_Weather'); arguments FixJSON-parsed to an input object; stop_reason tool_calls -> tool_use; usage cache math: input_tokens = prompt_tokens - cached_tokens (120-30=90), cache_read_input_tokens=30, cache_creation_input_tokens=5.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "content-type": "application/json"
+        },
+        "body": "{\"model\":\"mock-model\",\"max_tokens\":512,\"tools\":[{\"name\":\"Get_Weather\",\"description\":\"Get current weather\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\"}},\"required\":[\"city\"]}}],\"messages\":[{\"role\":\"user\",\"content\":\"Weather in Paris?\"}]}"
+      },
+      "mock": {
+        "mode": "script",
+        "control_file": {
+          "mode": "script",
+          "non_stream": {
+            "id": "chatcmpl-rich-0001",
+            "object": "chat.completion",
+            "created": 1770000000,
+            "model": "mock-gpt-model",
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "role": "assistant",
+                  "reasoning_content": "deciding how to answer",
+                  "content": "It is sunny in Paris.",
+                  "tool_calls": [
+                    {
+                      "id": "call:rich:1",
+                      "type": "function",
+                      "function": {
+                        "name": "get_weather",
+                        "arguments": "{\"city\":\"Paris\",\"unit\":\"C\"}"
+                      }
+                    }
+                  ]
+                },
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "usage": {
+              "prompt_tokens": 120,
+              "completion_tokens": 13,
+              "total_tokens": 133,
+              "prompt_tokens_details": {
+                "cached_tokens": 30,
+                "cache_write_tokens": 5
+              }
+            }
+          }
+        },
+        "note": "mock must support a scripted non-stream reply via control file (new 'script' mode)"
+      },
+      "record": {
+        "downstream": "status + headers + body",
+        "upstream": "full wire request",
+        "mock_response": "the scripted non_stream JSON above"
+      },
+      "expected": {
+        "status": 200,
+        "downstream_body": "{\"id\":\"chatcmpl-rich-0001\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"mock-gpt-model\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"deciding how to answer\"},{\"type\":\"text\",\"text\":\"It is sunny in Paris.\"},{\"type\":\"tool_use\",\"id\":\"call_rich_1\",\"name\":\"Get_Weather\",\"input\":{\"city\":\"Paris\",\"unit\":\"C\"}}],\"stop_reason\":\"tool_use\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":90,\"output_tokens\":13,\"cache_read_input_tokens\":30,\"cache_creation_input_tokens\":5}}"
+      }
+    },
+    {
+      "id": "S2d4-stream-tools",
+      "run_order": 12,
+      "purpose": "Scripted tool-call stream pins: tool_use block started mid-stream once id+name known (content_block_start with input:{}); argument deltas are BUFFERED and flushed as ONE input_json_delta carrying the COMPLETE arguments JSON at content_block stop (not incremental); name restored via tool-name map (get_weather -> Get_Weather); finish tool_calls -> message_delta stop_reason tool_use; usage zeros (no usage chunk).",
+      "request": {
+        "method": "POST",
+        "path": "/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "content-type": "application/json"
+        },
+        "body": "{\"model\":\"mock-model\",\"max_tokens\":256,\"stream\":true,\"tools\":[{\"name\":\"Get_Weather\",\"description\":\"Get current weather\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\"}},\"required\":[\"city\"]}}],\"messages\":[{\"role\":\"user\",\"content\":\"Weather in Paris?\"}]}"
+      },
+      "mock": {
+        "mode": "script",
+        "control_file": {
+          "mode": "script",
+          "stream_events": [
+            [
+              null,
+              {
+                "id": "chatcmpl-tool-0001",
+                "object": "chat.completion.chunk",
+                "created": 1770000000,
+                "model": "mock-gpt-model",
+                "choices": [
+                  {
+                    "index": 0,
+                    "delta": {
+                      "role": "assistant"
+                    },
+                    "finish_reason": null
+                  }
+                ]
+              }
+            ],
+            [
+              null,
+              {
+                "id": "chatcmpl-tool-0001",
+                "object": "chat.completion.chunk",
+                "created": 1770000000,
+                "model": "mock-gpt-model",
+                "choices": [
+                  {
+                    "index": 0,
+                    "delta": {
+                      "tool_calls": [
+                        {
+                          "index": 0,
+                          "id": "call_tool_01",
+                          "type": "function",
+                          "function": {
+                            "name": "get_weather",
+                            "arguments": ""
+                          }
+                        }
+                      ]
+                    },
+                    "finish_reason": null
+                  }
+                ]
+              }
+            ],
+            [
+              null,
+              {
+                "id": "chatcmpl-tool-0001",
+                "object": "chat.completion.chunk",
+                "created": 1770000000,
+                "model": "mock-gpt-model",
+                "choices": [
+                  {
+                    "index": 0,
+                    "delta": {
+                      "tool_calls": [
+                        {
+                          "index": 0,
+                          "function": {
+                            "arguments": "{\"city\":"
+                          }
+                        }
+                      ]
+                    },
+                    "finish_reason": null
+                  }
+                ]
+              }
+            ],
+            [
+              null,
+              {
+                "id": "chatcmpl-tool-0001",
+                "object": "chat.completion.chunk",
+                "created": 1770000000,
+                "model": "mock-gpt-model",
+                "choices": [
+                  {
+                    "index": 0,
+                    "delta": {
+                      "tool_calls": [
+                        {
+                          "index": 0,
+                          "function": {
+                            "arguments": "\"Paris\"}"
+                          }
+                        }
+                      ]
+                    },
+                    "finish_reason": null
+                  }
+                ]
+              }
+            ],
+            [
+              null,
+              {
+                "id": "chatcmpl-tool-0001",
+                "object": "chat.completion.chunk",
+                "created": 1770000000,
+                "model": "mock-gpt-model",
+                "choices": [
+                  {
+                    "index": 0,
+                    "delta": {},
+                    "finish_reason": "tool_calls"
+                  }
+                ]
+              }
+            ],
+            [
+              null,
+              "[DONE]"
+            ]
+          ]
+        },
+        "note": "scripted SSE: 5 data frames + data: [DONE]"
+      },
+      "record": {
+        "downstream": "status + headers + FULL SSE byte stream",
+        "upstream": "full wire request",
+        "mock_response": "the scripted stream_events above"
+      },
+      "expected": {
+        "status": 200,
+        "downstream_sse": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"chatcmpl-tool-0001\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"mock-gpt-model\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":33,\"output_tokens\":0}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"call_tool_01\",\"name\":\"Get_Weather\",\"input\":{}}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"city\\\":\\\"Paris\\\"}\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\",\"stop_sequence\":null},\"usage\":{\"input_tokens\":0,\"output_tokens\":0}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+        "note": "message_start input_tokens 33 = o200k_base('user\\nWeather in Paris?\\nGet_Weather\\nGet current weather\\n<schema compact>'); recorded value wins"
+      }
+    },
+    {
+      "id": "S2d4-stream-reasoning",
+      "run_order": 13,
+      "purpose": "Scripted reasoning stream pins block sequencing: reasoning_content delta opens a thinking block at index 0; the first content delta CLOSES the thinking block and opens a text block at index 1 (strictly sequential blocks); finish stop closes the text block; [DONE] emits message_delta + message_stop.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "content-type": "application/json"
+        },
+        "body": "{\"model\":\"mock-model\",\"max_tokens\":128,\"stream\":true,\"messages\":[{\"role\":\"user\",\"content\":\"What is the answer?\"}]}"
+      },
+      "mock": {
+        "mode": "script",
+        "control_file": {
+          "mode": "script",
+          "stream_events": [
+            [
+              null,
+              {
+                "id": "chatcmpl-think-0001",
+                "object": "chat.completion.chunk",
+                "created": 1770000000,
+                "model": "mock-gpt-model",
+                "choices": [
+                  {
+                    "index": 0,
+                    "delta": {
+                      "role": "assistant"
+                    },
+                    "finish_reason": null
+                  }
+                ]
+              }
+            ],
+            [
+              null,
+              {
+                "id": "chatcmpl-think-0001",
+                "object": "chat.completion.chunk",
+                "created": 1770000000,
+                "model": "mock-gpt-model",
+                "choices": [
+                  {
+                    "index": 0,
+                    "delta": {
+                      "reasoning_content": "let me think"
+                    },
+                    "finish_reason": null
+                  }
+                ]
+              }
+            ],
+            [
+              null,
+              {
+                "id": "chatcmpl-think-0001",
+                "object": "chat.completion.chunk",
+                "created": 1770000000,
+                "model": "mock-gpt-model",
+                "choices": [
+                  {
+                    "index": 0,
+                    "delta": {
+                      "content": "The answer is 42."
+                    },
+                    "finish_reason": null
+                  }
+                ]
+              }
+            ],
+            [
+              null,
+              {
+                "id": "chatcmpl-think-0001",
+                "object": "chat.completion.chunk",
+                "created": 1770000000,
+                "model": "mock-gpt-model",
+                "choices": [
+                  {
+                    "index": 0,
+                    "delta": {},
+                    "finish_reason": "stop"
+                  }
+                ]
+              }
+            ],
+            [
+              null,
+              "[DONE]"
+            ]
+          ]
+        }
+      },
+      "record": {
+        "downstream": "status + headers + FULL SSE byte stream",
+        "upstream": "full wire request",
+        "mock_response": "the scripted stream_events above"
+      },
+      "expected": {
+        "status": 200,
+        "downstream_sse": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"chatcmpl-think-0001\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"mock-gpt-model\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":7,\"output_tokens\":0}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"let me think\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"The answer is 42.\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":1}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"input_tokens\":0,\"output_tokens\":0}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+        "note": "message_start input_tokens 7 = o200k_base('user\\nWhat is the answer?'); recorded value wins"
+      }
+    },
+    {
+      "id": "S2d4-stream-usage",
+      "run_order": 14,
+      "purpose": "Scripted stream with a trailing usage-only chunk (choices:[]) pins usage extraction: message_delta carries usage from that chunk — input_tokens = prompt_tokens - cached_tokens (100-20=80), cache_read_input_tokens=20 (omitted when 0), cache_creation from cache_write_tokens; message_delta + message_stop are emitted AT the usage chunk; the following [DONE] adds nothing.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "content-type": "application/json"
+        },
+        "body": "{\"model\":\"mock-model\",\"max_tokens\":128,\"stream\":true,\"messages\":[{\"role\":\"user\",\"content\":\"Paris weather now.\"}]}"
+      },
+      "mock": {
+        "mode": "script",
+        "control_file": {
+          "mode": "script",
+          "stream_events": [
+            [
+              null,
+              {
+                "id": "chatcmpl-usage-0001",
+                "object": "chat.completion.chunk",
+                "created": 1770000000,
+                "model": "mock-gpt-model",
+                "choices": [
+                  {
+                    "index": 0,
+                    "delta": {
+                      "role": "assistant"
+                    },
+                    "finish_reason": null
+                  }
+                ]
+              }
+            ],
+            [
+              null,
+              {
+                "id": "chatcmpl-usage-0001",
+                "object": "chat.completion.chunk",
+                "created": 1770000000,
+                "model": "mock-gpt-model",
+                "choices": [
+                  {
+                    "index": 0,
+                    "delta": {
+                      "content": "Paris is sunny."
+                    },
+                    "finish_reason": null
+                  }
+                ]
+              }
+            ],
+            [
+              null,
+              {
+                "id": "chatcmpl-usage-0001",
+                "object": "chat.completion.chunk",
+                "created": 1770000000,
+                "model": "mock-gpt-model",
+                "choices": [
+                  {
+                    "index": 0,
+                    "delta": {},
+                    "finish_reason": "stop"
+                  }
+                ]
+              }
+            ],
+            [
+              null,
+              {
+                "id": "chatcmpl-usage-0001",
+                "object": "chat.completion.chunk",
+                "created": 1770000000,
+                "model": "mock-gpt-model",
+                "choices": [],
+                "usage": {
+                  "prompt_tokens": 100,
+                  "completion_tokens": 42,
+                  "total_tokens": 142,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 20
+                  }
+                }
+              }
+            ],
+            [
+              null,
+              "[DONE]"
+            ]
+          ]
+        }
+      },
+      "record": {
+        "downstream": "status + headers + FULL SSE byte stream",
+        "upstream": "full wire request",
+        "mock_response": "the scripted stream_events above"
+      },
+      "expected": {
+        "status": 200,
+        "downstream_sse": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"chatcmpl-usage-0001\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"mock-gpt-model\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":6,\"output_tokens\":0}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Paris is sunny.\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"input_tokens\":80,\"output_tokens\":42,\"cache_read_input_tokens\":20}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+        "note": "message_start input_tokens 6 = o200k_base('user\\nParis weather now.'); recorded value wins"
+      }
+    },
+    {
+      "id": "S2d4-empty-messages",
+      "run_order": 15,
+      "purpose": "Permissive validation: messages:[] (invalid per the Anthropic API) is accepted and forwarded upstream with an empty array; the upstream decides. Pins that the gateway performs NO Anthropic schema validation of its own.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "content-type": "application/json"
+        },
+        "body": "{\"model\":\"mock-model\",\"max_tokens\":100,\"stream\":false,\"messages\":[]}"
+      },
+      "mock": {
+        "mode": "happy",
+        "control_file": null
+      },
+      "record": {
+        "downstream": "status + headers + body",
+        "upstream": "full wire request"
+      },
+      "expected": {
+        "status": 200,
+        "upstream_body": "{\"model\":\"mock-gpt-model\",\"messages\":[],\"max_tokens\":100,\"stream\":false}",
+        "downstream_body": "canned 200 Claude message (chatcmpl-mock-0001 text)"
+      }
+    },
+    {
+      "id": "S2d4-compat-thinking",
+      "run_order": 16,
+      "purpose": "is-compat: true config variant: an assistant thinking block WITHOUT a valid signature is PRESERVED upstream as reasoning_content on the assistant message (content array + reasoning_content), instead of dropped. Requires a SECOND openai-compatibility provider entry (see config_variant).",
+      "config_variant": {
+        "openai-compatibility_entry": {
+          "name": "mock-openai-compat",
+          "base-url": "http://host.docker.internal:22999/v1",
+          "api-key-entries": [
+            {
+              "api-key": "mock-upstream-key"
+            }
+          ],
+          "models": [
+            {
+              "name": "mock-gpt-model",
+              "alias": "mock-model-compat",
+              "is-compat": true
+            }
+          ]
+        },
+        "note": "add alongside the stock mock-openai entry (hot-reload is fine); same mock instance"
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "content-type": "application/json"
+        },
+        "body": "{\"model\":\"mock-model-compat\",\"max_tokens\":128,\"stream\":false,\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"},{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"I should greet warmly.\",\"signature\":\"\"},{\"type\":\"text\",\"text\":\"Hello!\"}]},{\"role\":\"user\",\"content\":\"Continue the greeting.\"}]}"
+      },
+      "mock": {
+        "mode": "happy",
+        "control_file": null
+      },
+      "record": {
+        "downstream": "status + headers + body",
+        "upstream": "full wire request"
+      },
+      "expected": {
+        "status": 200,
+        "upstream_body": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"Hello!\"}],\"reasoning_content\":\"I should greet warmly.\"},{\"role\":\"user\",\"content\":\"Continue the greeting.\"}],\"max_tokens\":128,\"stream\":false}"
+      }
+    },
+    {
+      "id": "S2d4-auth-missing",
+      "run_order": 17,
+      "purpose": "Missing API key on /v1/messages: 401 with the MIDDLEWARE shape '{\"error\":\"Missing API key\"}' — the plain string-error shape, NOT the Claude type/message error object; CORS block still present. No upstream call.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/messages",
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"model\":\"mock-model\",\"max_tokens\":64,\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}]}"
+      },
+      "mock": {
+        "mode": "happy",
+        "control_file": null,
+        "note": "mock must NOT be called"
+      },
+      "record": {
+        "downstream": "status + headers + body",
+        "upstream": "assert empty"
+      },
+      "expected": {
+        "status": 401,
+        "downstream_body": "{\"error\":\"Missing API key\"}"
+      }
+    },
+    {
+      "id": "S2d4-unknown-model",
+      "run_order": 18,
+      "purpose": "Unknown model: 400 with the CLAUDE error shape '{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"unknown provider for model <model>\"}}' — the OpenAI-style code/param fields of the internal error are DROPPED on the Claude wire. No upstream call.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "content-type": "application/json"
+        },
+        "body": "{\"model\":\"claude-3-7-nonexistent\",\"max_tokens\":64,\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}]}"
+      },
+      "mock": {
+        "mode": "happy",
+        "control_file": null,
+        "note": "mock must NOT be called"
+      },
+      "record": {
+        "downstream": "status + headers + body",
+        "upstream": "assert empty"
+      },
+      "expected": {
+        "status": 400,
+        "downstream_body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"unknown provider for model claude-3-7-nonexistent\"}}"
+      }
+    },
+    {
+      "id": "S2d4-error-429",
+      "run_order": 19,
+      "purpose": "Upstream 429 (mock error mode, wire-shaped body {\"error\":{\"message\":\"mock rate limit\",\"type\":\"rate_limit_exceeded\",\"code\":\"rate_limit_exceeded\"}}): the STATUS passes through (429) and the body is RESHAPED for Claude clients by extracting error.type + error.message (code dropped). Sets the rate-limit cooldown that case 20 observes.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "content-type": "application/json"
+        },
+        "body": "{\"model\":\"mock-model\",\"max_tokens\":64,\"stream\":false,\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}]}"
+      },
+      "mock": {
+        "mode": "error",
+        "control_file": {
+          "mode": "error",
+          "status": 429
+        },
+        "note": "the mock's default openai error body is used"
+      },
+      "record": {
+        "downstream": "status + headers + body",
+        "upstream": "full wire request (429 + error body)"
+      },
+      "expected": {
+        "status": 429,
+        "downstream_body": "{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_exceeded\",\"message\":\"mock rate limit\"}}"
+      }
+    },
+    {
+      "id": "S2d4-cooldown-second",
+      "run_order": 20,
+      "purpose": "Cooldown: fired IMMEDIATELY (same script, < 0.5s) after S2d4-error-429 with the same body while the credential is in its ~1s rate-limit cooldown. Expected: model_cooldown error surfaced for the Claude client as type from the mapped status (rate_limit_error if 429) + message 'All credentials for model mock-model are cooling down via provider mock-openai (last error: rate_limit_exceeded: mock rate limit)'. Record the ACTUAL status + body — they pin the Claude view of the recorded model_cooldown shape.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "content-type": "application/json"
+        },
+        "body": "{\"model\":\"mock-model\",\"max_tokens\":64,\"stream\":false,\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}]}"
+      },
+      "mock": {
+        "mode": "error",
+        "control_file": {
+          "mode": "error",
+          "status": 429
+        },
+        "note": "keep error mode; this request should NOT reach the mock (credential cooling) — assert wire log unchanged"
+      },
+      "record": {
+        "downstream": "status + headers + body",
+        "upstream": "assert NO new wire request",
+        "mock_response": "none (served from cooldown state)"
+      },
+      "expected": {
+        "status": "record (expected 429)",
+        "downstream_body": "record; expected {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"All credentials for model mock-model are cooling down via provider mock-openai (last error: rate_limit_exceeded: mock rate limit)\"}} — recorded bytes win"
+      },
+      "timing": "MUST run back-to-back with S2d4-error-429 (same shell invocation); cooldown window is ~1s"
+    },
+    {
+      "id": "S2d4-stream-error-429",
+      "run_order": 21,
+      "purpose": "Streaming request that fails BEFORE the first event: the response is a plain JSON error (Content-Type application/json, HTTP 429), NOT an SSE stream — no text/event-stream headers. Same 429 error-mode upstream.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "content-type": "application/json"
+        },
+        "body": "{\"model\":\"mock-model\",\"max_tokens\":64,\"stream\":true,\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}]}"
+      },
+      "mock": {
+        "mode": "error",
+        "control_file": {
+          "mode": "error",
+          "status": 429
+        }
+      },
+      "record": {
+        "downstream": "status + headers + body (assert Content-Type application/json and NO text/event-stream header)",
+        "upstream": "full wire request"
+      },
+      "expected": {
+        "status": 429,
+        "downstream_body": "{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_exceeded\",\"message\":\"mock rate limit\"}}",
+        "downstream_headers_omit": [
+          "text/event-stream"
+        ]
+      },
+      "timing": "run AFTER a >1.2s pause following case 20 so the rate-limit cooldown has expired and the request reaches the mock"
+    },
+    {
+      "id": "S2d4-stream-disconnect",
+      "run_order": 22,
+      "purpose": "Upstream disconnects mid-stream (after 2 SSE events): client HTTP stays 200; the client receives the already-translated events (message_start, content_block_start, content_block_delta) with NO content_block_stop / message_delta / message_stop, followed by the in-stream terminal error frame 'event: error\\ndata: {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"unexpected EOF\"}}'. Pins the Claude-client terminal-error shape (differs from the OpenAI-client shape recorded in the mocks README).",
+      "request": {
+        "method": "POST",
+        "path": "/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "content-type": "application/json"
+        },
+        "body": "{\"model\":\"mock-model\",\"max_tokens\":64,\"stream\":true,\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}]}"
+      },
+      "mock": {
+        "mode": "disconnect",
+        "control_file": {
+          "mode": "disconnect",
+          "after": 2
+        }
+      },
+      "record": {
+        "downstream": "status + headers + FULL SSE byte stream",
+        "upstream": "full wire request",
+        "mock_response": "canned SSE, hard-closed after event 2"
+      },
+      "expected": {
+        "status": 200,
+        "downstream_sse": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"chatcmpl-mock-0001\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"mock-gpt-model\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":3,\"output_tokens\":0}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello from mock openai upstream\"}}\n\nevent: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"unexpected EOF\"}}\n\n"
+      }
+    }
+  ]
+}

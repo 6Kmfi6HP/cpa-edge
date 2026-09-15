@@ -1,0 +1,37 @@
+{
+  "case": "S2d7-16-roleless-dropped",
+  "title": "S2d7-16-roleless-dropped",
+  "recorded_at": "2026-09-15T17:04:50Z",
+  "recorder": "oracle-runner-3",
+  "version": {
+    "image": "eceasy/cli-proxy-api:v7.3.4",
+    "digest": "sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+    "commit": "8335eac731946bd4eff18f500653f93736df53d6",
+    "binary_self_report": "CLIProxyAPI Version: v7.3.4, Commit: 8335eac, BuiltAt: 2026-09-15T14:07:06Z"
+  },
+  "client_protocol": "gemini (/v1beta generateContent|streamGenerateContent|countTokens, x-goog-api-key)",
+  "upstream_provider_type": "claude-api-key (mock_claude.py, worker-3 port 21002)",
+  "stream": false,
+  "base_url": "http://127.0.0.1:8397",
+  "port_adaptation": "cases file 18317->8397 (reference); upstream mock 19002->21002 (worker-3)",
+  "gateway_key": "oracle-local-key-1 via x-goog-api-key",
+  "purpose": "A contents turn WITHOUT role is dropped by this direction: upstream body has messages:[] (and no cache_control injection). user_id is still derived (role-less counts as user for the seed).",
+  "dynamic_fields": [
+    "Date",
+    "X-Cpa-Trace-Id",
+    "createTime",
+    "upstream Host header port (21002)",
+    "mock wire log ts field"
+  ],
+  "upstream_wire_delta_lines": 1,
+  "notes": [
+    "upstream wire entries emitted during this case: 1"
+  ],
+  "files": [
+    "meta.yaml",
+    "request.http",
+    "downstream.md",
+    "upstream.jsonl",
+    "mock-response.json"
+  ]
+}

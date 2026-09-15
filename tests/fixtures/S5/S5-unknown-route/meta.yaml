@@ -23,16 +23,9 @@
    "note": null,
    "aux": false,
    "http_status": 404,
-   "expect_status": null
+   "expect_status": 404
   }
  ],
- "mismatches": [
-  {
-   "step": 1,
-   "field": "status",
-   "expected": "<none in cases file>",
-   "actual": 404
-  }
- ],
+ "mismatches": [],
  "upstream_file": null
 }

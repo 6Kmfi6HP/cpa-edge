@@ -1,0 +1,135 @@
+### S5-gemini-key-crud STEP 1 — GET /v0/management/gemini-api-key
+GET /v0/management/gemini-api-key HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-gemini-key-crud STEP 2 — PUT /v0/management/gemini-api-key
+PUT /v0/management/gemini-api-key HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 73
+
+[{"api-key":"s5-gem-key","base-url":"http://host.docker.internal:22001"}]
+
+### S5-gemini-key-crud STEP 3 — GET /v0/management/gemini-api-key
+GET /v0/management/gemini-api-key HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-gemini-key-crud STEP 4 — PATCH /v0/management/gemini-api-key
+PATCH /v0/management/gemini-api-key HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 38
+
+{"index":0,"value":{"weight":2000000}}
+
+### S5-gemini-key-crud STEP 5 — PATCH /v0/management/gemini-api-key
+PATCH /v0/management/gemini-api-key HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 36
+
+{"index":0,"value":{"weight":"abc"}}
+
+### S5-gemini-key-crud STEP 6 — PATCH /v0/management/gemini-api-key
+PATCH /v0/management/gemini-api-key HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 32
+
+{"index":0,"value":{"weight":5}}
+
+### S5-gemini-key-crud STEP 7 — GET /v0/management/gemini-api-key
+GET /v0/management/gemini-api-key HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-gemini-key-crud STEP 8 — PATCH /v0/management/gemini-api-key
+PATCH /v0/management/gemini-api-key HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 35
+
+{"index":0,"value":{"weight":null}}
+
+### S5-gemini-key-crud STEP 9 — PUT /v0/management/gemini-api-key
+PUT /v0/management/gemini-api-key HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 44
+
+[{"api-key":"s5-gem-key2","weight":2000000}]
+
+### S5-gemini-key-crud STEP 10 — PUT /v0/management/gemini-api-key
+PUT /v0/management/gemini-api-key HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 73
+
+[{"api-key":"s5-gem-key","base-url":"http://host.docker.internal:22001"}]
+
+### S5-gemini-key-crud STEP 11 — DELETE /v0/management/gemini-api-key?api-key=ghost
+DELETE /v0/management/gemini-api-key?api-key=ghost HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-gemini-key-crud STEP 12 — DELETE /v0/management/gemini-api-key
+DELETE /v0/management/gemini-api-key HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-gemini-key-crud STEP 13 — DELETE /v0/management/gemini-api-key?api-key=s5-gem-key
+DELETE /v0/management/gemini-api-key?api-key=s5-gem-key HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-gemini-key-crud STEP 14 — GET /v0/management/gemini-api-key
+GET /v0/management/gemini-api-key HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-gemini-key-crud STEP 15 — PUT /v0/management/gemini-api-key
+PUT /v0/management/gemini-api-key HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 128
+
+[{"api-key":"mock-gem-key","base-url":"http://host.docker.internal:22001","models":[{"name":"gemini-mock-model","alias":"gm"}]}]

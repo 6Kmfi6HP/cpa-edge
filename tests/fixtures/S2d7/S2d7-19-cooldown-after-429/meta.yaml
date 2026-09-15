@@ -1,0 +1,33 @@
+{
+  "case": "S2d7-19-cooldown-after-429",
+  "recorded_at": "2026-09-15T17:04:54Z",
+  "recorder": "oracle-runner-3",
+  "version": {
+    "image": "eceasy/cli-proxy-api:v7.3.4",
+    "digest": "sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+    "commit": "8335eac731946bd4eff18f500653f93736df53d6",
+    "binary_self_report": "CLIProxyAPI Version: v7.3.4, Commit: 8335eac, BuiltAt: 2026-09-15T14:07:06Z"
+  },
+  "client_protocol": "gemini (streamGenerateContent alt=sse, x-goog-api-key)",
+  "upstream_provider_type": "claude-api-key (mock_claude.py, worker-3 port 21002)",
+  "stream": true,
+  "base_url": "http://127.0.0.1:8397",
+  "port_adaptation": "cases file 18317->8397; upstream mock 19002->21002 (worker-3)",
+  "purpose": "Immediately after S2d7-10's 429 (same credential, <1s): the credential is in rate-limit cooldown; request fails with HTTP 500 and the model_cooldown body carrying the VERBATIM last upstream error. Pins cooldown shape on the gemini surface.",
+  "dynamic_fields": [
+    "Date",
+    "X-Cpa-Trace-Id"
+  ],
+  "pair": "S2d7-19 fired back-to-back <1s after S2d7-10 (same credential rate-limit cooldown window)",
+  "upstream_wire_delta_lines": 0,
+  "notes": [
+    "upstream wire entries emitted during this case: 0"
+  ],
+  "files": [
+    "meta.yaml",
+    "request.http",
+    "downstream.md",
+    "upstream.jsonl",
+    "mock-response.json"
+  ]
+}

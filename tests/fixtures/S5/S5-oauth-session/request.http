@@ -1,0 +1,90 @@
+### S5-oauth-session STEP 1 — GET /v0/management/get-auth-status
+GET /v0/management/get-auth-status HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-oauth-session STEP 2 — GET /v0/management/get-auth-status?state=abc
+GET /v0/management/get-auth-status?state=abc HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-oauth-session STEP 3 — GET /v0/management/get-auth-status?state=bad/state
+GET /v0/management/get-auth-status?state=bad/state HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-oauth-session STEP 4 — GET /v0/management/get-auth-status?state=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+GET /v0/management/get-auth-status?state=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-oauth-session STEP 5 — DELETE /v0/management/oauth-session
+DELETE /v0/management/oauth-session HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-oauth-session STEP 6 — DELETE /v0/management/oauth-session?state=unknown123
+DELETE /v0/management/oauth-session?state=unknown123 HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-oauth-session STEP 7 — GET /v0/management/oauth-callback?state=abc&code=x
+GET /v0/management/oauth-callback?state=abc&code=x HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+
+
+### S5-oauth-session STEP 8 — POST /v0/management/oauth-callback
+POST /v0/management/oauth-callback HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Length: 2
+
+{}
+
+### S5-oauth-session STEP 9 — POST /v0/management/oauth-callback
+POST /v0/management/oauth-callback HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Length: 12
+
+{"code":"x"}
+
+### S5-oauth-session STEP 10 — POST /v0/management/oauth-callback
+POST /v0/management/oauth-callback HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Length: 32
+
+{"state":"bad/state","code":"x"}
+
+### S5-oauth-session STEP 11 — POST /v0/management/oauth-callback
+POST /v0/management/oauth-callback HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Length: 15
+
+{"state":"abc"}

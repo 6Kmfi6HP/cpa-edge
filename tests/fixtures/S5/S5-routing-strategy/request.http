@@ -1,0 +1,63 @@
+### S5-routing-strategy STEP 1 — GET /v0/management/routing/strategy
+GET /v0/management/routing/strategy HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-routing-strategy STEP 2 — PUT /v0/management/routing/strategy
+PUT /v0/management/routing/strategy HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 22
+
+{"value":"roundrobin"}
+
+### S5-routing-strategy STEP 3 — GET /v0/management/routing/strategy
+GET /v0/management/routing/strategy HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-routing-strategy STEP 4 — PUT /v0/management/routing/strategy
+PUT /v0/management/routing/strategy HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 17
+
+{"value":"bogus"}
+
+### S5-routing-strategy STEP 5 — PUT /v0/management/routing/strategy
+PUT /v0/management/routing/strategy HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 14
+
+{"value":"ff"}
+
+### S5-routing-strategy STEP 6 — GET /v0/management/routing/strategy
+GET /v0/management/routing/strategy HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-routing-strategy STEP 7 — PUT /v0/management/routing/strategy
+PUT /v0/management/routing/strategy HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 23
+
+{"value":"round-robin"}

@@ -1,0 +1,31 @@
+### S5-model-definitions STEP 1 — GET /v0/management/model-definitions
+GET /v0/management/model-definitions HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-model-definitions STEP 2 — GET /v0/management/model-definitions?channel=unknown
+GET /v0/management/model-definitions?channel=unknown HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-model-definitions STEP 3 — GET /v0/management/model-definitions/kimi
+GET /v0/management/model-definitions/kimi HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-model-definitions STEP 4 — GET /v0/management/model-definitions/KIMI
+GET /v0/management/model-definitions/KIMI HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+

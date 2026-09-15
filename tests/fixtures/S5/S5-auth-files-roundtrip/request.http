@@ -1,0 +1,104 @@
+### S5-auth-files-roundtrip STEP 1 — GET /v0/management/auth-files
+GET /v0/management/auth-files HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-auth-files-roundtrip STEP 2 — POST /v0/management/auth-files?name=s5-kimi.json
+POST /v0/management/auth-files?name=s5-kimi.json HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Type: application/json
+Content-Length: 40
+
+{"type":"kimi","email":"s5@example.com"}
+
+### S5-auth-files-roundtrip STEP 3 — GET /v0/management/auth-files
+GET /v0/management/auth-files HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-auth-files-roundtrip STEP 4 — GET /v0/management/auth-files/models?name=s5-kimi.json
+GET /v0/management/auth-files/models?name=s5-kimi.json HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-auth-files-roundtrip STEP 5 — PATCH /v0/management/auth-files/status
+PATCH /v0/management/auth-files/status HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 39
+
+{"name":"s5-kimi.json","disabled":true}
+
+### S5-auth-files-roundtrip STEP 6 — GET /v0/management/auth-files
+GET /v0/management/auth-files HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-auth-files-roundtrip STEP 7 — PATCH /v0/management/auth-files/status
+PATCH /v0/management/auth-files/status HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 40
+
+{"name":"s5-kimi.json","disabled":false}
+
+### S5-auth-files-roundtrip STEP 8 — PATCH /v0/management/auth-files/fields
+PATCH /v0/management/auth-files/fields HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 59
+
+{"name":"s5-kimi.json","note":"s5-note-value","priority":7}
+
+### S5-auth-files-roundtrip STEP 9 — GET /v0/management/auth-files
+GET /v0/management/auth-files HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-auth-files-roundtrip STEP 10 — GET /v0/management/auth-files/download?name=s5-kimi.json
+GET /v0/management/auth-files/download?name=s5-kimi.json HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-auth-files-roundtrip STEP 11 — DELETE /v0/management/auth-files?name=s5-kimi.json
+DELETE /v0/management/auth-files?name=s5-kimi.json HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-auth-files-roundtrip STEP 12 — GET /v0/management/auth-files
+GET /v0/management/auth-files HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+

@@ -27,7 +27,7 @@
 | S4 | spec: scheduling | 1 | spec-s4-scheduling | spec | 0 |  |
 | S5 | spec: management API | 1 | spec-s5-mgmt | spec | 0 |  |
 | S6 | spec: state & storage schemas | 1 | spec-s6-state | spec | 0 |  |
-| S7 | spec: platform degradation matrix | 1 | spec-s7-platform | spec | 0 |  |
+| S7 | spec: platform degradation matrix | 1 | spec-s7-platform | spec-adv | 0 | section+15 goldens done; R-S7-A/B/C ruled; review assigned adv-spec-3 |
 | I-core | packages/core: scheduling algorithms | 2 | — | pending | 0 |  |
 | I-auth | packages/auth: OAuth/device/refresh | 2 | — | pending | 0 |  |
 | I-tr-S2d1 | packages/translators: OpenAI→Gemini | 2 | — | pending | 0 |  |

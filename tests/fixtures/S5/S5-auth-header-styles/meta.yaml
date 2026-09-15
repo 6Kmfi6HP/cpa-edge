@@ -23,16 +23,9 @@
    "note": null,
    "aux": false,
    "http_status": 200,
-   "expect_status": null
+   "expect_status": 200
   }
  ],
- "mismatches": [
-  {
-   "step": 1,
-   "field": "status",
-   "expected": "<none in cases file>",
-   "actual": 200
-  }
- ],
+ "mismatches": [],
  "upstream_file": null
 }

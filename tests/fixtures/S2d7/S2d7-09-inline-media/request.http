@@ -1,0 +1,10 @@
+POST /v1beta/models/cm:generateContent HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+x-goog-api-key: oracle-local-key-1
+Content-Type: application/json
+Content-Length: 209
+
+
+{"contents": [{"role": "user", "parts": [{"text": "Describe this image."}, {"inlineData": {"mimeType": "image/png", "data": "aGVsbG8="}}, {"inlineData": {"mimeType": "application/pdf", "data": "aGVsbG8="}}]}]}

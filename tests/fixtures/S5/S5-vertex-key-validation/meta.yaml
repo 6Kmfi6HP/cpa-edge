@@ -1,0 +1,82 @@
+{
+ "id": "S5-vertex-key-validation",
+ "purpose": "vertex-api-key: PUT without api-key is a 400 with index-scoped message; valid round trip; restore",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image eceasy/cli-proxy-api:v7.3.4, digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+ "recorded_at": "2026-09-16T00:03:55",
+ "record_kind": "management multi-step",
+ "config": "S5 baseline: fleet template (_cpa_edge_ref/run/config.yaml) with base-urls re-pointed to the worker-4 mock ports (openai 21999, gemini 22001, claude 22002, codex 22003, xai 22004, meta 22005, interactions 22006, vertex 22007) and server port 8407; api-keys [oracle-local-key-1]; secret-key stored bcrypt-hashed (plaintext oracle-mgmt-key-1 accepted); request-retry 0; transient-error-cooldown-seconds -1; usage-statistics-enabled false; logging-to-file absent (false); empty auth dir; fresh container per case",
+ "mock_upstream_mode": null,
+ "dynamic_fields": [
+  "Date response header",
+  "port numbers anywhere (8407 / 21999 / 22001-22007; masked for contract replay)",
+  "Date",
+  "auth-index values in list responses",
+  "port numbers in URLs/paths"
+ ],
+ "port_substitution": "cases file drafted for the oracle-runner-2 stack (8387/19999/20001-20007); recorded on the worker-4 stack with the mechanical map 8387->8407, 19999->21999, 2000N->2200N applied to request bodies/paths; everything else verbatim",
+ "file_conventions": "request.http / downstream.md hold every step, delimited by '### <CASE> STEP <n> \u2014 <METHOD> <path>' sections (aux steps marked AUX). Request bytes are the exact bytes sent (CRLF rendered as LF, matching the S1/S2d9 fixture style); response bodies are the de-chunked entity bytes.",
+ "steps": [
+  {
+   "seq": 1,
+   "label": "STEP 1 \u2014 PUT /v0/management/vertex-api-key",
+   "method": "PUT",
+   "path": "/v0/management/vertex-api-key",
+   "note": "missing api-key",
+   "aux": false,
+   "http_status": 400,
+   "expect_status": 400
+  },
+  {
+   "seq": 2,
+   "label": "STEP 2 \u2014 PUT /v0/management/vertex-api-key",
+   "method": "PUT",
+   "path": "/v0/management/vertex-api-key",
+   "note": null,
+   "aux": false,
+   "http_status": 200,
+   "expect_status": 200
+  },
+  {
+   "seq": 3,
+   "label": "STEP 3 \u2014 GET /v0/management/vertex-api-key",
+   "method": "GET",
+   "path": "/v0/management/vertex-api-key",
+   "note": null,
+   "aux": false,
+   "http_status": 200,
+   "expect_status": 200
+  },
+  {
+   "seq": 4,
+   "label": "STEP 4 \u2014 PATCH /v0/management/vertex-api-key",
+   "method": "PATCH",
+   "path": "/v0/management/vertex-api-key",
+   "note": "empty api-key removes the entry",
+   "aux": false,
+   "http_status": 200,
+   "expect_status": 200
+  },
+  {
+   "seq": 5,
+   "label": "STEP 5 \u2014 GET /v0/management/vertex-api-key",
+   "method": "GET",
+   "path": "/v0/management/vertex-api-key",
+   "note": null,
+   "aux": false,
+   "http_status": 200,
+   "expect_status": 200
+  },
+  {
+   "seq": 6,
+   "label": "STEP 6 \u2014 PUT /v0/management/vertex-api-key",
+   "method": "PUT",
+   "path": "/v0/management/vertex-api-key",
+   "note": "restore fleet baseline",
+   "aux": false,
+   "http_status": 200,
+   "expect_status": 200
+  }
+ ],
+ "mismatches": [],
+ "upstream_file": null
+}

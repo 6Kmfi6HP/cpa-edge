@@ -1,0 +1,75 @@
+### S5-quota-endpoints STEP 1 — GET /v0/management/quota/providers
+GET /v0/management/quota/providers HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-quota-endpoints STEP 2 — POST /v0/management/quota/fetch
+POST /v0/management/quota/fetch HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 2
+
+{}
+
+### S5-quota-endpoints STEP 3 — POST /v0/management/quota/fetch
+POST /v0/management/quota/fetch HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 21
+
+{"auth_index":"nope"}
+
+### S5-quota-endpoints AUX-1 — GET /v0/management/openai-compatibility
+GET /v0/management/openai-compatibility HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-quota-endpoints STEP 4 — POST /v0/management/quota/fetch
+POST /v0/management/quota/fetch HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 39
+
+{"auth_index": "", "plugin_id": "nope"}
+
+### S5-quota-endpoints STEP 5 — POST /v0/management/quota/reset
+POST /v0/management/quota/reset HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 21
+
+{"auth_index":"nope"}
+
+### S5-quota-endpoints STEP 6 — POST /v0/management/reset-quota
+POST /v0/management/reset-quota HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 2
+
+{}
+
+### S5-quota-endpoints STEP 7 — POST /v0/management/reset-quota
+POST /v0/management/reset-quota HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 21
+
+{"auth_index":"nope"}

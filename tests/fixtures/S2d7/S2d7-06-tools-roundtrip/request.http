@@ -1,0 +1,10 @@
+POST /v1beta/models/cm:generateContent HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+x-goog-api-key: oracle-local-key-1
+Content-Type: application/json
+Content-Length: 607
+
+
+{"contents": [{"role": "user", "parts": [{"text": "What is the weather in Paris?"}]}, {"role": "model", "parts": [{"functionCall": {"name": "get_weather", "args": {"city": "Paris"}}}]}, {"role": "user", "parts": [{"functionResponse": {"name": "get_weather", "response": {"result": "sunny"}}}]}], "tools": [{"functionDeclarations": [{"name": "get_weather", "description": "Get current weather for a city", "parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}}]}], "toolConfig": {"functionCallingConfig": {"mode": "ANY", "allowedFunctionNames": ["get_weather"]}}}

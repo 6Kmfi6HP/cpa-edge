@@ -18,7 +18,7 @@
       "id": "S7-01",
       "title": "ws-handshake-rejected-no-upgrade",
       "feature": "inbound-websocket",
-      "purpose": "Demonstrate that upstream registers GET /v1/ws and rejects a plain GET with gorilla's 400 (the inbound WebSocket feature surface that vercel degrades).",
+      "purpose": "Demonstrate that upstream registers GET /v1/ws and — with the oracle config (ws-auth unset) — requires an API key there: the config loader presets ws-auth=true, so a plain unauthenticated GET returns 401 Missing API key. The gorilla 400 upgrade-rejection is covered by S7-02 (explicit ws-auth false, or valid key).",
       "requests": [
         {
           "step": 1,
@@ -28,7 +28,7 @@
             "Host": "127.0.0.1:18317"
           },
           "body": "",
-          "note": "default oracle config: ws-auth unset => false, so no API key is required"
+          "note": "RECORDED FACT: ws-auth unset => auth REQUIRED (internal/config/config_load.go presets true); expect 401 {\"error\":\"Missing API key\"} with the CORS block. A 400 'Bad Request' does NOT occur here."
         }
       ],
       "record": [
@@ -54,7 +54,8 @@
             "Content-Type": "application/json"
           },
           "body": "{\"value\":true}",
-          "expect": "200 {\"status\":\"ok\"}"
+          "expect": "200 {\"status\":\"ok\"}",
+          "note": "PUT true matches the already-active default (loader preset); watcher reload also fires"
         },
         {
           "step": 2,
@@ -572,7 +573,7 @@
         "all exchanges; dynamic_fields: line contents, latest-timestamp, next-cursor"
       ],
       "mock_upstream_mode": "none",
-      "config_setup": "run/config.yaml; also record that a logs/main.log file appears next to config.yaml while enabled (docker exec ls or mounted volume inspection)",
+      "config_setup": "run/config.yaml; RECORDED FACT: log files materialize under the AUTH DIR (<auth-dir>/logs/main.log, host: run3/run/auths/logs/), NOT next to config.yaml. Per-request error-*.log dumps appear there even while logging-to-file=false (separate feature, error-logs-max-files retention) — capture samples as aux artifacts.",
       "fixture_status": "RECORDABLE-LOCALLY"
     },
     {
@@ -774,7 +775,7 @@
           "headers": {},
           "body": "",
           "expect": "302 Found; Location: http://127.0.0.1:18317/anthropic/callback?code=oracle-demo-code&state=<state>; Cache-Control: no-store — curl WITHOUT -L so the redirect is not followed",
-          "note": "claude redirect_uri is http://localhost:54545/callback (internal/auth/claude/anthropic_auth.go); the forwarder answers ANY path with the 302. curl WITHOUT -L so the redirect is not followed. Requires container port publish: docker run ... -p 127.0.0.1:54545:54545"
+          "note": "claude redirect_uri is http://localhost:54545/callback (internal/auth/claude/anthropic_auth.go); the forwarder answers ANY path. The 302 Location embeds the SERVER'S CONFIG PORT (worker-3 stack: 8397; not a fixed constant). curl WITHOUT -L so the redirect is not followed. Container must publish 54545 (worker-3 used host 24545->54545)."
         },
         {
           "step": 3,
@@ -833,7 +834,7 @@
             "Authorization": "Bearer oracle-hot-key-2"
           },
           "body": "",
-          "expect": "200 {\"data\":[],\"object\":\"list\"} — the NEW key is accepted without restart"
+          "expect": "200 with the current model list — content is environment-specific (the recording template wires 8 providers; NOT an empty data array). The S7 claim is only: the hot-added key authenticates."
         },
         {
           "step": "file-edit",
@@ -885,7 +886,7 @@
             "Authorization": "Bearer oracle-mgmt-key-1"
           },
           "body": "",
-          "expect": "200; the list contains a kimi entry derived from the file (record actual shape; if the file is rejected, record that — the transcript is the evidence)"
+          "expect": "200; the fake kimi file IS accepted and hot-registered (recorded: auth-files entry with provider kimi, account_type oauth, quota.signals{}, recent_requests buckets)"
         },
         {
           "step": "file-delete",
@@ -953,5 +954,6 @@
       "fixture_status": "FIXTURE-DEFERRED",
       "defer_reason": "CREDENTIALED-ONLY: starts REAL device authorizations at vendor endpoints (api.x.ai / api.meta.ai / api.kimi.com) with dynamic user_code/url/state; completion requires a live account. Specified from upstream source (internal/api/handlers/management/auth_files_provider_oauth.go); record only if the orchestrator explicitly authorizes live vendor probes. The 501-free classification (device flows are platform-independent) is source-based, not golden-based."
     }
-  ]
+  ],
+  "recording_status": "Recorded 2026-09-15/16 by oracle-runner-3: 15/15 recordable cases in tests/fixtures/S7/ (146 files). S7-16 FIXTURE-DEFERRED (no dir). Case notes updated post-recording to encode observed defaults (ws-auth unset = required; logs under <auth-dir>/logs/; forwarder 302 uses server-config port)."
 }

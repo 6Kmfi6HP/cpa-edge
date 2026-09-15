@@ -1,0 +1,97 @@
+### S5-openai-compat-crud STEP 1 — GET /v0/management/openai-compatibility
+GET /v0/management/openai-compatibility HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-openai-compat-crud STEP 2 — PUT /v0/management/openai-compatibility
+PUT /v0/management/openai-compatibility HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 172
+
+[{"name":"s5-mock","base-url":"http://host.docker.internal:21999/v1","api-key-entries":[{"api-key":"s5-mock-key"}],"models":[{"name":"mock-gpt-model","alias":"s5-alias"}]}]
+
+### S5-openai-compat-crud STEP 3 — GET /v0/management/openai-compatibility
+GET /v0/management/openai-compatibility HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-openai-compat-crud STEP 4 — PATCH /v0/management/openai-compatibility
+PATCH /v0/management/openai-compatibility HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 45
+
+{"name":"s5-mock","value":{"prefix":"s5pfx"}}
+
+### S5-openai-compat-crud STEP 5 — GET /v0/management/openai-compatibility
+GET /v0/management/openai-compatibility HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-openai-compat-crud STEP 6 — PATCH /v0/management/openai-compatibility
+PATCH /v0/management/openai-compatibility HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 38
+
+{"name":"nope","value":{"prefix":"x"}}
+
+### S5-openai-compat-crud STEP 7 — DELETE /v0/management/openai-compatibility?name=s5-mock
+DELETE /v0/management/openai-compatibility?name=s5-mock HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-openai-compat-crud STEP 8 — GET /v0/management/openai-compatibility
+GET /v0/management/openai-compatibility HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-openai-compat-crud STEP 9 — DELETE /v0/management/openai-compatibility
+DELETE /v0/management/openai-compatibility HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-openai-compat-crud STEP 10 — PUT /v0/management/openai-compatibility
+PUT /v0/management/openai-compatibility HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 12
+
+{"items":[]}
+
+### S5-openai-compat-crud STEP 11 — PUT /v0/management/openai-compatibility
+PUT /v0/management/openai-compatibility HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 184
+
+[{"name":"mock-openai","base-url":"http://host.docker.internal:21999/v1","api-key-entries":[{"api-key":"mock-upstream-key"}],"models":[{"name":"mock-gpt-model","alias":"mock-model"}]}]

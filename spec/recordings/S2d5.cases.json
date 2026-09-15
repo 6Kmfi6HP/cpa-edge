@@ -1845,7 +1845,8 @@
       "priority": 1,
       "mock": {
         "mode": "happy",
-        "script": null
+        "script": null,
+        "note": "irrelevant — no upstream request is ever made; keep the mock in happy mode so the case can also prove the absence of a wire entry"
       },
       "requests": [
         {
