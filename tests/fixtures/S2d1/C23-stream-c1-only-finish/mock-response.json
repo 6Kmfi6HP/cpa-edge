@@ -1,0 +1,64 @@
+{
+ "mode": "happy",
+ "control_file": {
+  "mode": "happy",
+  "stream_key": "stream_c23"
+ },
+ "alias": "mock-gemini-n2stream",
+ "upstream_model": "gemini-mock-model-n2stream",
+ "scripted_mock_response": {
+  "stream_events": [
+   {
+    "candidates": [
+     {
+      "content": {
+       "parts": [
+        {
+         "text": "Fact one."
+        }
+       ],
+       "role": "model"
+      },
+      "index": 0
+     },
+     {
+      "content": {
+       "parts": [
+        {
+         "text": "Fact two."
+        }
+       ],
+       "role": "model"
+      },
+      "index": 1
+     }
+    ]
+   },
+   {
+    "candidates": [
+     {
+      "content": {
+       "parts": [],
+       "role": "model"
+      },
+      "index": 0
+     },
+     {
+      "content": {
+       "parts": [],
+       "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 1
+     }
+    ],
+    "usageMetadata": {
+     "promptTokenCount": 8,
+     "candidatesTokenCount": 5,
+     "totalTokenCount": 13
+    },
+    "modelVersion": "gemini-mock-model-n2stream"
+   }
+  ]
+ }
+}

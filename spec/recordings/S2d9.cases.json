@@ -796,7 +796,7 @@
     "state": "COMPLETE",
     "recorded_by": "oracle-runner-2 (worker-2), single provenance; worker-1's cancelled set wiped per orchestrator direction",
     "recorded_at": "2026-09-15/16",
-    "fixtures": "tests/fixtures/S2d9/S2d9-01 .. S2d9-17 (plain case-id dirs), 17/17 recorded",
+    "fixtures": "tests/fixtures/S2d9/S2d9-01 .. S2d9-17 (17/17 contract cases) + supplementary S2d9-18 (404->cooldown-window observation pin, gate round 1 N11)",
     "ports_used": "reference 8387, mock 20003 (worker-2 stack; masked dynamic fields per meta.yaml)",
     "sequencing_used": "restarts before S2d9-10, between S2d9-10 and the 11->12 window, and before S2d9-09; S2d9-12 <1s after S2d9-11",
     "expectation_corrections_after_recording": [
@@ -804,6 +804,12 @@
       "S2d9-12: model_cooldown envelope is richer than sketched (last_upstream_error='<type>: <message>', plus model, provider, reset_seconds, reset_time) and carries Retry-After: 3600; cooldown window = resets_in_seconds (3600 -> 1h), ~1s only when the 429 body has no reset fields.",
       "S2d9-08: synthesized disconnect frame confirmed as event: error / request_timeout / invalid_request_error with sequence_number = forwarded data-frame count, preceded by one blank line.",
       "S2d9-17: worker-1's 408 was a mock bug (writes-wrapper iteration); fixed mock shows no stall policy — 200 expectation stands (as-specified 1.08s, halved 0.55s, single-pause 0.31s, all 200)."
-    ]
+    ],
+    "s2d9_18_pin": {
+      "requested_by": "gate round 1 (reports/adversary/S2d9.md N11)",
+      "method": "S2d9-10 request fired twice back-to-back on ONE container (no restart); second response only recorded",
+      "recorded": "503, {\"error\":{\"message\":\"auth_unavailable: no auth available (providers=codex, model=codex-mock; last upstream error: model_not_found: model not found: mock-codex-upstream)\",\"type\":\"server_error\",\"code\":\"internal_server_error\"}}, zero upstream calls",
+      "meaning": "404 model_not_found cooldown = 503 auth_unavailable family (distinct from the 429 model_cooldown family); survives transient-error-cooldown-seconds:-1"
+    }
   }
 }

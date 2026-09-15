@@ -434,7 +434,7 @@ export class YamlFileEditor {
   setScalar(path: readonly string[], key: string, value: JsonValue): void {
     const anchor = this.locateBlock(path)
     const indent = anchor === undefined ? 0 : anchor.indent + 2
-    const existing = anchor === undefined ? this.findKeyLine(key, 0) : this.findKeyLine(key, anchor.indent + 2)
+    const existing = this.findKeyLine(key, indent)
     if (existing !== undefined) {
       const line = this.lines[existing] ?? ''
       const content = line.slice(/^\s*/.exec(line)?.[0].length ?? 0)
@@ -455,15 +455,16 @@ export class YamlFileEditor {
   /** Replaces (or appends) a nested block such as a sequence list. */
   setBlock(path: readonly string[], key: string, renderedLines: readonly string[]): void {
     const anchor = this.locateBlock(path)
-    const indent = anchor === undefined ? 0 : anchor.indent + 2
-    const existing = anchor === undefined ? this.findKeyLine(key, 0) : this.findKeyLine(key, anchor.indent + 2)
-    const block = renderedLines.map((line) => `${' '.repeat(indent)}${line}`)
+    const keyIndent = anchor === undefined ? 0 : anchor.indent + 2
+    const itemIndent = keyIndent + 2
+    const existing = this.findKeyLine(key, keyIndent)
+    const block = renderedLines.map((line) => `${' '.repeat(itemIndent)}${line}`)
     if (existing !== undefined) {
-      const span = this.blockSpan(existing, indent)
-      this.lines.splice(span.first, span.last - span.first + 1, `${' '.repeat(indent)}${key}:`, ...block)
+      const span = this.blockSpan(existing, keyIndent)
+      this.lines.splice(span.first, span.last - span.first + 1, `${' '.repeat(keyIndent)}${key}:`, ...block)
       return
     }
-    this.insertInto(anchor, [`${' '.repeat(indent)}${key}:`, ...block])
+    this.insertInto(anchor, [`${' '.repeat(keyIndent)}${key}:`, ...block])
   }
 
   /** Appends rendered lines at the end of the mapping at `path` (created when absent). */
@@ -476,10 +477,10 @@ export class YamlFileEditor {
   /** Removes a key and its nested block; no-op when absent. */
   removeKey(path: readonly string[], key: string): void {
     const anchor = this.locateBlock(path)
-    const indent = anchor === undefined ? 0 : anchor.indent + 2
-    const at = anchor === undefined ? this.findKeyLine(key, 0) : this.findKeyLine(key, indent)
+    const keyIndent = anchor === undefined ? 0 : anchor.indent + 2
+    const at = this.findKeyLine(key, keyIndent)
     if (at === undefined) return
-    const span = this.blockSpan(at, indent)
+    const span = this.blockSpan(at, keyIndent)
     this.lines.splice(span.first, span.last - span.first + 1)
   }
 

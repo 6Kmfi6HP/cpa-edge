@@ -284,18 +284,24 @@ function hhmm(seconds: number): string {
  * bucket id `floor(unix/600)`, slot `id mod 20`, zero-filled snapshots
  * oldest to newest with wall-clock labels.
  */
-export function recentRequestBuckets(nowSeconds: number): RecentRequestBucket[] {
+/**
+ * The fixed 20-bucket window ending at the bucket containing `nowSeconds`,
+ * entries in struct order (`time`, `success`, `failed`) with wall-clock
+ * labels. Counters are zero for config-synthesized credentials - usage
+ * accounting flows through `recordUsage`, not this snapshot.
+ */
+export function recentRequestBuckets(nowSeconds: number): OrderedObject[] {
   const currentBucket = Math.floor(nowSeconds / BUCKET_WINDOW_SECONDS)
-  const out: RecentRequestBucket[] = []
+  const out: OrderedObject[] = []
   for (let slot = BUCKET_COUNT - 1; slot >= 0; slot -= 1) {
     const bucketId = currentBucket - slot
     const start = bucketId * BUCKET_WINDOW_SECONDS
     const end = start + BUCKET_WINDOW_SECONDS
-    out.push({
-      time: `${hhmm(start)}-${hhmm(end)}`,
-      success: 0,
-      failed: 0,
-    })
+    out.push(ordered([
+      ['time', `${hhmm(start)}-${hhmm(end)}`],
+      ['success', 0],
+      ['failed', 0],
+    ]))
   }
   return out
 }
