@@ -5,7 +5,7 @@
  */
 
 import type { JsonValue, Store } from '@cpa-edge/core'
-import { ordered, type OrderedObject, type WireValue } from './gojson'
+import { asPlainRecord, ordered, parseJsonGo, type OrderedObject, type WireValue } from './gojson'
 import { rfc3339Local, localZoneOffsetMinutes } from './wire'
 
 /** Completion facts handed to `recordUsage` (camelCase mirror of 3.5.1). */
@@ -319,18 +319,43 @@ export interface ChannelSubscriber {
   deliver(payload: string): void
 }
 
+/** Retention window the consumer applies while popping (S6 3.5.3). */
+export interface UsageRetention {
+  /** Window length in seconds; records stamped before it count as stale. */
+  readonly seconds: number
+  /** Clock read once per pop for the drop horizon; defaults to `Date.now`. */
+  readonly now?: () => number
+}
+
+/** Epoch milliseconds of a record's `timestamp` field, `undefined` when absent/unparsable. */
+function recordTimestampMs(payload: string): number | undefined {
+  const parsed = parseJsonGo(payload)
+  if (!parsed.ok) return undefined
+  const stamp = asPlainRecord(parsed.value)?.['timestamp']
+  if (typeof stamp !== 'string') return undefined
+  const ms = Date.parse(stamp)
+  return Number.isNaN(ms) ? undefined : ms
+}
+
 /**
- * Pops up to `count` record payloads oldest-first and destructively,
- * returning the raw stored bytes (the record JSON as enqueued). Callers
- * decide how to embed non-JSON payloads.
+ * Pops up to `count` fresh record payloads oldest-first and destructively,
+ * returning the raw stored bytes (the record JSON as enqueued). When a
+ * retention window is given, claimed records stamped before the window are
+ * acknowledged and dropped instead of delivered (the consumer-side half of
+ * the `redis-usage-queue-retention-seconds` rule); payloads without a
+ * parsable timestamp always count as fresh.
  */
-export async function popUsageRecords(store: Store, count: number): Promise<string[]> {
+export async function popUsageRecords(store: Store, count: number, retention?: UsageRetention): Promise<string[]> {
   const out: string[] = []
-  for (let i = 0; i < count; i += 1) {
+  const horizon = retention === undefined ? undefined : (retention.now?.() ?? Date.now()) - retention.seconds * 1000
+  while (out.length < count) {
     const claim = await store.claim(USAGE_QUEUE, 30_000)
     if (claim === undefined) break
     await store.ack(USAGE_QUEUE, claim)
-    out.push(typeof claim.payload === 'string' ? claim.payload : JSON.stringify(claim.payload))
+    const payload = typeof claim.payload === 'string' ? claim.payload : JSON.stringify(claim.payload)
+    const stamped = recordTimestampMs(payload)
+    if (horizon !== undefined && stamped !== undefined && stamped < horizon) continue
+    out.push(payload)
   }
   return out
 }

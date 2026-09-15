@@ -1001,9 +1001,11 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
     request: Request,
   ): Promise<WireResponse> {
     const spec = PROVIDER_LISTS[path]
-    const current = [...(((effective as unknown as { [key: string]: readonly ProviderEntry[] | undefined })[spec.key]) ?? [])]
+    const readList = (): ProviderEntry[] =>
+      [...(((effective as unknown as { [key: string]: readonly ProviderEntry[] | undefined })[spec.key]) ?? [])]
 
     if (method === 'GET') {
+      const current = readList()
       const entries = await Promise.all(
         current.map(async (entry) => {
           if (spec.family === 'openai-compatibility') {
