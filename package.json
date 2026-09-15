@@ -23,7 +23,7 @@
     "@eslint/js": "*",
     "@types/node": "*",
     "eslint": "*",
-    "typescript": "*",
+    "typescript": "~6.0.3",
     "typescript-eslint": "*",
     "vitest": "*"
   }
