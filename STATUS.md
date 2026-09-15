@@ -16,7 +16,7 @@
 | S2d1 | spec: OpenAI client → Gemini upstream | 1 | spec-s2d1-oai2gem | spec-adv | 0 | section+21 goldens done; review assigned adv-spec-6 |
 | S2d2 | spec: Gemini client → OpenAI upstream | 1 | spec-s2d2-gem2oai | merged | 2 | ADMITTED round 2. 26 goldens; countTokens formula independently reproduced by reviewer. Unlocks I-tr-S2d2. |
 | S2d3 | spec: OpenAI client → Claude upstream | 1 | spec-s2d3-oai2cla | merged | 2 | ADMITTED round 2. 26 goldens. Unlocks I-tr-S2d3. |
-| S2d4 | spec: Claude client → OpenAI upstream | 1 | spec-s2d4-cla2oai | spec-adv | 0 | section+22 goldens done; review assigned adv-spec-4 |
+| S2d4 | spec: Claude client → OpenAI upstream | 1 | spec-s2d4-cla2oai | spec-fix | 1 | R1: adv-spec-4 FAIL (B1 two-stage thinking table — S2d2-class; discriminating batch authorized to w4) |
 | S2d5 | spec: OpenAI client → Codex/Responses upstream | 1 | spec-s2d5-oai2codex | merged | 2 | ADMITTED round 2 (R1-R7 text rider to writer). 26 goldens; union->enum MUST + type-selection pinned. Unlocks I-tr-S2d5. |
 | S2d6 | spec: Responses client → OpenAI chat upstream | 1 | spec-s2d6-res2oai | merged | 3 | ADMITTED round 3. 27 goldens; stream Ensure + CloseError catalog + empty200 conductor rule. Unlocks I-tr-S2d6. |
 | S2d7 | spec: Gemini client → Claude upstream | 1 | spec-s2d7-gem2cla | merged | 2 | ADMITTED round 2. 31 goldens; validator families byte-pinned; empty-stream conductor gate recorded-deviation integrated. Unlocks I-tr-S2d7. |
@@ -57,4 +57,3 @@
 
 ## Verdict / escalation log
 (appended by orchestrator)
-- 2026-09-16 04:2x I-tr-S2d7 MERGED (impl gate round 2 PASS). gem2cla: B1 barrier fix + CRLF + S2d7-31 cooldown gate all verified by independent probes. 2 directions merged (oai2cla, gem2cla).

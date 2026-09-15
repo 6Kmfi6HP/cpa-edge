@@ -459,7 +459,7 @@ describe('refreshed-credential persistence (atomic merge)', () => {
     const refresher = new UnauthorizedRefresher(store, { now: () => 0 })
     const vendoring: FetchLike = async () => {
       // A concurrent writer commits a change while the refresh is running.
-      await store.update('auth', 'claude-a.json', (current) => ({
+      await store.update<Record<string, JsonValue>>('auth', 'claude-a.json', (current) => ({
         ...(current ?? {}),
         label: 'touched-while-refreshing',
       }))

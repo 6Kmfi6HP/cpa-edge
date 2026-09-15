@@ -914,7 +914,7 @@ interface MockUpstreamResponse {
   readonly status: number
 }
 
-function buildMockUpstreamResponse(script: MockScript, caseId: string): MockUpstreamResponse {
+function buildMockUpstreamResponse(script: MockScript): MockUpstreamResponse {
   const encoder = new TextEncoder()
   if (script.kind === 'error') {
     return {
@@ -1440,14 +1440,10 @@ interface ReplayOptions {
 async function replayCase(session: ReplaySession, caseId: CaseId, options: ReplayOptions = {}): Promise<void> {
   const files = await loadCaseFiles(caseId)
   const script: MockScript | undefined = options.script ?? (files.meta.upstream_hits > 0 ? (await resolveMockScript(caseId)).script : undefined)
-  const mock = script === undefined ? undefined : buildMockUpstreamResponse(script, caseId)
+  const mock = script === undefined ? undefined : buildMockUpstreamResponse(script)
 
-  let currentRequest: ResponsesRequest | undefined
   const send: UpstreamSender = async (call) => {
-    if (currentRequest === undefined) {
-      throw new Error(`S2d6[${caseId}]: harness bug — upstream call outside the request step`)
-    }
-    session.captured.push({ request: currentRequest, call })
+    session.captured.push({ request: files.request, call })
     if (mock === undefined) {
       throw new Error(`S2d6[${caseId}]: gateway-local case made an upstream call (meta upstream_hits is 0)`)
     }
@@ -1455,7 +1451,6 @@ async function replayCase(session: ReplaySession, caseId: CaseId, options: Repla
   }
 
   const callsBefore = session.captured.length
-  currentRequest = files.request
   const produced = await session.service.handleResponses(files.request, send)
   const callsThisCase = session.captured.slice(callsBefore)
   expect(callsThisCase.length, `S2d6[${caseId}]: upstream call count (gateway-local cases call nothing)`).toBe(
@@ -1465,6 +1460,9 @@ async function replayCase(session: ReplaySession, caseId: CaseId, options: Repla
     const recorded = files.wire[index]
     if (recorded === undefined) {
       throw new Error(`S2d6[${caseId}]: more upstream calls than recorded wire lines`)
+    }
+    if (mock === undefined) {
+      throw new Error(`S2d6[${caseId}]: harness bug — a captured call has no scripted mock`)
     }
     expect(
       mock.status,
