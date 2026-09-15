@@ -1,0 +1,20 @@
+{
+  "name": "@cpa-edge/management",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@cpa-edge/core": "workspace:*",
+    "@cpa-edge/auth": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "*",
+    "vitest": "*"
+  }
+}

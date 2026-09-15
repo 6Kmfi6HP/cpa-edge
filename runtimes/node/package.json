@@ -1,0 +1,23 @@
+{
+  "name": "@cpa-edge/runtime-node",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@cpa-edge/core": "workspace:*",
+    "@cpa-edge/translators": "workspace:*",
+    "@cpa-edge/executors": "workspace:*",
+    "@cpa-edge/auth": "workspace:*",
+    "@cpa-edge/management": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "*",
+    "vitest": "*"
+  }
+}

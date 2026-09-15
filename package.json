@@ -1,0 +1,30 @@
+{
+  "name": "cpa-edge",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.33.2",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm -r --if-present build",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "typecheck": "pnpm -r --if-present typecheck && tsc --noEmit -p tests"
+  },
+  "dependencies": {
+    "@cpa-edge/core": "workspace:*",
+    "@cpa-edge/translators": "workspace:*",
+    "@cpa-edge/executors": "workspace:*",
+    "@cpa-edge/auth": "workspace:*",
+    "@cpa-edge/management": "workspace:*"
+  },
+  "devDependencies": {
+    "@eslint/js": "*",
+    "@types/node": "*",
+    "eslint": "*",
+    "typescript": "*",
+    "typescript-eslint": "*",
+    "vitest": "*"
+  }
+}
