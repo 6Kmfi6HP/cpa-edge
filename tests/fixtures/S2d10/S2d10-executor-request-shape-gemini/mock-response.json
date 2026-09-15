@@ -1,0 +1,27 @@
+{
+ "mode": "happy",
+ "generateContent": {
+  "response": {
+   "candidates": [
+    {
+     "content": {
+      "role": "model",
+      "parts": [
+       {
+        "text": "hello"
+       }
+      ]
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 1,
+    "candidatesTokenCount": 1,
+    "totalTokenCount": 2
+   }
+  }
+ },
+ "note": "same canned non-stream reply as S2d10-executor-request-shape"
+}

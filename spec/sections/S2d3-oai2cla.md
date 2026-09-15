@@ -253,7 +253,13 @@ Before translating the aggregated buffer, `validateClaudeStreamingResponse` (`cl
 
 ### 5.4 429 → credential cooldown interaction (scheduling boundary, pinned here)
 
-An upstream 429 puts the credential into a ~1s rate-limit cooldown that `transient-error-cooldown-seconds: -1` does NOT disable (wire-note hard pin; recorded for the fleet). The NEXT request for the same model (any mode) fails with HTTP 500 and the model-cooldown envelope: `{"error":{"code":"model_cooldown","last_upstream_error":"<verbatim upstream body>","message":"All credentials for model <model> are cooling down via provider claude (last error: ...)"}}`. Scheduling semantics are S4; the golden pins the claude-direction occurrence.
+An upstream 429 puts the credential into a ~1s rate-limit cooldown that `transient-error-cooldown-seconds: -1` does NOT disable (wire-note hard pin). The NEXT request for the same model (any mode) fails with **HTTP 429**, a `Retry-After: 1` response header, and the model-cooldown envelope (recorded, case 14 step 2, byte-exact):
+
+```
+{"error":{"code":"model_cooldown","last_upstream_error":"<verbatim upstream 429 body>","message":"All credentials for model cm are cooling down via provider claude (last error: <verbatim upstream 429 body>)","model":"cm","provider":"claude","reset_seconds":1,"reset_time":"1s"}}
+```
+
+The envelope carries `model`, `provider`, `reset_seconds` and `reset_time` beyond the fields the fleet wire note names; `reset_seconds`/`reset_time` are timing-derived (for this scripted case assert the literals `1` and `"1s"`). Cross-recorded consistency: rate-limit cooldowns surface as 429 `model_cooldown` (also seen on the antigravity direction, S2d10), while transient-error cooldowns surface as 503 `auth_unavailable` (S6-16 case family). Scheduling semantics are S4; the golden pins the claude-direction occurrence only.
 
 ### 5.5 Client-side/gateway errors before upstream
 
@@ -292,13 +298,15 @@ Dynamic fields (mask in fixtures; listed per case): `Date`, `X-Cpa-Trace-Id`, do
 | 11 | `s2d3-res-tooluse-nonstream` | aggregated `message.tool_calls` + `finish_reason:"tool_calls"`, content `""` | script `tool_use` |
 | 12 | `s2d3-res-thinking` | `thinking_delta` → `reasoning_content` (stream delta + non-stream message field), `signature_delta` ignored | script `thinking` |
 | 13 | `s2d3-res-stopreasons-usage` | `max_tokens`→`length`, `stop_sequence`→`stop`; usage arithmetic incl. cache tokens (`cached_tokens`/`cached_creation_tokens`/`cache_write_tokens`), double usage emission (finish chunk + trailing chunk) | script `stop_variant` |
-| 14 | `s2d3-err-429-verbatim-cooldown` | claude-shaped 429 body+status VERBATIM; immediate follow-up → 500 `model_cooldown` envelope | error 429 |
+| 14 | `s2d3-err-429-verbatim-cooldown` | claude-shaped 429 body+status VERBATIM; immediate follow-up → **429** + `Retry-After: 1` + `model_cooldown` envelope (recorded: status is 429, not 500) | error 429 |
 | 15 | `s2d3-err-wrap-500-nonjson` | non-JSON upstream body → wrapped `server_error`/`internal_server_error` envelope, status preserved | error 500 (raw body) |
 | 16 | `s2d3-err-instream-event` | in-stream `error` SSE event → `{"error":{message,type}}` chunk (stream) / 502 validation message (non-stream) | script `error_event` |
 | 17 | `s2d3-disconnect` | mid-stream hard close → in-stream `unexpected EOF` error chunk, no `[DONE]` (stream) / 500 envelope (non-stream) | disconnect (after=2) |
 | 18 | `s2d3-slow` | pass-through ordering under delayed events (assert order/framing only) | slow (delay 300ms) |
 
 The exact per-case requests, scripted upstream replies and required control-file contents are in `spec/recordings/S2d3.cases.json`. Fixture paths: `tests/fixtures/S2d3/<case-id>/`.
+
+**Recording status (2026-09-16)**: all 18 cases RECORDED by @oracle-runner-2 (18/18 fixture directories present, byte-exact transcripts). Recorded on the oracle's isolated stack (reference on 127.0.0.1:8387, claude mock on port 20002 — port/host values are listed as dynamic fields in each meta.yaml). The case-1 cross-stack anchor `metadata.user_id` = `120226d8c5cb...0e8b6c46` (sha256 of `content:Say hello`) held byte-exact, confirming the derivation is host/port-independent. One recorded refinement over the pre-recording predictions: §5.4 (cooldown surfaces as 429 + `Retry-After: 1`, not 500). Everything else matched prediction, including upstream body key order, sampling-knob deletion, cache-marker placement, tool/thinking/stop-reason mappings, usage arithmetic, and all error-path shapes.
 
 ### 7.3 FIXTURE-DEFERRED (documented, not recordable locally — R-FIXTURE)
 

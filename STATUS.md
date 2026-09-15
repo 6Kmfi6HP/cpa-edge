@@ -19,17 +19,17 @@
 | S2d4 | spec: Claude client → OpenAI upstream | 1 | spec-s2d4-cla2oai | spec | 0 |  |
 | S2d5 | spec: OpenAI client → Codex/Responses upstream | 1 | spec-s2d5-oai2codex | spec-adv | 0 | section+24 goldens done; review assigned adv-spec-5; wire-note cooldown correction recorded |
 | S2d6 | spec: Responses client → OpenAI chat upstream | 1 | spec-s2d6-res2oai | spec | 0 |  |
-| S2d7 | spec: Gemini client → Claude upstream | 1 | spec-s2d7-gem2cla | spec-fix | 1 | R1: adv-spec-2 FAIL (B1 tokenizer ruling unapplied; B2 validator strings/goldens); R-TOK registered in SPEC §5 |
+| S2d7 | spec: Gemini client → Claude upstream | 1 | spec-s2d7-gem2cla | spec-adv-r2 | 1 | fixes done + 6 new goldens; round-2 queued on adv-spec-2 |
 | S2d8 | spec: Claude client → Gemini upstream | 1 | spec-s2d8-cla2gem | spec | 0 | section+18 cases done; rulings sent; recording queued w5 |
 | S2d9 | spec: Codex/Responses passthrough semantics | 1 | spec-s2d9-codex | spec | 0 |  |
 | S2d10 | spec: Antigravity redirect rules | 1 | spec-s2d10-antigravity | spec-adv | 0 | section+17 goldens; synthetic-credential precedent; review queued on adv-spec-2 |
-| S3 | spec: auth flows | 1 | spec-s3-auth | spec-fix | 2 | R2: B1-B6 RESOLVED; new F1 vertex-auth-files false clause + F2/F3 phrases; micro-amendment dispatched |
+| S3 | spec: auth flows | 1 | spec-s3-auth | merged | 3 | ADMITTED after 3 rounds. Goldens: 44 dirs. Unlocked I-auth + S3 contract tests. |
 | S4 | spec: scheduling | 1 | spec-s4-scheduling | spec-adv | 0 | section+20 goldens done; review pending assignment |
-| S5 | spec: management API | 1 | spec-s5-mgmt | spec-adv | 0 | section+22 goldens finalized; review assigned adv-spec-3 (GET/config secrets = mirror per S7-N2 ruling) |
+| S5 | spec: management API | 1 | spec-s5-mgmt | spec-fix | 1 | R1: adv-spec-3 FAIL (B1 model-definitions entry shape; B2 fake-PEM golden missing); N1-N8 dispatched |
 | S6 | spec: state & storage schemas | 1 | spec-s6-state | spec-adv | 0 | section+17 goldens done; S7 amendments applied; review assigned adv-spec-6 |
-| S7 | spec: platform degradation matrix | 1 | spec-s7-platform | spec-fix | 2 | R2: FAIL — propagation cluster only (F5a-3/NE-05/R-S7-B tails, vercel NE entry, 2 cosmetics). R3 = final round |
+| S7 | spec: platform degradation matrix | 1 | spec-s7-platform | spec-adv-r3 | 2 | 6 fixes applied; narrow round-3 verification running on adv-spec-3 |
 | I-core | packages/core: scheduling algorithms | 2 | — | pending | 0 |  |
-| I-auth | packages/auth: OAuth/device/refresh | 2 | — | pending | 0 |  |
+| I-auth | packages/auth: OAuth/device/refresh | 2 | impl-i-auth | impl | 0 |  |
 | I-tr-S2d1 | packages/translators: OpenAI→Gemini | 2 | — | pending | 0 |  |
 | I-tr-S2d2 | packages/translators: Gemini→OpenAI | 2 | — | pending | 0 |  |
 | I-tr-S2d3 | packages/translators: OpenAI→Claude | 2 | — | pending | 0 |  |

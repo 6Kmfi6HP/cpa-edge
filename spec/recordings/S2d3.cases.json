@@ -917,9 +917,11 @@
     "Date",
     "X-Cpa-Trace-Id",
     "cooldown reset/timing text inside model_cooldown envelope if present",
-    "mock port"
+    "mock port",
+    "reset_seconds/reset_time (assert literals 1 and '1s' for this scripted case)"
    ],
-   "notes": "Run this case LAST among cases that share the default instance (the 429 poisons the credential for ~1s). If step2 unexpectedly succeeds (cooldown already expired), record actual and flag - the fixture then pins 'no cooldown after 1s' instead."
+   "notes": "Run this case LAST among cases that share the default instance (the 429 poisons the credential for ~1s). If step2 unexpectedly succeeds (cooldown already expired), record actual and flag - the fixture then pins 'no cooldown after 1s' instead.",
+   "recorded_result": "RECORDED 2026-09-16 (tests/fixtures/S2d3/s2d3-err-429-verbatim-cooldown/): step1 -> 429 with the mock body passed through VERBATIM (the mock's spaced Python-JSON serialization preserved byte-exact). step2 -> HTTP 429 (NOT 500) with header Retry-After: 1 and body {'error':{'code':'model_cooldown','last_upstream_error':'<verbatim 429 body>','message':'All credentials for model cm are cooling down via provider claude (last error: <verbatim 429 body>)','model':'cm','provider':'claude','reset_seconds':1,'reset_time':'1s'}}. Recorded bytes are authoritative over the pre-recording '500' expectation in this file."
   },
   {
    "id": "s2d3-err-wrap-500-nonjson",
@@ -1092,7 +1094,8 @@
     "created in chunk",
     "mock port"
    ],
-   "notes": "Transport failure may poison the credential with a transient-error cooldown - with transient-error-cooldown-seconds: -1 it should NOT (config sets it off); if step2 shows a model_cooldown/auth_unavailable shape instead of the 500 envelope, record actual and flag."
+   "notes": "Transport failure may poison the credential with a transient-error cooldown - with transient-error-cooldown-seconds: -1 it should NOT (config sets it off); if step2 shows a model_cooldown/auth_unavailable shape instead of the 500 envelope, record actual and flag.",
+   "recorded_result": "RECORDED 2026-09-16: step1 stream -> 200, role chunk + 2 content chunks + one data: {\"error\":{\"message\":\"unexpected EOF\",\"type\":\"server_error\",\"code\":\"internal_server_error\"}} frame, NO [DONE]; step2 non-stream -> 500 unexpected EOF envelope; transient cooldown did NOT engage (transient-error-cooldown-seconds: -1)."
   },
   {
    "id": "s2d3-slow",
@@ -1133,5 +1136,6 @@
    ],
    "notes": "Existing slow-mode proof: probes/mocks/README.md m2 (gemini); same mechanism."
   }
- ]
+ ],
+ "recording_status": "All 18 cases RECORDED 2026-09-16 by oracle-runner-2 into tests/fixtures/S2d3/ (isolated stack: reference 127.0.0.1:8387, claude mock on 20002; ports/host masked as dynamic fields per meta.yaml). 18/18 fixtures present; recorded_result notes added where reality refined the prediction (case 14: cooldown surfaces as HTTP 429 + Retry-After: 1, not 500). Everything else matched."
 }
