@@ -95,19 +95,19 @@ function serializeString(text: string): string {
         out += '\\\\'
         break
       case 0x08:
-        out += '\b'
+        out += '\\b'
         break
       case 0x0c:
-        out += '\f'
+        out += '\\f'
         break
       case 0x0a:
-        out += '\n'
+        out += '\\n'
         break
       case 0x0d:
-        out += '\r'
+        out += '\\r'
         break
       case 0x09:
-        out += '\t'
+        out += '\\t'
         break
       case 0x2028:
       case 0x2029:

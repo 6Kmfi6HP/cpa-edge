@@ -119,5 +119,6 @@
  "notes": [],
  "http_status": "200",
  "request_model_substituted": "gemini-mock-model -> gm (client-visible alias; the cases file used the upstream name, which the reference rejects with 400 unknown provider)",
- "upstream_hits": 1
+ "upstream_hits": 1,
+ "gate_round1_correction_B1": "EXPECTED-VS-RECORDED DEVIATION (gate round 1 finding B1; appended 2026-09-16, text-only edit; recorded wire bytes NOT altered): this meta's expected_upstream.body.generationConfig still carries the PRE-STRIP shape {\"thinkingConfig\":{\"thinkingBudget\":1024}}. The RECORDED upstream wire (upstream.jsonl) shows generationConfig:{} \u2014 the executor strips thinking fields for upstreams without a matching thinking capability (openai-compat executor capability strip). Verdict: expected deviation; the recorded wire is authoritative for the golden index."
 }

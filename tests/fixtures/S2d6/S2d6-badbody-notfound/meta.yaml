@@ -1,0 +1,20 @@
+{
+ "id": "S2d6-badbody-notfound",
+ "purpose": "Non-JSON client body -> reference parses leniently (gjson), model resolves to empty, 400 model_not_found with EMPTY model name. REFERENCE-BEHAVIOR GOLDEN ONLY: per SPEC.md NE-LENIENT, CPA-Edge rejects non-JSON with a strict 400 instead; this fixture documents the reference, it is not a rewrite target.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6; image digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+ "recorded_at": "2026-09-16T03:47:37",
+ "record": "downstream status+headers+body; upstream.jsonl must stay EMPTY for this case",
+ "mock_control": {},
+ "expect_hints": {
+  "downstream_status": "400 Bad Request",
+  "downstream_body": "{\"error\":{\"message\":\"unknown provider for model \",\"type\":\"invalid_request_error\",\"code\":\"model_not_found\",\"param\":\"model\"}}",
+  "note": "message ends with a trailing space (empty model name concatenated)."
+ },
+ "dynamic_fields": [
+  "Date",
+  "X-Cpa-Trace-Id",
+  "Host/port numbers"
+ ],
+ "http_status": "400",
+ "upstream_hits": 0
+}

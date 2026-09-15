@@ -1000,7 +1000,7 @@
     },
     {
       "id": "S2d8-07-nostream-thinking",
-      "purpose": "Request: thinking enabled + budget_tokens -> generationConfig.thinkingConfig.thinkingBudget. Response: thought part + thoughtSignature -> thinking block with signature; thoughtsTokenCount added to output_tokens; cachedContentTokenCount -> input_tokens subtraction + cache_read_input_tokens.",
+      "purpose": "Request: thinking enabled + budget_tokens -> translator maps generationConfig.thinkingConfig.thinkingBudget, then the executor capability pass STRIPS it for the capability-resolved mock model -> upstream body carries \"generationConfig\":{} (empty object retained). Response: thought part + thoughtSignature -> thinking block with signature; thoughtsTokenCount added to output_tokens; cachedContentTokenCount -> input_tokens subtraction + cache_read_input_tokens.",
       "downstream_request": {
         "method": "POST",
         "url": "http://127.0.0.1:8417/v1/messages",
@@ -1073,11 +1073,7 @@
             }
           ],
           "model": "gemini-mock-model",
-          "generationConfig": {
-            "thinkingConfig": {
-              "thinkingBudget": 1024
-            }
-          },
+          "generationConfig": {},
           "safetySettings": [
             {
               "category": "HARM_CATEGORY_HARASSMENT",
@@ -1125,7 +1121,10 @@
           "output_tokens": 10,
           "cache_read_input_tokens": 3
         }
-      }
+      },
+      "notes": [
+        "RECORDED (golden-pinned): thinkingConfig is DELETED by the executor capability pass (capability-resolved model without thinking support); the generationConfig key REMAINS as {} — see spec section 3.1 thinking row (two-stage rule) and 7.1"
+      ]
     },
     {
       "id": "S2d8-08-nostream-maxtokens",
@@ -1398,7 +1397,7 @@
     },
     {
       "id": "S2d8-10-stream-thinking",
-      "purpose": "Thinking in stream: thought parts -> thinking block events + signature_delta; interleaved text block transition; MAX_TOKENS -> stop_reason max_tokens in message_delta.",
+      "purpose": "Thinking in stream: request thinking config is STRIPPED upstream (\"generationConfig\":{} per the two-stage rule); downstream: thought parts -> thinking block events + signature_delta; interleaved text block transition; MAX_TOKENS -> stop_reason max_tokens in message_delta.",
       "downstream_request": {
         "method": "POST",
         "url": "http://127.0.0.1:8417/v1/messages",
@@ -1604,6 +1603,9 @@
             "type": "message_stop"
           }
         ]
+      ],
+      "notes": [
+        "RECORDED (golden-pinned): upstream body carries \"generationConfig\":{} — thinkingConfig stripped by the capability pass"
       ]
     },
     {

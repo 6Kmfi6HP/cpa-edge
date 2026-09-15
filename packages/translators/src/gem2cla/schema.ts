@@ -34,28 +34,28 @@ function lowercaseTypeValue(value: unknown): WireValue {
 /**
  * Cleans one function declaration's parameter schema. A non-object (or
  * absent) schema yields `{}` - declarations without parameters still carry
- * an `input_schema` key.
+ * an `input_schema` key. The `additionalProperties`/`$schema` forces apply
+ * at the schema ROOT only; the `type` lowercasing walks the whole tree.
  */
 export function cleanToolParameters(raw: unknown): WireValue {
   if (!isPlainObject(raw)) return {}
-  const source = raw as Record<string, unknown>
-  const cleaned: WireObject = {}
-  for (const key of Object.keys(source)) {
-    const member = source[key]
-    if (member === undefined) continue
-    if (key === 'type') {
-      cleaned['type'] = lowercaseTypeValue(member)
-      continue
-    }
-    if (key === 'additionalProperties' || key === '$schema') continue
-    cleaned[key] = member as WireValue
-  }
-  // Forced at the schema root only; nested property schemas keep their shape
-  // apart from the recursive type lowercasing above. A pre-existing exact
-  // `false` stays false, every other value is overwritten.
+  const cleaned = lowercaseTypesDeep(raw) as Record<string, unknown>
   cleaned['additionalProperties'] = false
   cleaned['$schema'] = TOOL_SCHEMA_DRAFT_URI
-  return sortKeysDeep(cleaned) as WireValue
+  return sortKeysDeep(cleaned as WireObject) as WireValue
+}
+
+/** Recursively lowercases every `type` member anywhere in the schema. */
+function lowercaseTypesDeep(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(lowercaseTypesDeep)
+  if (!isPlainObject(value)) return value
+  const out: Record<string, unknown> = {}
+  for (const key of Object.keys(value)) {
+    const member = (value as Record<string, unknown>)[key]
+    if (member === undefined) continue
+    out[key] = key === 'type' ? lowercaseTypeValue(member) : lowercaseTypesDeep(member)
+  }
+  return out
 }
 
 /**

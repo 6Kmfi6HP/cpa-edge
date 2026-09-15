@@ -1,0 +1,5 @@
+{
+ "events": [],
+ "terminator": "data: [DONE]",
+ "note": "200 + text/event-stream headers, single 'data: [DONE]' frame, then clean chunked terminator. No chat chunks."
+}

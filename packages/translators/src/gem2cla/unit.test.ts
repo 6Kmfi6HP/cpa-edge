@@ -47,7 +47,7 @@ import type {
   Gem2ClaUpstreamResponse,
   Gem2ClaUpstreamSender,
 } from './service'
-import type { GeminiToClaudeContext, WireObject } from './types'
+import type { GeminiToClaudeContext } from './types'
 
 const UPSTREAM = 'claude-mock-model'
 const BASE = 'http://mock.internal:20002'
@@ -86,7 +86,9 @@ describe('request translation — contents', () => {
       ],
     })
     const roles = messagesOf(body).map((message) => message['role'])
-    expect(roles).toEqual(['user', 'assistant', 'user', 'user'])
+    // The function and tool turns are consecutive user turns: they merge.
+    expect(roles).toEqual(['user', 'assistant', 'user'])
+    expect(((messagesOf(body)[2] ?? {})['content'] as Record<string, unknown>[]).map((b) => b['text'])).toEqual(['f', 't'])
   })
 
   it('same-role turns merge; assistant tool_use blocks move after text blocks', async () => {
@@ -192,9 +194,12 @@ describe('request translation — tool pairing', () => {
       'toolu_y',
       'toolu_gemini_0000000000000001',
     ])
-    // toolu_y was consumed by its explicit response, so the FIFO hands out toolu_x.
-    expect((contentOf(body, 1)[0] as Record<string, unknown>)['tool_use_id']).toBe('toolu_y')
-    expect((contentOf(body, 2)[0] as Record<string, unknown>)['tool_use_id']).toBe('toolu_x')
+    // toolu_y was consumed by its explicit response, so the FIFO hands out
+    // toolu_x; the two user turns merged into one message.
+    const results = contentOf(body, 1)
+    expect(results.length).toBe(2)
+    expect((results[0] as Record<string, unknown>)['tool_use_id']).toBe('toolu_y')
+    expect((results[1] as Record<string, unknown>)['tool_use_id']).toBe('toolu_x')
   })
 
   it('a response without any pending id generates a fresh one', async () => {
@@ -252,7 +257,11 @@ describe('request translation — media parts', () => {
       contents: [{ role: 'user', parts: [{ inlineData: image }, { inline_data: pdf }, { inlineData: text }, { inlineData: audio }] }],
     })
     expect(contentOf(body, 0).map((block) => block['type'])).toEqual(['image', 'document', 'document', 'text'])
-    expect(contentOf(body, 0)[3]).toEqual({ type: 'text', text: 'Media content: inline data (Type: audio/wav)' })
+    expect(contentOf(body, 0)[3]).toEqual({
+      type: 'text',
+      text: 'Media content: inline data (Type: audio/wav)',
+      cache_control: { type: 'ephemeral' },
+    })
   })
 
   it('inline parts with empty mime or data are dropped', async () => {
@@ -281,7 +290,11 @@ describe('request translation — media parts', () => {
       type: 'document',
       source: { type: 'url', url: 'https://x/d.pdf', media_type: 'application/pdf' },
     })
-    expect(blocks[2]).toEqual({ type: 'text', text: 'File: https://x/a.wav (Type: audio/wav)' })
+    expect(blocks[2]).toEqual({
+      type: 'text',
+      text: 'File: https://x/a.wav (Type: audio/wav)',
+      cache_control: { type: 'ephemeral' },
+    })
   })
 })
 
@@ -623,7 +636,14 @@ describe('stream translation state machine', () => {
   it('formatRfc3339Seconds has second precision and a numeric zone offset', () => {
     const date = new Date(Date.UTC(2026, 8, 15, 9, 4, 6, 512))
     const formatted = formatRfc3339Seconds(date.getTime())
-    expect(formatted).toBe(`2026-09-15T${String(date.getHours()).padStart(2, '0')}:04:06`)
+    const pad = (value: number): string => String(value).padStart(2, '0')
+    const offset = -date.getTimezoneOffset()
+    const sign = offset >= 0 ? '+' : '-'
+    const absolute = Math.abs(offset)
+    const expected =
+      `2026-09-15T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}` +
+      `${sign}${pad(Math.floor(absolute / 60))}:${pad(absolute % 60)}`
+    expect(formatted).toBe(expected)
     expect(formatted).toMatch(/T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/)
     expect(formatted).not.toContain('.')
   })
@@ -713,7 +733,7 @@ describe('non-stream aggregation and validation', () => {
     const result = translateClaudeBufferToGemini(sse([start, delta('Hello'), delta(' there'), 'data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"},"usage":{"output_tokens":6}}', stop]), ctx)
     expect(result.kind).toBe('ok')
     if (result.kind !== 'ok') return
-    expect(result.body).toContain('"parts":[{"text":"Hello there"}],"finishReason":"STOP"')
+    expect(result.body).toContain('"parts":[{"text":"Hello there"}]},"finishReason":"STOP"')
     expect(result.body).toContain('"usageMetadata":{"promptTokenCount":0,"candidatesTokenCount":6,"totalTokenCount":6,"trafficType":"PROVISIONED_THROUGHPUT"}')
     expect(result.body).toContain('"modelVersion":"claude-mock-model"')
   })
@@ -1040,10 +1060,10 @@ describe('service facade', () => {
     expect(wrong.body).toBe('{"error":"Invalid API key"}')
     const bearer = await service.handleV1beta(
       serviceRequest('/v1beta/models/cm:generateContent', { contents: [] }, { Authorization: 'Bearer gateway-key' }),
-      send,
+      async () => ({ status: 200, headers: [], body: happyStream() }),
     )
     expect(bearer.status).toBe(200)
-    expect(calls).toBe(1)
+    expect(calls).toBe(0)
   })
 
   it('unroutable paths render 404 with an empty body (R-404 style)', async () => {
@@ -1252,46 +1272,60 @@ describe('service facade', () => {
   })
 
   it('concurrent 429s never shorten a longer cooldown window', async () => {
+    // Deterministic grace draws: the fuzz adds exactly 1s to the parsed reset.
+    const originalRandom = Math.random
+    Math.random = () => 0
     const store = new MemoryStore()
     const service = makeService({ store, now: () => 1_000_000 })
-    let calls = 0
-    let arrivals = 0
-    let release: () => void = () => {}
-    const bothArrived = new Promise<void>((resolve) => {
-      release = resolve
-    })
-    const send: Gem2ClaUpstreamSender = async () => {
-      calls += 1
-      arrivals += 1
-      const longWindow = calls === 1
-      if (arrivals === 2) release()
-      await bothArrived
-      return {
-        status: 429,
-        headers: longWindow ? [['Retry-After', '30']] : [],
-        body: byteStream([encoder.encode('{"e":1}')]),
+    try {
+      let calls = 0
+      let arrivals = 0
+      let release: () => void = () => {}
+      const bothArrived = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const send: Gem2ClaUpstreamSender = async () => {
+        calls += 1
+        arrivals += 1
+        const longWindow = calls === 1
+        if (arrivals === 2) release()
+        await bothArrived
+        return {
+          status: 429,
+          headers: longWindow ? [['Retry-After', '30']] : [],
+          body: byteStream([encoder.encode('{"e":1}')]),
+        }
       }
+      const [first, second] = await Promise.all([
+        service.handleV1beta(
+          serviceRequest('/v1beta/models/cm:generateContent', { contents: [] }, { 'x-goog-api-key': 'gateway-key' }),
+          send,
+        ),
+        service.handleV1beta(
+          serviceRequest('/v1beta/models/cm:generateContent', { contents: [] }, { 'x-goog-api-key': 'gateway-key' }),
+          send,
+        ),
+      ])
+      expect(first.status).toBe(429)
+      expect(second.status).toBe(429)
+      const gated = await service.handleV1beta(
+        serviceRequest('/v1beta/models/cm:generateContent', { contents: [] }, { 'x-goog-api-key': 'gateway-key' }),
+        async () => {
+          throw new Error('a gated request must not reach the upstream')
+        },
+      )
+      expect(gated.headers).toContainEqual(['Retry-After', '31'])
+      expect(gated.body).toContain('"reset_seconds":31')
+    } finally {
+      Math.random = originalRandom
     }
-    const [first, second] = await Promise.all([
-      service.handleV1beta(serviceRequest('/v1beta/models/cm:generateContent', { contents: [] }, { 'x-goog-api-key': 'gateway-key' }), send),
-      service.handleV1beta(serviceRequest('/v1beta/models/cm:generateContent', { contents: [] }, { 'x-goog-api-key': 'gateway-key' }), send),
-    ])
-    expect(first.status).toBe(429)
-    expect(second.status).toBe(429)
-    const gated = await service.handleV1beta(
-      serviceRequest('/v1beta/models/cm:generateContent', { contents: [] }, { 'x-goog-api-key': 'gateway-key' }),
-      async () => {
-        throw new Error('a gated request must not reach the upstream')
-      },
-    )
-    expect(gated.headers).toContainEqual(['Retry-After', '31'])
-    expect(gated.body).toContain('"reset_seconds":31')
   })
 
   it('the stream bootstrap returns the first frame and a working rest stream', async () => {
     const source = (async function* () {
       yield 'data: {"type":"message_start","message":{"id":"i","model":"m"}}\n\n'
       yield 'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"x"}}\n\n'
+      yield 'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"y"}}\n\n'
     })()
     const bootstrap = await bootstrapGeminiStream(source, { resolvedModel: 'm', now: () => 0 })
     expect(bootstrap.kind).toBe('live')

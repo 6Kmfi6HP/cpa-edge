@@ -2,9 +2,9 @@ import type { JsonValue } from '@cpa-edge/core'
 
 /**
  * Minimal subset of the global `fetch` signature the OAuth/device flows
- * need. Keeping the parameter surface this narrow lets tests stub vendor
- * endpoints without a network and keeps the package portable across
- * runtimes that provide the Web Standard `fetch`.
+ * need. Keeping the parameter surface this narrow lets tests replay
+ * scripted vendor responses without a network and keeps the package
+ * portable across runtimes that provide the Web Standard `fetch`.
  */
 export type FetchLike = (url: string, init?: FetchInit) => Promise<Response>
 

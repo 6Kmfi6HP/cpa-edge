@@ -1,0 +1,28 @@
+{
+ "id": "S2d6-stream-empty200",
+ "purpose": "Upstream 200 SSE containing ONLY 'data: [DONE]' (no chunk frames): translator emits nothing (isDone before Started), executor closes cleanly with no error; the handler bootstrap path yields JSON 502 'upstream stream closed before first payload' (NOT SSE, NOT the executor's [DONE]-missing error). Pins the handler-level bootstrap error.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6; image digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+ "recorded_at": "2026-09-16T03:47:35",
+ "record": "downstream status+headers+body; upstream.jsonl",
+ "mock_control": {
+  "mode": "happy",
+  "variant": "done-only-stream",
+  "canned_sse": {
+   "events": [],
+   "terminator": "data: [DONE]",
+   "note": "200 + text/event-stream headers, single 'data: [DONE]' frame, then clean chunked terminator. No chat chunks."
+  }
+ },
+ "expect_hints": {
+  "downstream_status": "502 Bad Gateway",
+  "downstream_body": "{\"error\":{\"message\":\"upstream stream closed before first payload\",\"type\":\"server_error\",\"code\":\"internal_server_error\"}}",
+  "note": "non-JSON message is wrapped by the error builder (struct order message,type,code) after the sanitizer passes it through; contrast S2d6-error-stream-429 where a JSON message passes verbatim with sorted keys."
+ },
+ "dynamic_fields": [
+  "Date",
+  "X-Cpa-Trace-Id",
+  "Host/port numbers"
+ ],
+ "http_status": "500",
+ "upstream_hits": 1
+}

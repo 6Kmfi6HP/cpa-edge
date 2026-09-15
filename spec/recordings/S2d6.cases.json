@@ -11,14 +11,15 @@
     "mock_openai.py happy SSE stream MUST end with a 'data: [DONE]' frame (the current script omits it; without it every happy stream golden degrades into the S2d6-stream-nodone error case). Keep a variant (control key or X-Mock-Variant header, e.g. 'default-stream-nodone') that omits the terminator to record that case.",
     "Add scripted reply variants, selectable per request via control file key 'variant' or an X-Mock-Variant request header (strip X-Mock-* headers before wire logging, as mocklib already does): default, default-stream-done, default-stream-nodone, tools-nonstream (+ -custom / -namespace reply names), reasoning-nonstream, length-nonstream, length-usage-stream, tools-stream, reasoning-stream, compact.",
     "Add route POST /v1/responses/compact returning the canned compact reply (mirror of the codex mock's compact route).",
-    "All timestamps in scripted replies are fixed (created=1770000000, ids chatcmpl-mock-0001) so fixtures are byte-deterministic apart from transport headers and ports."
+    "All timestamps in scripted replies are fixed (created=1770000000, ids chatcmpl-mock-0001) so fixtures are byte-deterministic apart from transport headers and ports.",
+    "Round-1 follow-up variants: 'done-only-stream' (200 + text/event-stream, single 'data: [DONE]' frame, clean chunked close) and 'reasoning-only-stream' (role delta chunk, one reasoning_content delta chunk, then 'data: [DONE]'; no content, no finish_reason)."
   ],
   "recording_order_notes": [
     "Run S2d6-error-nostream-429 and S2d6-error-stream-429 LAST: upstream 429 puts the single credential in a ~1s rate-limit cooldown that transient-error-cooldown-seconds:-1 does not disable.",
     "Disconnect/nodone cases do not cool the credential down (transient cooldown disabled by -1) and can run anywhere.",
     "Auth/model-notfound/compact-stream-rejected emit no upstream traffic; verify upstream.jsonl is empty for them."
   ],
-  "case_count_required": 22,
+  "case_count_required": 26,
   "cases": [
     {
       "id": "S2d6-nostream-basic",
@@ -1153,7 +1154,181 @@
         "Host/port numbers",
         "inter-event timing"
       ]
+    },
+    {
+      "id": "S2d6-stream-empty200",
+      "batch": "round-1 follow-up (adversary N1a)",
+      "purpose": "Upstream 200 SSE containing ONLY 'data: [DONE]' (no chunk frames): translator emits nothing (isDone before Started), executor closes cleanly with no error; the handler bootstrap path yields JSON 502 'upstream stream closed before first payload' (NOT SSE, NOT the executor's [DONE]-missing error). Pins the handler-level bootstrap error.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer oracle-local-key-1"
+        },
+        "body": "{\"model\":\"mock-model\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Say hi.\"}]}],\"stream\":true}"
+      },
+      "mock": {
+        "mode": "happy",
+        "variant": "done-only-stream"
+      },
+      "mock_response_sse": {
+        "events": [],
+        "terminator": "data: [DONE]",
+        "note": "200 + text/event-stream headers, single 'data: [DONE]' frame, then clean chunked terminator. No chat chunks."
+      },
+      "record": "downstream status+headers+body; upstream.jsonl",
+      "expect_hints": {
+        "downstream_status": "502 Bad Gateway",
+        "downstream_body": "{\"error\":{\"message\":\"upstream stream closed before first payload\",\"type\":\"server_error\",\"code\":\"internal_server_error\"}}",
+        "note": "non-JSON message is wrapped by the error builder (struct order message,type,code) after the sanitizer passes it through; contrast S2d6-error-stream-429 where a JSON message passes verbatim with sorted keys."
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "Host/port numbers"
+      ]
+    },
+    {
+      "id": "S2d6-stream-closeterminal",
+      "batch": "round-1 follow-up (adversary N1b)",
+      "purpose": "Stream that produces events but never a terminal event: role chunk + reasoning chunk + [DONE] with NO content and NO finish_reason. The [DONE] finalize emits the reasoning done-set but the terminal-event builder suppresses response.completed when no message/function items exist (returns early); the handler CloseError path then appends the in-stream terminal error frame 'upstream stream closed before a terminal event (last event: response.output_item.done)', HTTP stays 200.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer oracle-local-key-1"
+        },
+        "body": "{\"model\":\"mock-model\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Say hi.\"}]}],\"stream\":true}"
+      },
+      "mock": {
+        "mode": "happy",
+        "variant": "reasoning-only-stream"
+      },
+      "mock_response_sse": {
+        "events": [
+          {
+            "id": "chatcmpl-mock-0001",
+            "object": "chat.completion.chunk",
+            "created": 1770000000,
+            "model": "mock-gpt-model",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "role": "assistant"
+                },
+                "finish_reason": null
+              }
+            ]
+          },
+          {
+            "id": "chatcmpl-mock-0001",
+            "object": "chat.completion.chunk",
+            "created": 1770000000,
+            "model": "mock-gpt-model",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "reasoning_content": "Pondering."
+                },
+                "finish_reason": null
+              }
+            ]
+          }
+        ],
+        "terminator": "data: [DONE]"
+      },
+      "record": "full downstream SSE byte stream; upstream.jsonl",
+      "expect_hints": {
+        "frames_forwarded": 8,
+        "frame_sequence": [
+          "response.created",
+          "response.in_progress",
+          "response.output_item.added (reasoning rs_chatcmpl-mock-0001_0)",
+          "response.reasoning_summary_part.added",
+          "response.reasoning_summary_text.delta",
+          "response.reasoning_summary_text.done",
+          "response.reasoning_summary_part.done",
+          "response.output_item.done (reasoning)"
+        ],
+        "terminal_frame": "\\nevent: error\\ndata: {\"type\":\"error\",\"error\":{\"code\":\"internal_server_error\",\"message\":\"upstream stream closed before a terminal event (last event: response.output_item.done)\",\"param\":null,\"type\":\"server_error\"},\"sequence_number\":8}\\n\\n",
+        "http_status": "200 (already committed)"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "Host/port numbers"
+      ]
+    },
+    {
+      "id": "S2d6-badbody-notfound",
+      "batch": "round-1 follow-up (adversary N1c)",
+      "purpose": "Non-JSON client body -> reference parses leniently (gjson), model resolves to empty, 400 model_not_found with EMPTY model name. REFERENCE-BEHAVIOR GOLDEN ONLY: per SPEC.md NE-LENIENT, CPA-Edge rejects non-JSON with a strict 400 instead; this fixture documents the reference, it is not a rewrite target.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer oracle-local-key-1"
+        },
+        "body": "this is not json"
+      },
+      "mock": null,
+      "record": "downstream status+headers+body; upstream.jsonl must stay EMPTY for this case",
+      "expect_hints": {
+        "downstream_status": "400 Bad Request",
+        "downstream_body": "{\"error\":{\"message\":\"unknown provider for model \",\"type\":\"invalid_request_error\",\"code\":\"model_not_found\",\"param\":\"model\"}}",
+        "note": "message ends with a trailing space (empty model name concatenated)."
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "Host/port numbers"
+      ]
+    },
+    {
+      "id": "S2d6-compact-streamfalse",
+      "batch": "round-1 follow-up (adversary N1d)",
+      "purpose": "compact with explicit \"stream\":false pins the stream-FIELD DELETION: the upstream body must be identical to S2d6-compact-passthrough's (no 'stream' key at all), model rewritten to mock-gpt-model; downstream = compact reply + usage-details injection.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses/compact",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer oracle-local-key-1"
+        },
+        "body": "{\"model\":\"mock-model\",\"instructions\":\"Summarize the conversation.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Hello there\"}]},{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Hi! How can I help?\"}]}],\"stream\":false}"
+      },
+      "mock": {
+        "mode": "happy",
+        "variant": "compact",
+        "route": "POST /v1/responses/compact"
+      },
+      "mock_response_nonstream": {
+        "id": "resp_mock_compact",
+        "object": "response",
+        "status": "completed",
+        "output": [],
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "total_tokens": 2
+        }
+      },
+      "record": "downstream status+headers+body; upstream.jsonl (body must contain NO 'stream' key)",
+      "expect_hints": {
+        "upstream_body": "{\"model\":\"mock-gpt-model\",\"instructions\":\"Summarize the conversation.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Hello there\"}]},{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Hi! How can I help?\"}]}]}",
+        "downstream_body": "{\"id\":\"resp_mock_compact\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2,\"output_tokens_details\":{\"reasoning_tokens\":0},\"input_tokens_details\":{\"cached_tokens\":0}}}"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "Host/port numbers"
+      ]
     }
   ],
-  "recording_status": "ALL 23 cases recorded 2026-09-16 by @oracle-runner into tests/fixtures/S2d6/<case-id>/ (full RECIPES layout). 429 cases ran last with a ~2.5s gap (rate-limit cooldown). Mock 429 error body: {\"error\": {\"message\": \"mock rate limit\", \"type\": \"rate_limit_exceeded\", \"code\": 429, \"status\": \"RESOURCE_EXHAUSTED\"}}."
+  "recording_status": "23/23 recorded 2026-09-16 (round 1). Round-1 review (reports/adversary/S2d6.md) authorized a 4-case follow-up batch: S2d6-stream-empty200, S2d6-stream-closeterminal, S2d6-badbody-notfound, S2d6-compact-streamfalse (batch field 'round-1 follow-up'). Mock additions needed: variants 'done-only-stream' (200 SSE with ONLY data: [DONE]) and 'reasoning-only-stream' (role chunk + reasoning chunk + [DONE], no content/finish)."
 }

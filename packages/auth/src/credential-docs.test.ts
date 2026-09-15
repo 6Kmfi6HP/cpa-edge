@@ -102,9 +102,11 @@ describe('auth-file parse rules (S3 §3.2)', () => {
     await store.put(AUTH_FILES_NAMESPACE, 'gemini.json', { type: 'gemini' })
     const loaded = await listAuthFiles(store)
     expect(loaded.length).toBe(1)
-    expect(loaded[0]?.provider).toBe('claude')
-    expect(loaded[0]?.disabled).toBe(false)
-    expect((loaded[0]?.document)['disabled']).toBe(false)
+    const first = loaded[0]
+    if (first === undefined) throw new Error('expected one credential')
+    expect(first.provider).toBe('claude')
+    expect(first.disabled).toBe(false)
+    expect(first.document['disabled']).toBe(false)
   })
 
   it('saves materialize disabled and delete removes', async () => {

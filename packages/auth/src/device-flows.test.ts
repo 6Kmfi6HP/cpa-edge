@@ -80,7 +80,7 @@ describe('device authorization starters', () => {
 
   it('starts the xai flow from discovery', async () => {
     let call = 0
-    const fetchFn: FetchLike = async (url) => {
+    const fetchFn: FetchLike = async () => {
       call += 1
       if (call === 1) {
         return jsonResponse({

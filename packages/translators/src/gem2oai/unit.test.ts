@@ -51,6 +51,7 @@ import { authenticateV1Beta, extractClientCredentials } from './auth'
 import { createGem2OaiService, openAICompatUserAgent } from './service'
 import type {
   Gem2OaiCredential,
+  Gem2OaiRegistryEntry,
   Gem2OaiRequest,
   Gem2OaiResponse,
   Gem2OaiService,
@@ -79,6 +80,7 @@ interface FacadeOptions {
   readonly store?: Store
   readonly now?: () => number
   readonly credentials?: readonly Gem2OaiCredential[]
+  readonly registry?: readonly Gem2OaiRegistryEntry[]
   readonly apiKeys?: readonly string[]
   readonly requestRetry?: number
 }
@@ -86,7 +88,7 @@ interface FacadeOptions {
 function facade(options: FacadeOptions = {}): Gem2OaiService {
   return createGem2OaiService({
     credentials: options.credentials ?? [credential()],
-    registry: [{ id: 'mock-model', displayName: 'mock-model' }],
+    registry: options.registry ?? [{ id: 'mock-model', displayName: 'mock-model' }],
     apiKeys: options.apiKeys ?? ['oracle-local-key-1'],
     store: options.store ?? new MemoryStore(),
     now: options.now ?? (() => 1_789_492_684_000),
@@ -631,5 +633,1105 @@ describe('tool-call ids and function responses', () => {
     const callsPlain = ((JSON.parse(idPlain.body) as Record<string, unknown>)['messages'] as Record<string, unknown>[])[0]?.['tool_calls'] as Record<string, unknown>[]
     const callsShifted = ((JSON.parse(idShifted.body) as Record<string, unknown>)['messages'] as Record<string, unknown>[])[0]?.['tool_calls'] as Record<string, unknown>[]
     expect((callsPlain[0] as Record<string, unknown>)['id']).not.toBe((callsShifted[0] as Record<string, unknown>)['id'])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Response translation units (section 3.2)
+// ---------------------------------------------------------------------------
+
+describe('response translation — non-stream', () => {
+  it('maps the finish-reason table', () => {
+    expect(mapFinishReason('stop')).toBe('STOP')
+    expect(mapFinishReason('length')).toBe('MAX_TOKENS')
+    expect(mapFinishReason('tool_calls')).toBe('STOP')
+    expect(mapFinishReason('content_filter')).toBe('SAFETY')
+    expect(mapFinishReason('whatever')).toBe('STOP')
+  })
+
+  it('extracts reasoning texts from string, array and object shapes', () => {
+    expect(extractReasoningTexts('one')).toEqual(['one'])
+    expect(extractReasoningTexts('')).toEqual([])
+    expect(extractReasoningTexts(['a', { text: 'b' }, { nope: 1 }, ''])).toEqual(['a', 'b'])
+    expect(extractReasoningTexts({ text: 'c' })).toEqual(['c'])
+    expect(extractReasoningTexts({ other: 1 })).toEqual([])
+    expect(extractReasoningTexts(5)).toEqual([])
+  })
+
+  it('parses tool arguments with sorted keys and a {} fallback', () => {
+    expect(parseToolArguments('{"b":1,"a":{"z":1,"b":2}}')).toEqual({ a: { b: 2, z: 1 }, b: 1 })
+    expect(parseToolArguments('')).toEqual({})
+    expect(parseToolArguments('not json')).toEqual({})
+    expect(parseToolArguments('[1,2]')).toEqual({})
+  })
+
+  it('usageMetadata follows the recorded key order and detail rules', () => {
+    const usage = usageMetadata({
+      prompt_tokens: 10,
+      completion_tokens: 5,
+      total_tokens: 99,
+      completion_tokens_details: { reasoning_tokens: 0 },
+      prompt_tokens_details: { cached_tokens: 3 },
+    })
+    expect(JSON.stringify(usage)).toBe(
+      '{"promptTokenCount":10,"candidatesTokenCount":5,"totalTokenCount":99,"cachedContentTokenCount":3}',
+    )
+    expect(usageMetadata({ input_tokens: 1, output_tokens: 2 })).toEqual({
+      promptTokenCount: 1,
+      candidatesTokenCount: 2,
+      totalTokenCount: 3,
+    })
+    expect(usageMetadata(undefined)).toBeUndefined()
+    expect(usageMetadata({})).toBeUndefined()
+  })
+
+  it('builds the envelope with thought parts first, content, then tool calls', () => {
+    const body = translateOpenAIResponseToGeminiNonStream(
+      JSON.stringify({
+        model: 'mock-gpt-model',
+        choices: [
+          {
+            index: 3,
+            message: {
+              role: 'assistant',
+              content: 'answer',
+              reasoning_content: ['step one', 'step two'],
+              tool_calls: [
+                { id: 'c1', type: 'function', function: { name: 'f', arguments: '{"b":1,"a":2}' } },
+                { id: '', type: 'function', function: { name: 'g', arguments: 'bad' } },
+                { type: 'web_search', function: { name: 'x' } },
+              ],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 },
+      }),
+      { streamModel: 'mock-gpt-model' },
+    )
+    expect(JSON.parse(body)).toEqual({
+      candidates: [
+        {
+          content: {
+            parts: [
+              { thought: true, text: 'step one' },
+              { thought: true, text: 'step two' },
+              { text: 'answer' },
+              { functionCall: { id: 'c1', name: 'f', args: { a: 2, b: 1 } } },
+              { functionCall: { name: 'g', args: {} } },
+            ],
+            role: 'model',
+          },
+          index: 3,
+          finishReason: 'STOP',
+        },
+      ],
+      model: 'mock-gpt-model',
+      usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
+    })
+  })
+
+  it('multi-choice overlays merge into one candidate with the last index', () => {
+    const body = translateOpenAIResponseToGeminiNonStream(
+      JSON.stringify({
+        model: 'm',
+        choices: [
+          { index: 0, message: { role: 'assistant', content: 'a' }, finish_reason: 'stop' },
+          { index: 1, message: { role: 'assistant', content: 'b' }, finish_reason: 'length' },
+        ],
+      }),
+      { streamModel: 'm' },
+    )
+    expect(JSON.parse(body)).toEqual({
+      candidates: [
+        {
+          content: { parts: [{ text: 'a' }, { text: 'b' }], role: 'model' },
+          index: 1,
+          finishReason: 'MAX_TOKENS',
+        },
+      ],
+      model: 'm',
+    })
+  })
+
+  it('force-mapping rewrites the response model to the client alias', () => {
+    const body = translateOpenAIResponseToGeminiNonStream(
+      JSON.stringify({ model: 'upstream-name', choices: [{ index: 0, message: { role: 'assistant', content: 'x' } }] }),
+      { streamModel: 'upstream-name', forceMappingModel: 'alias' },
+    )
+    expect((JSON.parse(body) as Record<string, unknown>)['model']).toBe('alias')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Stream mapping + framing (sections 4.1-4.2)
+// ---------------------------------------------------------------------------
+
+describe('stream — chunk mapping', () => {
+  const ctx = { streamModel: 'mock-gpt-model' }
+
+  function chunk(delta: unknown, finish?: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      model: 'mock-gpt-model',
+      choices: [{ index: 0, delta, finish_reason: finish ?? null }],
+      ...extra,
+    }
+  }
+
+  it('drops role-only chunks and maps content deltas', () => {
+    const translator = new OpenAIChunkTranslator(ctx)
+    expect(translator.translateChunk(chunk({ role: 'assistant' }))).toEqual([])
+    const [text] = translator.translateChunk(chunk({ content: 'Hi' })) as string[]
+    expect(JSON.parse(text)).toEqual({
+      candidates: [{ content: { parts: [{ text: 'Hi' }], role: 'model' }, index: 0 }],
+      model: 'mock-gpt-model',
+    })
+  })
+
+  it('reasoning deltas become thought frames; a content frame on the same chunk follows them', () => {
+    const translator = new OpenAIChunkTranslator(ctx)
+    const frames = translator.translateChunk(chunk({ reasoning_content: 'think', content: 'say' })) as string[]
+    expect(frames.length).toBe(2)
+    expect(JSON.parse(frames[0] ?? '')).toEqual({
+      candidates: [{ content: { parts: [{ thought: true, text: 'think' }], role: 'model' }, index: 0 }],
+      model: 'mock-gpt-model',
+    })
+    expect(JSON.parse(frames[1] ?? '')).toEqual({
+      candidates: [{ content: { parts: [{ text: 'say' }], role: 'model' }, index: 0 }],
+      model: 'mock-gpt-model',
+    })
+  })
+
+  it('tool deltas buffer silently and flush once on the finish frame (Q8: content+finish loses finish)', () => {
+    const translator = new OpenAIChunkTranslator(ctx)
+    expect(translator.translateChunk(chunk({ tool_calls: [{ index: 0, id: 'x', type: 'function', function: { name: 'f', arguments: '' } }] }))).toEqual([])
+    translator.translateChunk(chunk({ tool_calls: [{ index: 0, function: { arguments: '{"a"' } }] }))
+    translator.translateChunk(chunk({ tool_calls: [{ index: 0, function: { arguments: ':1}' } }] }))
+    // Combined content+finish emits ONLY the content frame (recorded Q8).
+    const combined = translator.translateChunk(chunk({ content: 'mid' }, 'tool_calls')) as string[]
+    expect(combined.length).toBe(1)
+    expect(JSON.parse(combined[0] ?? '')).toEqual({
+      candidates: [{ content: { parts: [{ text: 'mid' }], role: 'model' }, index: 0 }],
+      model: 'mock-gpt-model',
+    })
+    const finish = translator.translateChunk(chunk({}, 'stop')) as string[]
+    expect(JSON.parse(finish[0] ?? '')).toEqual({
+      candidates: [
+        { content: { parts: [{ functionCall: { id: 'x', name: 'f', args: { a: 1 } } }], role: 'model' }, index: 0, finishReason: 'STOP' },
+      ],
+      model: 'mock-gpt-model',
+    })
+  })
+
+  it('buffered tool calls drop when the stream ends without a finish frame', () => {
+    const translator = new OpenAIChunkTranslator(ctx)
+    translator.translateChunk(chunk({ tool_calls: [{ index: 0, id: 'x', type: 'function', function: { name: 'f', arguments: '{}' } }] }))
+    // No finish frame ever arrives: nothing is flushed.
+    expect(translator.translateChunk(chunk({ role: 'assistant' }))).toEqual([])
+  })
+
+  it('usage-only frame keeps the candidates, usageMetadata, model order', () => {
+    const translator = new OpenAIChunkTranslator(ctx)
+    const [frame] = translator.translateChunk(
+      chunk({}, undefined, { choices: [], usage: { prompt_tokens: 8, completion_tokens: 2, total_tokens: 10 } }),
+    ) as string[]
+    expect(frame).toBe(
+      '{"candidates":[],"usageMetadata":{"promptTokenCount":8,"candidatesTokenCount":2,"totalTokenCount":10},"model":"mock-gpt-model"}',
+    )
+  })
+
+  it('per-choice usage frame keeps the candidates, model, usageMetadata order', () => {
+    const translator = new OpenAIChunkTranslator(ctx)
+    const [frame] = translator.translateChunk(
+      chunk({}, undefined, { usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }),
+    ) as string[]
+    expect(frame).toBe(
+      '{"candidates":[{"content":{"parts":[],"role":"model"},"index":0}],"model":"mock-gpt-model","usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":1,"totalTokenCount":2}}',
+    )
+  })
+
+  it('the frame model is sticky: a chunk without model reuses the last one', () => {
+    const translator = new OpenAIChunkTranslator(ctx)
+    const [frame] = translator.translateChunk({ model: '', choices: [{ index: 0, delta: { content: 'x' } }] }) as string[]
+    expect((JSON.parse(frame ?? '') as Record<string, unknown>)['model']).toBe('mock-gpt-model')
+  })
+})
+
+describe('stream — error payloads and framing modes', () => {
+  const ctx = { streamModel: 'mock-gpt-model' }
+
+  async function collect(source: AsyncIterable<string | Uint8Array>): Promise<readonly unknown[]> {
+    const out: unknown[] = []
+    for await (const event of translateOpenAIStreamToGemini(source, ctx)) out.push(event)
+    return out
+  }
+
+  function sse(frames: readonly string[]): AsyncIterable<string> {
+    return {
+      async *[Symbol.asyncIterator]() {
+        for (const frame of frames) yield frame
+      },
+    }
+  }
+
+  it('recognizes error payloads by all recorded shapes', () => {
+    expect(isUpstreamErrorPayload({ error: { message: 'x' } })).toBe(true)
+    expect(isUpstreamErrorPayload({ response: { error: {} } })).toBe(true)
+    expect(isUpstreamErrorPayload({ code: 'c', message: 'm' })).toBe(true)
+    expect(isUpstreamErrorPayload({ type: 'response.failed' })).toBe(true)
+    expect(isUpstreamErrorPayload({ type: 'chat.completion.chunk' })).toBe(false)
+    expect(isUpstreamErrorPayload({})).toBe(false)
+  })
+
+  it('an error payload inside a data frame is terminal and passes through verbatim', async () => {
+    const payload = '{"error":{"message":"boom","type":"server_error","code":"internal_server_error","status":502}}'
+    const events = await collect(sse([`data: ${payload}\n\n`, 'data: [DONE]\n\n']))
+    expect(events).toEqual([{ kind: 'terminal-error', body: payload, status: 502 }])
+  })
+
+  it('an error event name marks the frame terminal even with a plain payload', async () => {
+    const events = await collect(sse(['event: error\ndata: {"a":1}\n\n']))
+    expect(events).toEqual([{ kind: 'terminal-error', body: '{"a":1}', status: 502 }])
+  })
+
+  it('a stray JSON line outside a data frame terminates with the 502 wrap', async () => {
+    const events = await collect(sse(['{"oops":\n', '\n']))
+    expect(events).toEqual([
+      {
+        kind: 'terminal-error',
+        body: '{"error":{"message":"{\\"oops\\":","type":"server_error","code":"internal_server_error"}}',
+        status: 502,
+      },
+    ])
+  })
+
+  it('an unparseable data payload terminates with the wrapped raw text', async () => {
+    const events = await collect(sse(['data: {"broken"\n\n']))
+    expect(events).toEqual([
+      {
+        kind: 'terminal-error',
+        body: '{"error":{"message":"{\\"broken\\"","type":"server_error","code":"internal_server_error"}}',
+        status: 502,
+      },
+    ])
+  })
+
+  it('[DONE] and clean EOF both end the stream with no extra event', async () => {
+    expect(await collect(sse(['data: [DONE]\n\n']))).toEqual([])
+    expect(await collect(sse([]))).toEqual([])
+  })
+
+  it('framing modes: sse frames data blocks and error events; raw emits bare bytes', () => {
+    expect(frameDownstreamEvent('sse', { kind: 'chunk', body: '{"a":1}' })).toBe('data: {"a":1}\n\n')
+    expect(frameDownstreamEvent('sse', { kind: 'terminal-error', body: '{"e":1}', status: 502 })).toBe(
+      'event: error\ndata: {"e":1}\n\n',
+    )
+    expect(frameDownstreamEvent('raw', { kind: 'chunk', body: '{"a":1}' })).toBe('{"a":1}')
+    expect(frameDownstreamEvent('raw', { kind: 'terminal-error', body: '{"e":1}', status: 502 })).toBe('{"e":1}')
+  })
+
+  it('alt normalization: sse/empty/absent select SSE; anything else selects raw', () => {
+    expect(framingForAlt('sse')).toBe('sse')
+    expect(framingForAlt('')).toBe('sse')
+    expect(framingForAlt(undefined)).toBe('sse')
+    expect(framingForAlt('SSE')).toBe('raw')
+    expect(framingForAlt('json')).toBe('raw')
+    expect(framingForAlt('media')).toBe('raw')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// countTokens (section 3.4 / R-TOK)
+// ---------------------------------------------------------------------------
+
+describe('countTokens — tokenizer selection and formula', () => {
+  it('selects the encoding by upstream-model prefix', () => {
+    expect(encodingForUpstreamModel('mock-gpt-model')).toBe('o200k_base')
+    expect(encodingForUpstreamModel('gpt-5-mini')).toBe('o200k_base')
+    expect(encodingForUpstreamModel('gpt-4.1')).toBe('o200k_base')
+    expect(encodingForUpstreamModel('gpt-4o-mini')).toBe('o200k_base')
+    expect(encodingForUpstreamModel('gpt-4-turbo')).toBe('cl100k_base')
+    expect(encodingForUpstreamModel('gpt-3.5-turbo')).toBe('cl100k_base')
+    expect(encodingForUpstreamModel('gpt-3')).toBe('cl100k_base')
+    expect(encodingForUpstreamModel('o1-mini')).toBe('o200k_base')
+    expect(encodingForUpstreamModel('o3')).toBe('o200k_base')
+    expect(encodingForUpstreamModel('o4-mini')).toBe('o200k_base')
+    expect(encodingForUpstreamModel('')).toBe('cl100k_base')
+  })
+
+  it('renders the byte-exact response body', () => {
+    expect(renderCountTokensResponse(4)).toBe('{"totalTokens":4,"promptTokensDetails":[{"modality":"TEXT","tokenCount":4}]}')
+  })
+
+  it('counts per-message role, name and content segments', async () => {
+    const translated = await translateGeminiRequest(
+      JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'Say hello' }] }] }),
+      { upstreamModel: UPSTREAM_MODEL, stream: false },
+    )
+    expect(countTranslatedBodyTokens(translated.value, translated.body, UPSTREAM_MODEL)).toBe(4)
+  })
+
+  it('counts the audio id, never the audio data; image urls count', async () => {
+    const translated = await translateGeminiRequest(
+      JSON.stringify({
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { inlineData: { mimeType: 'audio/wav', data: 'AAAA' } },
+              { inlineData: { mimeType: 'image/png', data: 'aGk=' } },
+            ],
+          },
+        ],
+      }),
+      { upstreamModel: UPSTREAM_MODEL, stream: false },
+    )
+    // Segments: role "user" only - the audio part contributes nothing (no
+    // id), the image url is a data: URL string of base64 noise.
+    const withoutImage = await translateGeminiRequest(
+      JSON.stringify({ contents: [{ role: 'user', parts: [{ inlineData: { mimeType: 'audio/wav', data: 'AAAA' } }] }] }),
+      { upstreamModel: UPSTREAM_MODEL, stream: false },
+    )
+    expect(countTranslatedBodyTokens(withoutImage.value, withoutImage.body, UPSTREAM_MODEL)).toBe(1)
+    expect(countTranslatedBodyTokens(translated.value, translated.body, UPSTREAM_MODEL)).toBeGreaterThan(1)
+  })
+
+  it('counts tools, tool_choice and tool-call fields (the 79-token golden body)', async () => {
+    const body = JSON.stringify({
+      systemInstruction: { parts: [{ text: 'Be helpful.' }] },
+      contents: [
+        { role: 'user', parts: [{ text: 'Read a.txt' }] },
+        { role: 'model', parts: [{ functionCall: { name: 'read_file', args: { path: 'a.txt' } } }] },
+        { role: 'function', parts: [{ functionResponse: { name: 'read_file', response: { result: 'ok' } } }] },
+      ],
+      tools: [{ functionDeclarations: [{ name: 'read_file', description: 'Read a file', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } }] }],
+      toolConfig: { functionCallingConfig: { mode: 'AUTO' } },
+    })
+    const translated = await translateGeminiRequest(body, { upstreamModel: UPSTREAM_MODEL, stream: false })
+    expect(countTranslatedBodyTokens(translated.value, translated.body, UPSTREAM_MODEL)).toBe(79)
+  })
+
+  it('an empty model counts with cl100k_base (recorded selection)', async () => {
+    const translated = await translateGeminiRequest(
+      JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'Say hello' }] }] }),
+      { upstreamModel: '', stream: false },
+    )
+    expect(countTranslatedBodyTokens(translated.value, translated.body, '')).toBeGreaterThan(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Error semantics (section 5)
+// ---------------------------------------------------------------------------
+
+describe('error bodies and upstream failures', () => {
+  it('wraps statuses per the shared table', () => {
+    expect(wrapTypeForStatus(401)).toEqual({ type: 'authentication_error', code: 'invalid_api_key' })
+    expect(wrapTypeForStatus(403)).toEqual({ type: 'permission_error', code: 'insufficient_quota' })
+    expect(wrapTypeForStatus(429)).toEqual({ type: 'rate_limit_error', code: 'rate_limit_exceeded' })
+    expect(wrapTypeForStatus(404)).toEqual({ type: 'invalid_request_error', code: 'model_not_found' })
+    expect(wrapTypeForStatus(500)).toEqual({ type: 'server_error', code: 'internal_server_error' })
+    expect(wrapTypeForStatus(400)).toEqual({ type: 'invalid_request_error' })
+  })
+
+  it('valid-JSON upstream bodies pass verbatim; others wrap', () => {
+    const verbatim = classifyUpstreamError(429, '{"error":{"message":"x"}}')
+    expect(verbatim).toEqual({ kind: 'verbatim', status: 429, body: '{"error":{"message":"x"}}' })
+    const wrapped = classifyUpstreamError(503, 'upstream exploded')
+    expect(wrapped).toEqual({
+      kind: 'wrapped',
+      status: 503,
+      message: 'upstream exploded',
+      type: 'server_error',
+      code: 'internal_server_error',
+    })
+    const empty = classifyUpstreamError(404, '')
+    expect(empty).toEqual({ kind: 'wrapped', status: 404, message: 'Not Found', type: 'invalid_request_error', code: 'model_not_found' })
+  })
+
+  it('renderGatewayError passes valid JSON verbatim and wraps the rest', () => {
+    expect(renderGatewayError('{"error":"boom"}', 500)).toBe('{"error":"boom"}')
+    expect(renderGatewayError('unexpected EOF', 500)).toBe(
+      '{"error":{"message":"unexpected EOF","type":"server_error","code":"internal_server_error"}}',
+    )
+    expect(transportErrorMessage(new Error('unexpected EOF'))).toBe('unexpected EOF')
+    expect(transportErrorMessage('not an error')).toBe('unexpected EOF')
+  })
+
+  it('parses Retry-After hints and the tokens-per-minute pattern', () => {
+    expect(parseRetryAfterSeconds([['Retry-After', '30']])).toBe(30)
+    expect(parseRetryAfterSeconds([['retry-after', '0']])).toBe(0)
+    expect(parseRetryAfterSeconds([['Retry-After', 'soon']])).toBeUndefined()
+    expect(parseRetryAfterSeconds([['Retry-After', '1.5']])).toBeUndefined()
+    expect(parseRetryAfterSeconds([])).toBeUndefined()
+    expect(isTpmRateLimitBody('{"error":{"code":"TPMRateLimitExceeded","message":"x"}}')).toBe(true)
+    expect(isTpmRateLimitBody('{"error":{"message":"Tokens per minute limit exceeded"}}')).toBe(true)
+    expect(isTpmRateLimitBody('{"error":{"code":"rate_limit_exceeded","message":"mock rate limit"}}')).toBe(false)
+    expect(isTpmRateLimitBody('not json')).toBe(false)
+  })
+
+  it('summarizes upstream errors as code: message', () => {
+    expect(upstreamErrorSummary('{"error":{"code":"rate_limit_exceeded","message":"mock rate limit"}}')).toBe(
+      'rate_limit_exceeded: mock rate limit',
+    )
+    expect(upstreamErrorSummary('{"error":{"message":"only message"}}')).toBe('only message')
+    expect(upstreamErrorSummary('raw text')).toBe('raw text')
+  })
+
+  it('renders the alphabetical model_cooldown envelope', () => {
+    const rendered = buildModelCooldownResponse({
+      model: 'mock-model',
+      provider: 'openai-compatible-mock-openai',
+      lastUpstreamError: 'rate_limit_exceeded: mock rate limit',
+      resetSeconds: 4,
+      status: 429,
+    })
+    expect(rendered.status).toBe(429)
+    expect(rendered.retryAfter).toBe('4')
+    expect(rendered.body).toBe(
+      '{"error":{"code":"model_cooldown","last_upstream_error":"rate_limit_exceeded: mock rate limit","message":"All credentials for model mock-model are cooling down via provider openai-compatible-mock-openai (last error: rate_limit_exceeded: mock rate limit)","model":"mock-model","provider":"openai-compatible-mock-openai","reset_seconds":4,"reset_time":"4s"}}',
+    )
+  })
+
+  it('builds the request-error envelopes byte-exact', () => {
+    expect(modelNotFoundBody('nope')).toBe(
+      '{"error":{"message":"unknown provider for model nope","type":"invalid_request_error","code":"model_not_found","param":"model"}}',
+    )
+    expect(actionNotFoundBody('/v1beta/models/justname')).toBe(
+      '{"error":{"message":"/v1beta/models/justname not found.","type":"invalid_request_error"}}',
+    )
+    expect(MISSING_API_KEY_BODY).toBe('{"error":"Missing API key"}')
+    expect(INVALID_API_KEY_BODY).toBe('{"error":"Invalid API key"}')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Client auth (section 2.2)
+// ---------------------------------------------------------------------------
+
+describe('client auth — five transports', () => {
+  const query = (text: string) => new URLSearchParams(text)
+
+  it('extracts credentials from all five transports in order', () => {
+    const headers: HeaderList = [
+      ['Authorization', 'bearer oracle-local-key-1'],
+      ['X-Goog-Api-Key', 'k2'],
+      ['X-Api-Key', 'k3'],
+    ]
+    expect(extractClientCredentials(headers, query('key=k4&auth_token=k5'))).toEqual([
+      'oracle-local-key-1',
+      'k2',
+      'k3',
+      'k4',
+      'k5',
+    ])
+  })
+
+  it('a non-Bearer or single-token Authorization value is used verbatim', () => {
+    expect(extractClientCredentials([['Authorization', 'oracle-local-key-1']], query(''))).toEqual(['oracle-local-key-1'])
+    expect(extractClientCredentials([['Authorization', 'Basic abc']], query(''))).toEqual(['Basic abc'])
+    expect(extractClientCredentials([['Authorization', 'Bearer   spaced  ']], query(''))).toEqual(['spaced'])
+    expect(extractClientCredentials([['Authorization', 'Bearer ']], query(''))).toEqual([])
+  })
+
+  it('any matching credential passes; none matching fails invalid; none present fails missing', () => {
+    const ok = authenticateV1Beta([['X-Api-Key', 'right']], query(''), ['right'])
+    expect(ok).toEqual({ kind: 'ok' })
+    const wrongFirst = authenticateV1Beta([['Authorization', 'Bearer wrong'], ['X-Api-Key', 'right']], query(''), ['right'])
+    expect(wrongFirst).toEqual({ kind: 'ok' })
+    const invalid = authenticateV1Beta([['X-Goog-Api-Key', 'wrong']], query(''), ['right'])
+    expect(invalid).toEqual({ kind: 'invalid' })
+    const missing = authenticateV1Beta([], query(''), ['right'])
+    expect(missing).toEqual({ kind: 'missing' })
+  })
+
+  it('an empty key set leaves the group open', () => {
+    expect(authenticateV1Beta([], query(''), [])).toEqual({ kind: 'ok' })
+  })
+
+  it('facade renders the 401 shapes with the charset content type and no trace', async () => {
+    const service = facade()
+    const missing = await service.handleV1Beta(
+      { method: 'POST', path: '/v1beta/models/mock-model:countTokens', headers: [], body: '{}' },
+      async () => {
+        throw new Error('must not be called')
+      },
+    )
+    expect(missing.status).toBe(401)
+    expect(missing.body).toBe(MISSING_API_KEY_BODY)
+    expect(headerOf(missing, 'content-type')).toBe('application/json; charset=utf-8')
+    expect(headerOf(missing, 'x-cpa-trace-id')).toBeUndefined()
+
+    const invalid = await service.handleV1Beta(
+      {
+        method: 'POST',
+        path: '/v1beta/models/mock-model:countTokens',
+        headers: [['x-goog-api-key', 'wrong']],
+        body: '{}',
+      },
+      async () => {
+        throw new Error('must not be called')
+      },
+    )
+    expect(invalid.status).toBe(401)
+    expect(invalid.body).toBe(INVALID_API_KEY_BODY)
+  })
+
+  it('client credentials ride every transport through the facade (query keys parse from the path)', async () => {
+    const countBody = '{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}'
+    const cases: ReadonlyArray<readonly [string, Gem2OaiRequest]> = [
+      ['x-goog', request('/v1beta/models/mock-model:countTokens', countBody, [['X-Goog-Api-Key', 'oracle-local-key-1']])],
+      ['bearer', request('/v1beta/models/mock-model:countTokens', countBody, [['Authorization', 'Bearer oracle-local-key-1']])],
+      ['raw-authorization', request('/v1beta/models/mock-model:countTokens', countBody, [['Authorization', 'oracle-local-key-1']])],
+      ['x-api-key', request('/v1beta/models/mock-model:countTokens', countBody, [['X-Api-Key', 'oracle-local-key-1']])],
+      ['query-key', request('/v1beta/models/mock-model:countTokens?key=oracle-local-key-1', countBody, [])],
+      ['query-auth-token', request('/v1beta/models/mock-model:countTokens?auth_token=oracle-local-key-1', countBody, [])],
+    ]
+    for (const [name, v1BetaRequest] of cases) {
+      const service = facade()
+      const response = await service.handleV1Beta(v1BetaRequest, async () => {
+        throw new Error('must not be called')
+      })
+      expect(response.status, name).toBe(200)
+      expect(response.body, name).toBe('{"totalTokens":3,"promptTokensDetails":[{"modality":"TEXT","tokenCount":3}]}')
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Path parsing + model discovery (sections 2.1, 2.4)
+// ---------------------------------------------------------------------------
+
+describe('path parsing and discovery', () => {
+  it('splits the path from its query and parses colons', () => {
+    const target = splitV1BetaPath('/v1beta/models/m:streamGenerateContent?alt=sse&key=k')
+    expect(target.pathname).toBe('/v1beta/models/m:streamGenerateContent')
+    expect(target.query.get('alt')).toBe('sse')
+    expect(target.query.get('key')).toBe('k')
+    expect(parseModelMethod('m:generateContent')).toEqual({ model: 'm', method: 'generateContent' })
+    expect(parseModelMethod('justname')).toBeUndefined()
+    expect(parseModelMethod('a:b:c')).toBeUndefined()
+    expect(parseModelMethod('m:')).toBeUndefined()
+    expect(parseModelMethod(':generateContent')).toBeUndefined()
+  })
+
+  it('renders the LIST with defaults and the raw GET record without them', () => {
+    const registry = [
+      { id: 'plain' },
+      { id: 'rich', displayName: 'Fancy', description: 'D', supportedGenerationMethods: ['generateContent', 'countTokens'] },
+    ]
+    expect(renderModelsList(registry)).toBe(
+      '{"models":[' +
+        '{"description":"plain","displayName":"plain","name":"models/plain","supportedGenerationMethods":["generateContent"]},' +
+        '{"description":"D","displayName":"Fancy","name":"models/rich","supportedGenerationMethods":["generateContent","countTokens"]}]}',
+    )
+    expect(JSON.stringify(rawModelRecord({ id: 'plain' }))).toBe('{"displayName":"plain","name":"models/plain"}')
+    expect(JSON.stringify(rawModelRecord(registry[1] ?? { id: 'rich' }))).toBe(
+      '{"description":"D","displayName":"Fancy","name":"models/rich","supportedGenerationMethods":["generateContent","countTokens"]}',
+    )
+  })
+
+  it('facade: GET routes (list, raw get, 404s) carry the charset type and no trace', async () => {
+    const service = facade({
+      registry: [
+        { id: 'mock-model', displayName: 'mock-model' },
+        { id: 'cm', displayName: 'claude-mock-model' },
+      ],
+    })
+    const list = await service.handleV1Beta(
+      { method: 'GET', path: '/v1beta/models', headers: [['x-goog-api-key', 'oracle-local-key-1']], body: '' },
+      async () => {
+        throw new Error('must not be called')
+      },
+    )
+    expect(list.status).toBe(200)
+    expect(headerOf(list, 'content-type')).toBe('application/json; charset=utf-8')
+    expect(headerOf(list, 'x-cpa-trace-id')).toBeUndefined()
+    expect(JSON.parse(list.body as string)).toEqual({
+      models: [
+        { description: 'mock-model', displayName: 'mock-model', name: 'models/mock-model', supportedGenerationMethods: ['generateContent'] },
+        { description: 'cm', displayName: 'claude-mock-model', name: 'models/cm', supportedGenerationMethods: ['generateContent'] },
+      ],
+    })
+
+    const get = await service.handleV1Beta(
+      { method: 'GET', path: '/v1beta/models/mock-model', headers: [['x-goog-api-key', 'oracle-local-key-1']], body: '' },
+      async () => {
+        throw new Error('must not be called')
+      },
+    )
+    expect(get.body).toBe('{"displayName":"mock-model","name":"models/mock-model"}')
+
+    for (const path of ['/v1beta/models/models/mock-model', '/v1beta/models/no-such-model', '/v1beta/models/m:generateContent']) {
+      const miss = await service.handleV1Beta(
+        { method: 'GET', path, headers: [['x-goog-api-key', 'oracle-local-key-1']], body: '' },
+        async () => {
+          throw new Error('must not be called')
+        },
+      )
+      expect(miss.status, path).toBe(404)
+      expect(miss.body, path).toBe('{"error":{"message":"Not Found","type":"not_found"}}')
+      expect(headerOf(miss, 'content-type')).toBe('application/json; charset=utf-8')
+    }
+  })
+
+  it('facade: malformed actions and unknown methods follow the recorded statuses', async () => {
+    const service = facade()
+    for (const path of ['/v1beta/models/justname', '/v1beta/models/a:b:c']) {
+      const notFound = await service.handleV1Beta(request(path, '{}'), async () => {
+        throw new Error('must not be called')
+      })
+      expect(notFound.status, path).toBe(404)
+      expect(notFound.body, path).toBe(actionNotFoundBody(path))
+      expect(headerOf(notFound, 'content-type')).toBe('application/json; charset=utf-8')
+    }
+    const unknown = await service.handleV1Beta(request('/v1beta/models/mock-model:bogusMethod', '{"x":1}'), async () => {
+      throw new Error('must not be called')
+    })
+    expect(unknown.status).toBe(200)
+    expect(unknown.body).toBe('')
+    expect(unknown.headers).toEqual([])
+
+    for (const path of ['/v1beta/models/nonexistent-model:generateContent', '/v1beta/models/models/mock-model:generateContent']) {
+      const bad = await service.handleV1Beta(request(path, '{}'), async () => {
+        throw new Error('must not be called')
+      })
+      expect(bad.status, path).toBe(400)
+      expect(bad.body, path).toBe(
+        modelNotFoundBody(path.includes('/models/models/') ? 'models/mock-model' : 'nonexistent-model'),
+      )
+      expect(headerOf(bad, 'content-type')).toBe('application/json')
+      expect(headerOf(bad, 'x-cpa-trace-id')).toBeUndefined()
+    }
+  })
+
+  it('facade: stray routes mirror the empty R-404', async () => {
+    const service = facade()
+    const miss = await service.handleV1Beta(
+      { method: 'POST', path: '/v1beta/other', headers: [['x-goog-api-key', 'oracle-local-key-1']], body: '' },
+      async () => {
+        throw new Error('must not be called')
+      },
+    )
+    expect(miss.status).toBe(404)
+    expect(miss.body).toBe('')
+    expect(miss.headers).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Facade: upstream wire policy + framing + cooldown mechanics
+// ---------------------------------------------------------------------------
+
+describe('facade — upstream wire', () => {
+  it('emits the recorded header set and order; client headers never forward', async () => {
+    const service = facade()
+    const captured: Gem2OaiUpstreamRequest[] = []
+    const send: Gem2OaiUpstreamSender = async (call) => {
+      captured.push(call)
+      return staticJson({
+        model: UPSTREAM_MODEL,
+        choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+      })
+    }
+    const response = await service.handleV1Beta(
+      {
+        method: 'POST',
+        path: '/v1beta/models/mock-model:generateContent',
+        headers: [
+          ['Authorization', 'Bearer oracle-local-key-1'],
+          ['X-Goog-Api-Key', 'oracle-local-key-1'],
+          ['User-Agent', 's2d2-test/1.0'],
+          ['X-Client-Marker', 's2d2-case1'],
+          ['Content-Type', 'application/json'],
+        ],
+        body: '{"contents":[{"role":"user","parts":[{"text":"Say hello"}]}]}',
+      },
+      send,
+    )
+    expect(response.status).toBe(200)
+    const call = captured[0]
+    expect(call).toBeDefined()
+    if (call === undefined) return
+    expect(call.url).toBe(`${BASE_URL}/chat/completions`)
+    expect(call.method).toBe('POST')
+    expect(call.headers).toEqual([
+      ['Host', 'mock.internal:20999'],
+      ['User-Agent', openAICompatUserAgent()],
+      ['Content-Length', String(encoder.encode(call.body).length)],
+      ['Authorization', 'Bearer mock-upstream-key'],
+      ['Content-Type', 'application/json'],
+      ['Accept-Encoding', 'gzip'],
+    ])
+    expect(call.body).toBe(
+      '{"model":"mock-gpt-model","messages":[{"role":"user","content":"Say hello"}],"stream":false}',
+    )
+  })
+
+  it('stream requests add Accept/Cache-Control in the recorded slots and stream_options last', async () => {
+    const service = facade()
+    const captured: Gem2OaiUpstreamRequest[] = []
+    const send: Gem2OaiUpstreamSender = async (call) => {
+      captured.push(call)
+      return { status: 200, headers: [], body: byteStream(['data: [DONE]\n\n']) }
+    }
+    await service.handleV1Beta(request('/v1beta/models/mock-model:streamGenerateContent?alt=sse', '{"contents":[]}'), send)
+    const call = captured[0]
+    if (call === undefined) throw new Error('no upstream call')
+    expect(call.headers).toEqual([
+      ['Host', 'mock.internal:20999'],
+      ['User-Agent', openAICompatUserAgent()],
+      ['Content-Length', String(encoder.encode(call.body).length)],
+      ['Accept', 'text/event-stream'],
+      ['Authorization', 'Bearer mock-upstream-key'],
+      ['Cache-Control', 'no-cache'],
+      ['Content-Type', 'application/json'],
+      ['Accept-Encoding', 'gzip'],
+    ])
+    expect(call.body.endsWith('"stream":true,"stream_options":{"include_usage":true}}')).toBe(true)
+  })
+
+  it('a trailing slash on the base-url is trimmed; custom headers join the sorted set', async () => {
+    const service = facade({
+      credentials: [
+        credential({ baseUrl: 'http://mock.internal:20999/v1/', headers: { 'X-Custom': 'yes' } as Readonly<Record<string, string>> }),
+      ],
+    })
+    const captured: Gem2OaiUpstreamRequest[] = []
+    const send: Gem2OaiUpstreamSender = async (call) => {
+      captured.push(call)
+      return staticJson({ model: UPSTREAM_MODEL, choices: [{ index: 0, message: { role: 'assistant', content: 'ok' } }] })
+    }
+    await service.handleV1Beta(request('/v1beta/models/mock-model:generateContent', '{"contents":[]}'), send)
+    const call = captured[0]
+    if (call === undefined) throw new Error('no upstream call')
+    expect(call.url).toBe('http://mock.internal:20999/v1/chat/completions')
+    expect(call.headers.map(([name]) => name)).toEqual([
+      'Host',
+      'User-Agent',
+      'Content-Length',
+      'Accept-Encoding',
+      'Authorization',
+      'Content-Type',
+      'X-Custom',
+    ])
+  })
+
+  it('non-2xx upstream errors pass through verbatim with a trace header', async () => {
+    const service = facade()
+    const errorBody = '{"error":{"message":"mock rate limit","type":"rate_limit_exceeded","code":"rate_limit_exceeded"}}'
+    const response = await service.handleV1Beta(
+      request('/v1beta/models/mock-model:generateContent', '{"contents":[]}'),
+      async () => staticBody(errorBody, 429),
+    )
+    expect(response.status).toBe(429)
+    expect(response.body).toBe(errorBody)
+    expect(headerOf(response, 'content-type')).toBe('application/json')
+    expect(headerOf(response, 'x-cpa-trace-id')).toBeDefined()
+  })
+
+  it('non-JSON upstream errors wrap per status', async () => {
+    const service = facade()
+    const response = await service.handleV1Beta(
+      request('/v1beta/models/mock-model:generateContent', '{"contents":[]}'),
+      async () => staticBody('gateway exploded', 502),
+    )
+    expect(response.status).toBe(502)
+    expect(response.body).toBe('{"error":{"message":"gateway exploded","type":"server_error","code":"internal_server_error"}}')
+  })
+
+  it('a pre-commit transport failure renders the plain 500 and rotates on requestRetry', async () => {
+    const attempts: string[] = []
+    let clock = 1_000
+    const service = facade({ requestRetry: 1, now: () => clock })
+    const response = await service.handleV1Beta(
+      request('/v1beta/models/mock-model:generateContent', '{"contents":[]}'),
+      async (call) => {
+        attempts.push(call.url)
+        if (attempts.length === 1) throw new Error('connection reset')
+        return staticJson({ model: UPSTREAM_MODEL, choices: [{ index: 0, message: { role: 'assistant', content: 'second try' } }] })
+      },
+    )
+    expect(attempts.length).toBe(2)
+    expect(response.status).toBe(200)
+    expect((JSON.parse(response.body as string) as Record<string, unknown>)['candidates']).toBeDefined()
+
+    const exhausted = await facade({ requestRetry: 0 }).handleV1Beta(
+      request('/v1beta/models/mock-model:generateContent', '{"contents":[]}'),
+      async () => {
+        throw new Error('unexpected EOF')
+      },
+    )
+    expect(exhausted.status).toBe(500)
+    expect(exhausted.body).toBe(
+      '{"error":{"message":"unexpected EOF","type":"server_error","code":"internal_server_error"}}',
+    )
+  })
+
+  it('a stream that closes with no translatable chunk commits headers + empty body', async () => {
+    const service = facade()
+    const response = await service.handleV1Beta(
+      request('/v1beta/models/mock-model:streamGenerateContent?alt=sse', '{"contents":[]}'),
+      async () => ({ status: 200, headers: [], body: byteStream(['data: {"choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}],"model":"mock-gpt-model"}\n\n', 'data: [DONE]\n\n']) }),
+    )
+    expect(response.status).toBe(200)
+    expect(headerOf(response, 'content-type')).toBe('text/event-stream')
+    expect(headerOf(response, 'cache-control')).toBe('no-cache')
+    expect(headerOf(response, 'connection')).toBe('keep-alive')
+    expect(await readBody(response.body)).toBe('')
+  })
+})
+
+describe('facade — alt framing modes downstream', () => {
+  const frames = [
+    'data: {"model":"mock-gpt-model","choices":[{"index":0,"delta":{"content":"A"},"finish_reason":null}]}\n\n',
+    'data: {"model":"mock-gpt-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n',
+    'data: [DONE]\n\n',
+  ]
+
+  async function streamFor(path: string): Promise<Gem2OaiResponse> {
+    const service = facade()
+    return service.handleV1Beta(request(path, '{"contents":[]}'), async () => ({
+      status: 200,
+      headers: [],
+      body: byteStream(frames),
+    }))
+  }
+
+  it('no alt: SSE headers and data framing', async () => {
+    const response = await streamFor('/v1beta/models/mock-model:streamGenerateContent')
+    expect(headerOf(response, 'content-type')).toBe('text/event-stream')
+    expect(await readBody(response.body)).toBe(
+      'data: {"candidates":[{"content":{"parts":[{"text":"A"}],"role":"model"},"index":0}],"model":"mock-gpt-model"}\n\n' +
+        'data: {"candidates":[{"content":{"parts":[],"role":"model"},"index":0,"finishReason":"STOP"}],"model":"mock-gpt-model"}\n\n',
+    )
+  })
+
+  it('$alt=sse matches alt=sse; a non-lowercase alt selects raw mode', async () => {
+    const viaDollar = await streamFor('/v1beta/models/mock-model:streamGenerateContent?$alt=sse')
+    expect(headerOf(viaDollar, 'content-type')).toBe('text/event-stream')
+    const uppercase = await streamFor('/v1beta/models/mock-model:streamGenerateContent?alt=SSE')
+    expect(headerOf(uppercase, 'content-type')).toBe('text/plain; charset=utf-8')
+    expect(headerOf(uppercase, 'cache-control')).toBeUndefined()
+    expect(headerOf(uppercase, 'connection')).toBeUndefined()
+    expect(await readBody(uppercase.body)).toBe(
+      '{"candidates":[{"content":{"parts":[{"text":"A"}],"role":"model"},"index":0}],"model":"mock-gpt-model"}' +
+        '{"candidates":[{"content":{"parts":[],"role":"model"},"index":0,"finishReason":"STOP"}],"model":"mock-gpt-model"}',
+    )
+  })
+
+  it('mid-stream transport failures frame the transport text after the flushed chunks', async () => {
+    const service = facade()
+    const response = await service.handleV1Beta(
+      request('/v1beta/models/mock-model:streamGenerateContent?alt=sse', '{"contents":[]}'),
+      async () => ({
+        status: 200,
+        headers: [],
+        body: new ReadableStream<Uint8Array>({
+          pull(controller) {
+            controller.enqueue(encoder.encode(frames[0] ?? ''))
+            controller.error(new Error('unexpected EOF'))
+          },
+        }),
+      }),
+    )
+    expect(response.status).toBe(200)
+    const body = await readBody(response.body)
+    expect(body).toBe(
+      'data: {"candidates":[{"content":{"parts":[{"text":"A"}],"role":"model"},"index":0}],"model":"mock-gpt-model"}\n\n' +
+        'event: error\ndata: {"error":{"message":"unexpected EOF","type":"server_error","code":"internal_server_error"}}\n\n',
+    )
+  })
+})
+
+describe('facade — cooldown mechanics (section 5.3)', () => {
+  const errorBody = '{"error":{"message":"mock rate limit","type":"rate_limit_exceeded","code":"rate_limit_exceeded"}}'
+
+  function error429(): Gem2OaiUpstreamResponse {
+    return staticBody(errorBody, 429)
+  }
+
+  it('the default window escalates 1 -> 2 -> 4 across post-window failures', async () => {
+    let clock = 1_000
+    const store = new MemoryStore({ now: () => clock })
+    const service = facade({ store, now: () => clock })
+    const path = '/v1beta/models/mock-model:generateContent'
+
+    const first = await service.handleV1Beta(request(path, '{"contents":[]}'), error429)
+    expect(first.status).toBe(429)
+    expect(first.body).toBe(errorBody)
+
+    clock += 500 // inside the 1s window
+    const inWindow = await service.handleV1Beta(request(path, '{"contents":[]}'), async () => {
+      throw new Error('must not be called')
+    })
+    expect(inWindow.status).toBe(429)
+    expect(JSON.parse(inWindow.body as string)).toEqual({
+      error: {
+        code: 'model_cooldown',
+        last_upstream_error: 'rate_limit_exceeded: mock rate limit',
+        message:
+          'All credentials for model mock-model are cooling down via provider openai-compatible-mock-openai (last error: rate_limit_exceeded: mock rate limit)',
+        model: 'mock-model',
+        provider: 'openai-compatible-mock-openai',
+        reset_seconds: 1,
+        reset_time: '1s',
+      },
+    })
+    expect(headerOf(inWindow, 'retry-after')).toBe('1')
+    expect(headerOf(inWindow, 'x-cpa-trace-id')).toBeUndefined()
+
+    clock += 1_000 // post-window: second consecutive failure doubles the window
+    await service.handleV1Beta(request(path, '{"contents":[]}'), error429)
+    clock += 100
+    const secondWindow = await service.handleV1Beta(request(path, '{"contents":[]}'), async () => {
+      throw new Error('must not be called')
+    })
+    expect(headerOf(secondWindow, 'retry-after')).toBe('2')
+
+    clock += 5_000 // third consecutive failure: the recorded 4s window
+    await service.handleV1Beta(request(path, '{"contents":[]}'), error429)
+    clock += 100
+    const thirdWindow = await service.handleV1Beta(request(path, '{"contents":[]}'), async () => {
+      throw new Error('must not be called')
+    })
+    expect(headerOf(thirdWindow, 'retry-after')).toBe('4')
+    expect(JSON.parse(thirdWindow.body as string)).toEqual({
+      error: {
+        code: 'model_cooldown',
+        last_upstream_error: 'rate_limit_exceeded: mock rate limit',
+        message:
+          'All credentials for model mock-model are cooling down via provider openai-compatible-mock-openai (last error: rate_limit_exceeded: mock rate limit)',
+        model: 'mock-model',
+        provider: 'openai-compatible-mock-openai',
+        reset_seconds: 4,
+        reset_time: '4s',
+      },
+    })
+  })
+
+  it('a success resets the escalation streak', async () => {
+    let clock = 1_000
+    const store = new MemoryStore({ now: () => clock })
+    const service = facade({ store, now: () => clock })
+    const path = '/v1beta/models/mock-model:generateContent'
+    await service.handleV1Beta(request(path, '{"contents":[]}'), error429)
+    clock += 2_000
+    await service.handleV1Beta(request(path, '{"contents":[]}'), error429)
+    clock += 3_000
+    const success = await service.handleV1Beta(request(path, '{"contents":[]}'), async () =>
+      staticJson({ model: UPSTREAM_MODEL, choices: [{ index: 0, message: { role: 'assistant', content: 'ok' } }] }),
+    )
+    expect(success.status).toBe(200)
+    clock += 100
+    const after = await service.handleV1Beta(request(path, '{"contents":[]}'), async () => {
+      throw new Error('must not be called')
+    })
+    expect(headerOf(after, 'retry-after')).toBeUndefined() // no cooldown window at all
+  })
+
+  it('an upstream Retry-After hint wins over the ladder; TPM bodies open 60s', async () => {
+    let clock = 1_000
+    const store = new MemoryStore({ now: () => clock })
+    const service = facade({ store, now: () => clock })
+    const path = '/v1beta/models/mock-model:generateContent'
+    await service.handleV1Beta(request(path, '{"contents":[]}'), async () => ({
+      status: 429,
+      headers: [['Retry-After', '30']],
+      body: new Response(errorBody).body as ReadableStream<Uint8Array>,
+    }))
+    clock += 100
+    const hinted = await service.handleV1Beta(request(path, '{"contents":[]}'), async () => {
+      throw new Error('must not be called')
+    })
+    expect(headerOf(hinted, 'retry-after')).toBe('30')
+
+    clock += 60_000
+    const tpmBody = '{"error":{"code":"TPMRateLimitExceeded","message":"You exceeded your tokens per minute limit"}}'
+    await service.handleV1Beta(request(path, '{"contents":[]}'), async () => ({
+      status: 429,
+      headers: [],
+      body: new Response(tpmBody).body as ReadableStream<Uint8Array>,
+    }))
+    clock += 100
+    const tpm = await service.handleV1Beta(request(path, '{"contents":[]}'), async () => {
+      throw new Error('must not be called')
+    })
+    expect(headerOf(tpm, 'retry-after')).toBe('60')
+  })
+
+  it('a failing store never rejects the rendered response and surfaces through reportError', async () => {
+    const failingStore: Store = {
+      get: async () => undefined,
+      put: async () => undefined,
+      delete: async () => true,
+      list: async () => [],
+      update: async () => {
+        throw new Error('store down')
+      },
+      enqueue: async () => 'id',
+      claim: async () => undefined,
+      ack: async () => true,
+      release: async () => true,
+      ringAppend: async () => undefined,
+      ringRead: async () => [],
+    }
+    const reported: unknown[] = []
+    const original = globalThis.reportError
+    globalThis.reportError = (error: unknown) => {
+      reported.push(error)
+    }
+    try {
+      const service = facade({ store: failingStore })
+      const response = await service.handleV1Beta(
+        request('/v1beta/models/mock-model:generateContent', '{"contents":[]}'),
+        error429,
+      )
+      expect(response.status).toBe(429)
+      expect(response.body).toBe(errorBody)
+      expect(reported.length).toBeGreaterThan(0)
+      expect((reported[0] as Error).message).toBe('store down')
+    } finally {
+      globalThis.reportError = original
+    }
+  })
+
+  it('the cooldown gate applies to countTokens too (same pipeline)', async () => {
+    let clock = 1_000
+    const store = new MemoryStore({ now: () => clock })
+    const service = facade({ store, now: () => clock })
+    await service.handleV1Beta(
+      request('/v1beta/models/mock-model:generateContent', '{"contents":[]}'),
+      error429,
+    )
+    clock += 100
+    const count = await service.handleV1Beta(
+      request('/v1beta/models/mock-model:countTokens', '{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}'),
+      async () => {
+        throw new Error('must not be called')
+      },
+    )
+    expect(count.status).toBe(429)
+    expect(JSON.parse(count.body as string)).toMatchObject({ error: { code: 'model_cooldown', reset_seconds: 1 } })
+  })
+
+  it('requestRetry rotates credentials on 429 and only the last response renders', async () => {
+    let clock = 1_000
+    const store = new MemoryStore({ now: () => clock })
+    const credentials: readonly Gem2OaiCredential[] = [
+      credential({ name: 'first', apiKey: 'k1' }),
+      credential({ name: 'second', apiKey: 'k2', baseUrl: 'http://mock2.internal:20999/v1' }),
+    ]
+    const service = facade({ store, now: () => clock, requestRetry: 1, credentials })
+    const captured: string[] = []
+    const response = await service.handleV1Beta(
+      request('/v1beta/models/mock-model:generateContent', '{"contents":[]}'),
+      async (call) => {
+        captured.push(call.url)
+        return call.url.includes('mock2') ? staticJson({ model: UPSTREAM_MODEL, choices: [{ index: 0, message: { role: 'assistant', content: 'ok' } }] }) : staticBody(errorBody, 429)
+      },
+    )
+    expect(captured).toEqual(['http://mock.internal:20999/v1/chat/completions', 'http://mock2.internal:20999/v1/chat/completions'])
+    expect(response.status).toBe(200)
   })
 })

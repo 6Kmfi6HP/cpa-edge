@@ -294,7 +294,7 @@ export function createAuthPlane(config: AuthPlaneConfig, deps: AuthPlaneDeps = {
       return jsonResponse(result.status, realtimeBodyOf(result), { ...result.headers })
     },
 
-    safeModeProxyResponse(request: Request): Response | null {
+    safeModeProxyResponse(_request: Request): Response | null {
       return safeModeProxyBlock()
     },
 

@@ -95,5 +95,6 @@
  "notes": [],
  "http_status": "200",
  "request_model_substituted": "gemini-mock-model -> gm (client-visible alias; the cases file used the upstream name, which the reference rejects with 400 unknown provider)",
- "upstream_hits": 1
+ "upstream_hits": 1,
+ "gate_round1_correction_B1": "EXPECTED-VS-RECORDED DEVIATION (gate round 1 finding B1; appended 2026-09-16, text-only edit; recorded wire bytes NOT altered): the cases-file derivation for this stream case supplied no expected_upstream (meta field null), but the same B1 pre-strip expectation applies: the spec-side pre-strip shape would carry generationConfig.thinkingConfig.thinkingBudget 1024. The RECORDED upstream wire (upstream.jsonl) shows generationConfig:{} \u2014 executor capability strip. Verdict: expected deviation; the recorded wire is authoritative for the golden index."
 }

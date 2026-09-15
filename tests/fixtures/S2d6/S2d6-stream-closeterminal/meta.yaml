@@ -1,0 +1,68 @@
+{
+ "id": "S2d6-stream-closeterminal",
+ "purpose": "Stream that produces events but never a terminal event: role chunk + reasoning chunk + [DONE] with NO content and NO finish_reason. The [DONE] finalize emits the reasoning done-set but the terminal-event builder suppresses response.completed when no message/function items exist (returns early); the handler CloseError path then appends the in-stream terminal error frame 'upstream stream closed before a terminal event (last event: response.output_item.done)', HTTP stays 200.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6; image digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+ "recorded_at": "2026-09-16T03:47:36",
+ "record": "full downstream SSE byte stream; upstream.jsonl",
+ "mock_control": {
+  "mode": "happy",
+  "variant": "reasoning-only-stream",
+  "canned_sse": {
+   "events": [
+    {
+     "id": "chatcmpl-mock-0001",
+     "object": "chat.completion.chunk",
+     "created": 1770000000,
+     "model": "mock-gpt-model",
+     "choices": [
+      {
+       "index": 0,
+       "delta": {
+        "role": "assistant"
+       },
+       "finish_reason": null
+      }
+     ]
+    },
+    {
+     "id": "chatcmpl-mock-0001",
+     "object": "chat.completion.chunk",
+     "created": 1770000000,
+     "model": "mock-gpt-model",
+     "choices": [
+      {
+       "index": 0,
+       "delta": {
+        "reasoning_content": "Pondering."
+       },
+       "finish_reason": null
+      }
+     ]
+    }
+   ],
+   "terminator": "data: [DONE]"
+  }
+ },
+ "expect_hints": {
+  "frames_forwarded": 8,
+  "frame_sequence": [
+   "response.created",
+   "response.in_progress",
+   "response.output_item.added (reasoning rs_chatcmpl-mock-0001_0)",
+   "response.reasoning_summary_part.added",
+   "response.reasoning_summary_text.delta",
+   "response.reasoning_summary_text.done",
+   "response.reasoning_summary_part.done",
+   "response.output_item.done (reasoning)"
+  ],
+  "terminal_frame": "\\nevent: error\\ndata: {\"type\":\"error\",\"error\":{\"code\":\"internal_server_error\",\"message\":\"upstream stream closed before a terminal event (last event: response.output_item.done)\",\"param\":null,\"type\":\"server_error\"},\"sequence_number\":8}\\n\\n",
+  "http_status": "200 (already committed)"
+ },
+ "dynamic_fields": [
+  "Date",
+  "X-Cpa-Trace-Id",
+  "Host/port numbers"
+ ],
+ "http_status": "200",
+ "upstream_hits": 1
+}

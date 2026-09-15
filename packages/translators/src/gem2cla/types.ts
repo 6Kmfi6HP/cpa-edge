@@ -6,7 +6,7 @@
  * downstream. Bodies are serialized through the insertion-order serializer,
  * so the property order of every builder here is part of the contract.
  */
-import type { WireObject, WireValue } from './json'
+import type { WireObject } from './json'
 
 export type { WireObject, WireValue } from './json'
 
