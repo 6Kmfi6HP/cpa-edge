@@ -21,7 +21,7 @@
 | S2d6 | spec: Responses client → OpenAI chat upstream | 1 | spec-s2d6-res2oai | merged | 3 | ADMITTED round 3. 27 goldens; stream Ensure + CloseError catalog + empty200 conductor rule. Unlocks I-tr-S2d6. |
 | S2d7 | spec: Gemini client → Claude upstream | 1 | spec-s2d7-gem2cla | merged | 2 | ADMITTED round 2. 31 goldens; validator families byte-pinned; empty-stream conductor gate recorded-deviation integrated. Unlocks I-tr-S2d7. |
 | S2d8 | spec: Claude client → Gemini upstream | 1 | spec-s2d8-cla2gem | merged | 2 | ADMITTED round 2. 18 goldens; two-stage thinking rule; byte-encoding MUSTs. Unlocks I-tr-S2d8. |
-| S2d9 | spec: Codex/Responses passthrough semantics | 1 | spec-s2d9-codex | spec-adv-r2 | 1 | 14 fixes applied; optional N11 batch in flight at w2; round-2 running on adv-spec-5 |
+| S2d9 | spec: Codex/Responses passthrough semantics | 1 | spec-s2d9-codex | merged | 2 | ADMITTED round 2. 17 goldens + S2d9-18 observation pin. NOTE: reviewer verified the pre-S2d9-18 state (conservative); the recorded 404->503 pin only strengthens. Unlocks I-tr-S2d9. |
 | S2d10 | spec: Antigravity redirect rules | 1 | spec-s2d10-antigravity | merged | 2 | ADMITTED round 2. 18 goldens; R-SYNCREDS precedent; feeds I-exec-antigravity + I-auth antigravity flow. |
 | S3 | spec: auth flows | 1 | spec-s3-auth | merged | 3 | ADMITTED after 3 rounds. Goldens: 44 dirs. Unlocked I-auth + S3 contract tests. |
 | S4 | spec: scheduling | 1 | spec-s4-scheduling | merged | 2 | ADMITTED round 2. 23 goldens; per-family ID contracts numerically verified; WS-preference divergence pinned. Unlocks I-core. |
@@ -57,4 +57,4 @@
 
 ## Verdict / escalation log
 (appended by orchestrator)
-- 2026-09-16 05:0x I-auth MERGED (impl gate round 2 PASS). Auth module complete: createAuthPlane + full S3 coverage. Hardening ledger -> T1/D2.
+- 2026-09-16 05:1x S2d9 GATE: PASS (round 2). Codex passthrough admitted: 17 goldens + 404->503 cooldown family pin. 14/16 spec admitted. I-tr-S2d9 dispatched.
