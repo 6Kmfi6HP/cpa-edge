@@ -17,7 +17,8 @@
     "@cpa-edge/translators": "workspace:*",
     "@cpa-edge/executors": "workspace:*",
     "@cpa-edge/auth": "workspace:*",
-    "@cpa-edge/management": "workspace:*"
+    "@cpa-edge/management": "workspace:*",
+    "@cpa-edge/runtime-node": "workspace:*"
   },
   "devDependencies": {
     "@eslint/js": "*",

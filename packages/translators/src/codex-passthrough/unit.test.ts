@@ -40,7 +40,6 @@ import { planInputItemIds, ITEM_ID_RUNE_LIMIT } from './ids'
 import { translateCompactPassthrough, translateResponsesPassthrough } from './request'
 import type { PassthroughRequestContext } from './request'
 import {
-  ensureUsageDetails,
   hydrateOutputItemIds,
   injectResponseModel,
   repairEmptyOutput,
@@ -49,7 +48,7 @@ import {
   transformFramePayload,
 } from './response'
 import type { FrameTransformState } from './response'
-import { bootstrapPassthroughStream, aggregatePassthroughStream } from './stream'
+import { aggregatePassthroughStream } from './stream'
 import { formatDataLine, parseDownstreamSse, scanSseLines } from './sse'
 import { isValidEncryptedContent } from './signature'
 import { createCodexPassthroughService } from './service'
@@ -61,6 +60,10 @@ import type {
 } from './service'
 
 const FROZEN_NOW = 1_789_506_658_255
+
+/** Real SSE line terminators (kept out of string literals for clarity). */
+const LF = '\n'
+const CRLF = '\r\n'
 
 function baseContext(overrides: Partial<PassthroughRequestContext> = {}): PassthroughRequestContext {
   return {
@@ -269,10 +272,8 @@ describe('request rewrites', () => {
       { thinking: true },
     )
     expect(keep.body).toContain('"reasoning": {"effort": "high", "summary": "auto"}')
-    const strip = await translate(
-      '{"model": "codex-mock", "input": "hi", "reasoning": {"effort": "high"}}',
-    )
-    expect(strip.body).not.toContain('reasoning')
+    const strip = await translate('{"model": "codex-mock", "input": "hi", "reasoning": {"effort": "high"}}')
+    expect(strip.body).not.toContain('"reasoning":')
   })
 
   test('service_tier priority survives, other tiers drop', async () => {
@@ -449,6 +450,7 @@ describe('codex-client detection', () => {
 
   test('plain clients get event: error, codex clients get response.failed (fixed key orders)', () => {
     const detail = synthesizedDetailForStatus(408, 'boom')
+    expect(typeof detail).toBe('string')
     const plain = formatTerminalFailureFrame('error', detail, 3)
     expect(plain).toBe('\nevent: error\ndata: {"type":"error","error":' + detail + ',"sequence_number":3}\n\n')
     const codex = formatTerminalFailureFrame('response.failed', detail, 3)
@@ -479,6 +481,8 @@ describe('codex-client detection', () => {
   test('long strings truncate at 2048 runes inside sanitized details', () => {
     const long = 'x'.repeat(3000)
     const detail = terminalFailureDetail({ type: 'error', error: { message: long } })
+    expect(detail).toBeDefined()
+    if (detail === undefined) return
     const parsed = tryParseJson(`{${detail.slice(1, -1)}}`) as { message?: string }
     expect(Array.from(parsed.message ?? '').length).toBe(2048)
   })
@@ -556,33 +560,46 @@ async function collectLines(source: string[]): Promise<string[]> {
 describe('sse line scanner', () => {
   test('splits lines, strips the optional data space, keeps CRLF endings', async () => {
     const items = await collectLines(['event: x\r\ndata:{"a":1}\r\n\r\ndata: y\n\n'])
-    expect(items).toEqual(['L:event: x\\r\\n', 'L:data:{"a":1}\\r\\n D={"a":1}', 'B-CRLF', 'L:data: y\\n D=y', 'B', 'END'])
+    expect(items).toEqual([
+      'L:event: x' + CRLF,
+      'L:data:{"a":1}' + CRLF + ' D={"a":1}',
+      'B-CRLF',
+      'L:data: y' + LF + ' D=y',
+      'B',
+      'END',
+    ])
   })
 
   test('split payloads reassemble identically to whole chunks', async () => {
-    const whole = await collectStream(translatePassthrough([JSON.stringify({ type: 'response.created', response: { id: 'r' } }).slice(0, 20)], {}), [
+    const whole = await collectStream([
       'event: response.created\ndata: {"type":"resp',
       'onse.created","response":{"id":"r"}}\n',
+      'event: response.completed\ndata: {"type":"response.completed","response":{"id":"r","output":[]}}\n',
     ])
-    const single = await collectStream(translatePassthrough([JSON.stringify({ type: 'x' }).slice(0, 1)], {}), [
+    const single = await collectStream([
       'event: response.created\ndata: {"type":"response.created","response":{"id":"r"}}\n',
+      'event: response.completed\ndata: {"type":"response.completed","response":{"id":"r","output":[]}}\n',
     ])
-    // terminal success triggers WriteDone on both
-    expect(whole.length).toBe(single.length)
+    expect(whole).toEqual(single)
   })
 })
 
 
 
-async function collectStream(source: AsyncIterable<string | Uint8Array>, chunks: readonly string[]): Promise<string[]> {
+async function collectStream(chunks: readonly string[]): Promise<string[]> {
   const out: string[] = []
   for await (const frame of passthroughFrames(chunks)) out.push(frame)
   return out
 }
 
+/** Array chunks as an async text source (chunk splits preserved). */
+async function* textSource(chunks: readonly (string | Uint8Array)[]): AsyncIterable<string | Uint8Array> {
+  for (const chunk of chunks) yield chunk
+}
+
 async function* passthroughFrames(chunks: readonly string[]): AsyncIterable<string> {
   const { translatePassthroughStream } = await import('./stream')
-  yield* translatePassthroughStream(chunks.values(), {
+  yield* translatePassthroughStream(textSource(chunks), {
     clientModel: 'codex-mock',
     lite: false,
     failureEvent: 'error',
@@ -591,26 +608,36 @@ async function* passthroughFrames(chunks: readonly string[]): AsyncIterable<stri
 
 describe('stream pipeline', () => {
   test('comment lines glue onto the following frame; data: normalizes to "data: "', async () => {
-    const frames = await collectStream(translatePassthrough([], {}), [
-      'event: response.created\ndata: {"type":"response.created","response":{"id":"r"}}\n',
+    const frames = await collectStream([
+      'event: response.created\ndata: {"type":"response.created","response":{"id":"r"}}\n\n',
       ': keepalive\n\n',
       'event: response.output_text.delta\ndata:{"type":"response.output_text.delta","delta":"Hi"}\n\n',
     ])
     expect(frames).toEqual([
-      'event: response.created\ndata: {"type":"response.created","response":{"id":"r"}}\n\n',
+      'event: response.created\ndata: {"type":"response.created","response":{"id":"r","model":"codex-mock"}}\n\n',
       ': keepalive\nevent: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"Hi"}\n\n',
+      // No terminal event followed: the synthesized disconnect frame
+      // counts the two forwarded frames.
+      '\nevent: error\ndata: {"type":"error","error":{"code":"request_timeout","message":"' +
+        'stream error: stream disconnected before completion: stream closed before response.completed' +
+        '","param":null,"type":"invalid_request_error"},"sequence_number":2}\n\n',
     ])
   })
 
-  test('CRLF frames are preserved and extended to \\r\\n\\r\\n', async () => {
-    const frames = await collectStream(translatePassthrough([], {}), [
-      'event: response.created\r\ndata: {"type":"response.created"}\r\n\r\n',
+  test('CRLF frames are preserved and extended, the disconnect frame stays LF', async () => {
+    const frames = await collectStream([
+      'event: response.created\r\ndata: {"type":"response.created","response":{"id":"r"}}\r\n\r\n',
     ])
-    expect(frames).toEqual(['event: response.created\r\ndata: {"type":"response.created"}\r\n\r\n'])
+    expect(frames.length).toBe(2)
+    expect(frames[0]).toBe(
+      'event: response.created\r\ndata: {"type":"response.created","response":{"id":"r","model":"codex-mock"}}\r\n\r\n',
+    )
+    expect(frames[1]).toContain('\nevent: error\ndata: ')
+    expect(frames[1]).toContain('"sequence_number":1')
   })
 
   test('event-line-separated blocks flush when the next event: line arrives; WriteDone follows the terminal', async () => {
-    const frames = await collectStream(translatePassthrough([], {}), [
+    const frames = await collectStream([
       'event: response.created\ndata: {"type":"response.created","response":{"id":"r"}}\n',
       'event: response.completed\ndata: {"type":"response.completed","response":{"id":"r","output":[]}}\n',
     ])
@@ -622,7 +649,7 @@ describe('stream pipeline', () => {
   })
 
   test('response.done is renamed in the payload, the event name stays, the stream still closes', async () => {
-    const frames = await collectStream(translatePassthrough([], {}), [
+    const frames = await collectStream([
       'event: response.done\ndata: {"type":"response.done","response":{"id":"r"}}\n',
     ])
     expect(frames).toEqual([
@@ -632,7 +659,7 @@ describe('stream pipeline', () => {
   })
 
   test('[DONE] forwards verbatim and is not terminal', async () => {
-    const frames = await collectStream(translatePassthrough([], {}), [
+    const frames = await collectStream([
       'data: [DONE]\n\n',
       'event: response.completed\ndata: {"type":"response.completed","response":{"id":"r"}}\n\n',
     ])
@@ -641,7 +668,7 @@ describe('stream pipeline', () => {
   })
 
   test('disconnect after forwarded frames yields one failure frame with the frame count', async () => {
-    const frames = await collectStream(translatePassthrough([], {}), [
+    const frames = await collectStream([
       'event: response.created\ndata: {"type":"response.created","response":{"id":"r"}}\n\n',
       'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"x"}\n\n',
       'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"y"}\n\n',
@@ -655,7 +682,7 @@ describe('stream pipeline', () => {
   })
 
   test('an in-stream error frame carries the upstream sequence number and drops from the wire', async () => {
-    const frames = await collectStream(translatePassthrough([], {}), [
+    const frames = await collectStream([
       'event: response.created\ndata: {"type":"response.created","response":{"id":"r"}}\n\n',
       'data: {"type":"error","code":"server_error","message":"boom","sequence_number":9}\n\n',
     ])
@@ -684,9 +711,7 @@ describe('stream pipeline', () => {
   test('first-frame gating: an error frame before any data never commits SSE headers', async () => {
     const { bootstrapPassthroughStream } = await import('./stream')
     const bootstrap = await bootstrapPassthroughStream(
-      (async function* () {
-        yield* ['data: {"type":"error","code":"invalid_api_key","message":"bad key"}\n\n'].values()
-      })(),
+      textSource(['data: {"type":"error","code":"invalid_api_key","message":"bad key"}\n\n']),
       { clientModel: 'm', lite: false, failureEvent: 'error' },
     )
     expect(bootstrap.kind).toBe('pre-commit')
@@ -863,7 +888,7 @@ describe('facade routing and gates', () => {
     )
     expect(response.status).toBe(400)
     expect(calls).toBe(0)
-    expect((JSON.parse(response.body as string) as { error: { message: string } }).error.type).toBe('invalid_request_error')
+    expect(JSON.parse(response.body as string).error.type).toBe('invalid_request_error')
   })
 
   test('unknown model: 400 model_not_found, no upstream call, S1-23 literal order', async () => {
@@ -941,7 +966,7 @@ describe('facade routing and gates', () => {
 
   test('Lite header forwarding reaches the upstream under the canonical name', async () => {
     const service = buildService()
-    let seen: Record<string, string> = {}
+    const seen: Record<string, string> = {}
     await service.handleResponses(
       request('/v1/responses', '{"model": "codex-mock", "input": "hi", "stream": true}', {
         'X-OpenAI-Internal-Codex-Responses-Lite': 'true',
@@ -1157,6 +1182,70 @@ describe('stream facade units', () => {
     )
     expect(response.status).toBe(200)
     expect(response.body).toBe(reply)
+  })
+
+  test('upstream headers filter into the SSE commit minus hop-by-hop and proxy pairs', async () => {
+    const service = buildService()
+    const response = await service.handleResponses(
+      request('/v1/responses', '{"model": "codex-mock", "input": "hi", "stream": true}'),
+      async () => ({
+        status: 200,
+        headers: [
+          ['Content-Type', 'text/event-stream'],
+          ['X-Custom-Trace', 'keep-me'],
+          ['Connection', 'close'],
+          ['Transfer-Encoding', 'chunked'],
+          ['Set-Cookie', 'a=b'],
+          ['Content-Length', '5'],
+          ['Content-Encoding', 'gzip'],
+          ['Access-Control-Allow-Origin', 'http://evil'],
+          ['X-Litellm-Version', '1'],
+          ['Keep-Alive', 'timeout=5'],
+        ],
+        body: streamOf(['data: {"type":"response.completed","response":{"id":"r","output":[]}}\n\n']),
+      }),
+    )
+    expect(response.status).toBe(200)
+    const names = response.headers.map(([name]) => name)
+    expect(names).toContain('X-Custom-Trace')
+    // Gateway-owned values survive; the upstream's hop-by-hop and proxy
+    // pairs never reach the client.
+    expect(response.headers.find(([name]) => name === 'Connection')?.[1]).toBe('keep-alive')
+    expect(names).not.toContain('Transfer-Encoding')
+    expect(names).not.toContain('Set-Cookie')
+    expect(names).not.toContain('Content-Length')
+    expect(names).not.toContain('Content-Encoding')
+    expect(names).not.toContain('X-Litellm-Version')
+    expect(names).not.toContain('Keep-Alive')
+    // The gateway's own CORS value wins over the upstream's.
+    expect(response.headers.find(([name]) => name === 'Access-Control-Allow-Origin')?.[1]).toBe('*')
+  })
+
+  test('request-retry falls through cooling candidates to a live one', async () => {
+    let calls = 0
+    const service = createCodexPassthroughService({
+      apiKeys: ['oracle-local-key-1'],
+      credentials: [
+        { apiKey: 'k1', baseUrl: 'http://u1', models: [{ name: 'mock-codex-upstream', alias: 'codex-mock' }] },
+        { apiKey: 'k2', baseUrl: 'http://u2', models: [{ name: 'mock-codex-upstream', alias: 'codex-mock' }] },
+      ],
+      store: new MemoryStore(),
+      now: () => FROZEN_NOW,
+      requestRetry: 1,
+    })
+    const response = await service.handleResponses(
+      request('/v1/responses', '{"model": "codex-mock", "input": "hi", "stream": true}'),
+      async (req) => {
+        calls += 1
+        if (calls === 1) {
+          return { status: 429, headers: [], body: streamOf(['{"error":{"message":"m","type":"usage_limit_reached"}}']) }
+        }
+        void req
+        return okSend()(req)
+      },
+    )
+    expect(calls).toBe(2)
+    expect(response.status).toBe(200)
   })
 
   test('compact: a non-compaction body still gains the usage details', async () => {

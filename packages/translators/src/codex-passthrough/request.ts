@@ -25,7 +25,6 @@ import { resolveSessionIdentity } from './session'
 import type { PassthroughSessionContext } from './session'
 import { isValidEncryptedContent } from './signature'
 import {
-  appendElement,
   appendMember,
   deleteElement,
   deleteMember,
@@ -364,7 +363,7 @@ async function rebuildInput(text: string, options: InputRewriteOptions): Promise
 
   const idPlan = options.normalizeIds === true ? await planInputItemIds(items.map(itemIdInput)) : undefined
   const rewriteMessages =
-    options.responsesRoute === true && items.some((raw) => messageNeedsRewrite(raw, options))
+    options.responsesRoute === true && items.some((raw) => messageNeedsRewrite(raw))
   const rebuilt: string[] = []
   for (let index = 0; index < items.length; index++) {
     const raw = items[index] ?? '{}'
@@ -377,7 +376,7 @@ async function rebuildInput(text: string, options: InputRewriteOptions): Promise
 }
 
 /** True when one message item carries a `system` role or a breakpoint part. */
-function messageNeedsRewrite(raw: string, options: InputRewriteOptions): boolean {
+function messageNeedsRewrite(raw: string): boolean {
   const parsed = tryParseJson(raw)
   if (!isPlainObject(parsed) || parsed['type'] !== 'message') return false
   if (parsed['role'] === 'system') return true
@@ -593,16 +592,6 @@ function applyToolsMatrix(text: string, ctx: PassthroughRequestContext): ToolsRe
 
   out = rewriteToolChoice(out, ctx.imageMode)
   return { text: out, empty, createdMember: false }
-}
-
-/** True when a tools array element declares an image_generation tool. */
-function imageToolDeclared(text: string, span: RawSpan): boolean {
-  const elements = scanArrayElements(text, span) ?? []
-  for (const element of elements) {
-    const parsed = tryParseJson(text.slice(element.span.start, element.span.end))
-    if (isPlainObject(parsed) && parsed['type'] === 'image_generation') return true
-  }
-  return false
 }
 
 /** Rewrites `web_search_preview*` tool types to `web_search` in place. */

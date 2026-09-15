@@ -118,6 +118,13 @@ export function readObject(value: unknown, key: string): Record<string, unknown>
   return raw as Record<string, unknown>
 }
 
+/** Reads a finite number member of a record-like value. */
+export function readNumber(value: unknown, key: string): number | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const raw = (value as Record<string, unknown>)[key]
+  return typeof raw === 'number' && Number.isFinite(raw) ? raw : undefined
+}
+
 const HEX = '0123456789abcdef'
 
 /**

@@ -21,7 +21,7 @@
  *   `{"type":"object","properties":{}}`; the `strict` member never reaches
  *   the wire (only name/description/parametersJsonSchema do).
  */
-import { isPlainObject, rawValueAt, readString, scanRawObject, serializeOrdered } from './json'
+import { isPlainObject, rawValueAt, readString, scanRawObject, serializeOrdered, serializeOrderedCapped } from './json'
 import { RawJson } from './json'
 import type { RawObjectScan, WireObject, WireValue } from './json'
 
@@ -167,7 +167,7 @@ function planObject(record: Record<string, unknown>): ObjectPlan {
 
 /** Member list of a parsed object serialized compactly (no braces). */
 function compactMemberList(record: Record<string, unknown>): string {
-  const text = serializeOrdered(record)
+  const text = serializeOrderedCapped(record)
   const scan = scanRawObject(text, 0)
   if (scan === undefined) return ''
   const parts: string[] = []

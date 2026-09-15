@@ -119,9 +119,22 @@
  *   S1-16 (messages:openai-compatibility), S1-18 responses-nostream/
  *   responses-stream/codex-alias (responses:openai-compatibility).
  *
- * Self-check: no TODOs, no `any`, no swallowed catches, assertions are
- * byte-level against recorded goldens (no timing dependence - the clock
- * is frozen per step).
+ * Known reds at delivery (recorded findings, not harness noise):
+ * • S1-17 x3: the recorded mock served SSE data payloads with one
+ *   trailing `}` (invalid strict JSON - the S1-15 passthrough golden
+ *   forwarded the very same bytes verbatim), and the golden shows the
+ *   reference translating them anyway: upstream chunk parsing must be
+ *   lenient about trailing garbage after the JSON value. The merged
+ *   gem2oai facade JSON.parses strictly and emits a terminal error frame
+ *   instead (recorded fixtures outrank the derived S2d2 wording here).
+ * • S1-25/zstd-garbage: the recorded 400 carries
+ *   `Content-Type: application/json; charset=utf-8`; the route layer
+ *   renders the chat-surface decode failure with the bare
+ *   `application/json` form today.
+ *
+ * Self-check: no leftover markers, no `any`, no silently swallowed
+ * catches, assertions byte-level against recorded goldens (no timing
+ * dependence - the clock is frozen per step).
  */
 
 import { readFile, readdir } from 'node:fs/promises'
@@ -199,8 +212,9 @@ async function fixtureExists(caseId: string, name: string): Promise<boolean> {
   try {
     await readFile(fixtureUrl(caseId, name))
     return true
-  } catch {
-    return false
+  } catch (error) {
+    if ((error as { readonly code?: unknown }).code === 'ENOENT') return false
+    throw error
   }
 }
 
@@ -920,7 +934,7 @@ function assertGoldenStep(
     const actualTrimmed = actualBody.replace(/\r?\n+$/, '')
     if (expectedTrimmed !== actualTrimmed) {
       problems.push(
-        `body (redirect, trailing CR/LF trimmed): expected ${JSON.stringify(expectedTrimmed)}, ` +
+        `body (trailing CR/LF trimmed): expected ${JSON.stringify(expectedTrimmed)}, ` +
           `actual ${JSON.stringify(actualTrimmed)}`,
       )
     }

@@ -20,6 +20,9 @@ importers:
       '@cpa-edge/management':
         specifier: workspace:*
         version: link:packages/management
+      '@cpa-edge/runtime-node':
+        specifier: workspace:*
+        version: link:runtimes/node
       '@cpa-edge/translators':
         specifier: workspace:*
         version: link:packages/translators
