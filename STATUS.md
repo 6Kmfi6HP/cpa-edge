@@ -57,4 +57,5 @@
 
 ## Verdict / escalation log
 (appended by orchestrator)
+- 2026-09-16 07:2x gem2oai lenient-parse micro-fix ACCEPTED (recorded S1-17 pin; implementer-verified vs golden; s1-routes flipped green). S2d2 §5.5 amendment routed. Post-merge acceptance basis: recorded pin + contract-suite flip + zero well-formed regressions.
 - 2026-09-16 07:1x I-mgmt MERGED (impl gate round 2 PASS). Management module complete: 8 modules merged (auth, management, 6 directions). Remaining: core, codex-passthrough (gate), cla2oai (gate), oai2gem (implementing).
