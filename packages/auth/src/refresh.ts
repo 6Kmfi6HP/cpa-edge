@@ -594,14 +594,32 @@ export class RefreshRegistry {
     return raw as RefreshRegistryDocument
   }
 
-  /** Records a successful refresh and clears any failure state. */
+  /**
+   * Live backoff/block deadline of the credential, in epoch ms: the stored
+   * `next_refresh_after` while it is still in the future. Callers use it to
+   * fail a refresh fast instead of sending a vendor request that the
+   * cooldown would only answer with another 429.
+   */
+  async blockedUntilMs(fileName: string): Promise<number | undefined> {
+    const doc = await this.get(fileName)
+    const nextAfter =
+      doc.next_refresh_after === undefined ? undefined : parseRfc3339Ms(doc.next_refresh_after)
+    return nextAfter !== undefined && nextAfter > this.now() ? nextAfter : undefined
+  }
+
+  /**
+   * Records a successful refresh. The document is rebuilt rather than
+   * merged, so a success drops any stale `next_refresh_after` and
+   * `status_message` an earlier failure left behind (§2.7: success clears
+   * the backoff and the previous error); an ineffective success keeps only
+   * the short re-check backoff.
+   */
   async recordSuccess(fileName: string, effective: boolean): Promise<void> {
     const nowMs = this.now()
     await this.store.update<RefreshRegistryDocument>(
       REFRESH_REGISTRY_NAMESPACE,
       fileName,
-      (current) => ({
-        ...(current ?? {}),
+      () => ({
         last_refreshed_at: formatRfc3339(nowMs),
         status: 'active',
         ...(effective ? {} : { next_refresh_after: formatRfc3339(nowMs + REFRESH_INEFFECTIVE_BACKOFF_MS) }),
@@ -609,31 +627,43 @@ export class RefreshRegistry {
     )
   }
 
-  /** Records a failed refresh with the failure backoff. */
-  async recordFailure(fileName: string, message: string): Promise<void> {
+  /**
+   * Records a failed refresh with the failure backoff. A vendor-supplied
+   * block deadline (the `blockedUntilMs` a 429 produces) replaces the
+   * generic backoff, so later refreshes stay blocked until the exact
+   * cooldown elapses.
+   */
+  async recordFailure(fileName: string, message: string, blockedUntilMs?: number): Promise<void> {
     const nowMs = this.now()
     await this.store.update<RefreshRegistryDocument>(
       REFRESH_REGISTRY_NAMESPACE,
       fileName,
       (current) => ({
         ...(current ?? {}),
-        next_refresh_after: formatRfc3339(nowMs + REFRESH_FAILURE_BACKOFF_MS),
+        next_refresh_after: formatRfc3339(blockedUntilMs ?? nowMs + REFRESH_FAILURE_BACKOFF_MS),
         status: 'error',
         status_message: message,
       }),
     )
   }
 
-  /** Marks the credential unavailable after a 401 refresh failure. */
+  /**
+   * Marks the credential unavailable after a 401 refresh failure. Any
+   * recorded backoff is dropped (§2.7: `NextRefreshAfter` zeroed) while the
+   * last-refresh timestamp survives.
+   */
   async recordUnauthorized(fileName: string, message: string): Promise<void> {
     await this.store.update<RefreshRegistryDocument>(
       REFRESH_REGISTRY_NAMESPACE,
       fileName,
-      (current) => ({
-        ...(current ?? {}),
-        status: 'error',
-        status_message: message,
-      }),
+      (current) => {
+        const lastRefreshedAt = current?.last_refreshed_at
+        return {
+          ...(lastRefreshedAt === undefined ? {} : { last_refreshed_at: lastRefreshedAt }),
+          status: 'error',
+          status_message: message,
+        }
+      },
     )
   }
 }
@@ -643,6 +673,8 @@ export class RefreshRegistry {
  * a single-flight promise per credential makes concurrent requests share
  * the in-flight refresh, and a caller whose failing access token already
  * differs from the current one reuses the newer token without refreshing.
+ * A live recorded backoff (a 429 block threaded through the registry) fails
+ * the refresh fast and non-retryable, without a vendor request.
  */
 export class UnauthorizedRefresher {
   private readonly store: Store
@@ -699,10 +731,21 @@ export class UnauthorizedRefresher {
     readonly deps?: RefreshDeps
   }): Promise<RefreshOutcome> {
     const run = async (): Promise<RefreshOutcome> => {
+      const blockedUntil = await this.registry.blockedUntilMs(input.fileName)
+      if (blockedUntil !== undefined) {
+        // A recorded cooldown (a 429 block or a recent failure backoff) is
+        // still live: fail fast, non-retryable, without a vendor request.
+        return { ok: false, retryable: false, message: 'refresh blocked', unauthorized: false }
+      }
       const outcome = await refreshCredential(input.provider, input.document, input.deps ?? {})
       if (outcome.ok) {
-        const next: Record<string, JsonValue> = { ...input.document, ...outcome.documentPatch }
-        await this.store.put('auth', input.fileName, next)
+        // Merge the new token set into the CURRENT stored document, so a
+        // writer that changed the credential while the refresh was in
+        // flight keeps its changes: atomic update, not a blind overwrite.
+        await this.store.update<Record<string, JsonValue>>('auth', input.fileName, (current) => ({
+          ...(current ?? input.document),
+          ...outcome.documentPatch,
+        }))
         await this.registry.recordSuccess(input.fileName, outcome.effective)
         return outcome
       }
@@ -712,7 +755,7 @@ export class UnauthorizedRefresher {
         await this.registry.recordUnauthorized(input.fileName, 'unauthorized')
         return outcome
       }
-      await this.registry.recordFailure(input.fileName, outcome.message)
+      await this.registry.recordFailure(input.fileName, outcome.message, outcome.blockedUntilMs)
       return outcome
     }
     const promise = run().finally(() => {

@@ -18,8 +18,7 @@ import { isPlainObject, readObject, readString, scanObjectMembers, serializeOrde
 import type { WireObject } from './json'
 import { appendObjectMember } from './json'
 import { resolveCallName } from './tools'
-import type { DeclaredTool } from './types'
-import type { ChatToResponsesContext } from './types'
+import type { ChatToResponsesContext, DeclaredTool } from './types'
 
 /** Marker of compaction payloads (exempt from usage-detail ensuring). */
 export const COMPACTION_OBJECT = 'response.compaction'
@@ -35,21 +34,20 @@ export function translateChatToResponses(upstreamBody: string, ctx: ChatToRespon
   const record = isPlainObject(parsed) ? parsed : {}
 
   const upstreamId = readString(record, 'id') ?? ''
-  const responseId = upstreamId.length > 0 ? upstreamId : synthesizeResponseId(ctx.now())
-  const createdAt = readNumber(record, 'created') ?? Math.floor(ctx.now() / 1000)
+  const responseId = upstreamId.length > 0 ? upstreamId : `resp_${ctx.now().toString(16)}_0`
+  const createdRaw = readNumber(record, 'created')
+  const createdAt = createdRaw !== undefined && createdRaw !== 0 ? createdRaw : Math.floor(ctx.now() / 1000)
 
   const choices = Array.isArray(record['choices']) ? (record['choices'] as readonly unknown[]) : []
-  const firstChoice = choices[0]
-  const firstMessage = isPlainObject(firstChoice) ? firstChoice : undefined
-  const finishReason = firstMessage !== undefined ? readString(firstMessage, 'finish_reason') : undefined
+  const firstChoice = isPlainObject(choices[0]) ? (choices[0] as Record<string, unknown>) : undefined
+  const finishReason = firstChoice !== undefined ? readString(firstChoice, 'finish_reason') : undefined
   const incomplete = finishReason === 'length' || finishReason === 'max_tokens' || finishReason === 'content_filter'
-  const status = incomplete ? 'incomplete' : 'completed'
 
   const out: WireObject = {
     id: responseId,
     object: 'response',
     created_at: createdAt,
-    status,
+    status: incomplete ? 'incomplete' : 'completed',
     background: false,
     error: null,
     incomplete_details: incomplete
@@ -59,16 +57,15 @@ export function translateChatToResponses(upstreamBody: string, ctx: ChatToRespon
   if (ctx.maxTokens !== undefined) out['max_output_tokens'] = ctx.maxTokens
   out['model'] = ctx.resolvedModel
   if (ctx.toolChoice !== undefined) out['tool_choice'] = sortKeysDeep(ctx.toolChoice)
-  if (ctx.tools.length > 0) out['tools'] = chatToolEcho(ctx.tools)
+  if (ctx.chatTools.length > 0) out['tools'] = sortKeysDeep([...ctx.chatTools]) as WireObject[]
 
-  const output = buildOutputItems(responseId, choices, incomplete, createdAt, ctx.tools, ctx.now())
+  const output = buildOutputItems(responseId, choices, incomplete, ctx.tools)
   if (output.length > 0) out['output'] = output
 
   const usage = buildUsage(record)
-  const body = serializeOrdered(out) + (usage !== undefined ? '' : '')
-  if (usage === undefined) return body
-  const withUsage = appendUsageMember(body, usage)
-  return ensureResponsesUsageDetails(withUsage)
+  if (usage !== undefined) out['usage'] = usage
+
+  return ensureResponsesUsageDetails(serializeOrdered(out))
 }
 
 // ---------------------------------------------------------------------------
@@ -79,9 +76,7 @@ function buildOutputItems(
   responseId: string,
   choices: readonly unknown[],
   incomplete: boolean,
-  createdAt: number,
   declared: readonly DeclaredTool[],
-  now: () => number,
 ): WireObject[] {
   const items: WireObject[] = []
   const itemStatus = incomplete ? 'incomplete' : 'completed'
@@ -92,10 +87,10 @@ function buildOutputItems(
     const reasoning = message !== undefined ? reasoningText(message) : undefined
     if (reasoning !== undefined && reasoning.length > 0) {
       items.push({
-        id: `rs_${stripResponsePrefix(responseId)}`,
+        id: `rs_${responseId.startsWith('resp_') ? responseId.slice('resp_'.length) : responseId}`,
         type: 'reasoning',
         encrypted_content: '',
-        summary: reasoning.length > 0 ? [{ type: 'summary_text', text: reasoning }] : [],
+        summary: [{ type: 'summary_text', text: reasoning }],
       })
     }
   }
@@ -106,22 +101,12 @@ function buildOutputItems(
     const message = readObject(choice, 'message')
     if (message === undefined) continue
     const content = message['content']
-    if (typeof content === 'string' && content.length > 0) {
-      items.push({
-        id: `msg_${responseId}_${choiceIndex}`,
-        type: 'message',
-        status: itemStatus,
-        content: [{ type: 'output_text', annotations: [], logprobs: [], text: content }],
-        role: 'assistant',
-      })
-    } else if (typeof content !== 'string' && content !== undefined && content !== null) {
-      items.push({
-        id: `msg_${responseId}_${choiceIndex}`,
-        type: 'message',
-        status: itemStatus,
-        content: [{ type: 'output_text', annotations: [], logprobs: [], text: JSON.stringify(content) }],
-        role: 'assistant',
-      })
+    if (typeof content === 'string') {
+      if (content.length > 0) {
+        items.push(messageItem(responseId, choiceIndex, itemStatus, content))
+      }
+    } else if (content !== undefined && content !== null) {
+      items.push(messageItem(responseId, choiceIndex, itemStatus, JSON.stringify(content)))
     }
     const toolCalls = message['tool_calls']
     if (!Array.isArray(toolCalls)) continue
@@ -154,9 +139,17 @@ function buildOutputItems(
       }
     }
   }
-  void createdAt
-  void now
   return items
+}
+
+function messageItem(responseId: string, choiceIndex: number, status: string, text: string): WireObject {
+  return {
+    id: `msg_${responseId}_${choiceIndex}`,
+    type: 'message',
+    status,
+    content: [{ type: 'output_text', annotations: [], logprobs: [], text }],
+    role: 'assistant',
+  }
 }
 
 /** `reasoning_content` with the recorded `reasoning` fallback. */
@@ -164,8 +157,7 @@ function reasoningText(message: Record<string, unknown>): string | undefined {
   const direct = readString(message, 'reasoning_content')
   if (direct !== undefined) return direct
   const fallback = message['reasoning']
-  if (typeof fallback === 'string') return fallback
-  return undefined
+  return typeof fallback === 'string' ? fallback : undefined
 }
 
 function toolCallName(call: Record<string, unknown>): string {
@@ -181,33 +173,29 @@ function toolCallArguments(call: Record<string, unknown>): string {
 /** Custom tool input: the `input` member of parsed arguments, else the raw arguments. */
 export function customInputOf(argumentsText: string): string {
   const parsed = tryParseJson(argumentsText)
-  if (isPlainObject(parsed)) {
-    const input = parsed['input']
-    if (typeof input === 'string') return input
-  }
+  if (isPlainObject(parsed) && typeof parsed['input'] === 'string') return parsed['input'] as string
   return argumentsText
 }
 
 // ---------------------------------------------------------------------------
-// Usage
+// Usage (translator order; details appended by the ensure post-step)
 // ---------------------------------------------------------------------------
 
 /**
- * Translates the upstream usage object in translator order:
- * `input_tokens`, `input_tokens_details.cached_tokens` (when present),
- * `output_tokens`, `output_tokens_details.reasoning_tokens` (when
- * present), `total_tokens`. Returns undefined when the upstream usage has
- * none of the three base fields; a usage object without base fields is
- * copied verbatim instead (the `raw` flag).
+ * Translates the upstream usage object in translator order: `input_tokens`,
+ * `input_tokens_details.cached_tokens` (when the upstream has it),
+ * `output_tokens`, `output_tokens_details.reasoning_tokens` (when the
+ * upstream has it), `total_tokens`. A usage object with NONE of the three
+ * base fields is copied verbatim instead.
  */
-function buildUsage(record: Record<string, unknown>): { readonly value: WireObject; readonly raw: boolean } | undefined {
+function buildUsage(record: Record<string, unknown>): WireObject | undefined {
   const usage = readObject(record, 'usage')
   if (usage === undefined) return undefined
   const prompt = readNumber(usage, 'prompt_tokens')
   const completion = readNumber(usage, 'completion_tokens') ?? readNumber(usage, 'output_tokens')
   const total = readNumber(usage, 'total_tokens')
   if (prompt === undefined && completion === undefined && total === undefined) {
-    return { value: usage as WireObject, raw: true }
+    return usage
   }
   const out: WireObject = {}
   if (prompt !== undefined) out['input_tokens'] = prompt
@@ -217,25 +205,13 @@ function buildUsage(record: Record<string, unknown>): { readonly value: WireObje
   const reasoning = reasoningTokensOf(usage)
   if (reasoning !== undefined) out['output_tokens_details'] = { reasoning_tokens: reasoning }
   if (total !== undefined) out['total_tokens'] = total
-  return { value: out, raw: false }
+  return out
 }
 
 function reasoningTokensOf(usage: Record<string, unknown>): number | undefined {
   const direct = readNumber(readObject(usage, 'output_tokens_details'), 'reasoning_tokens')
   if (direct !== undefined) return direct
   return readNumber(readObject(usage, 'completion_tokens_details'), 'reasoning_tokens')
-}
-
-/** Splices the usage member onto a serialized Responses body. */
-function appendUsageMember(body: string, usage: { readonly value: WireObject; readonly raw: boolean }): string {
-  const usageJson = serializeOrdered(usage.value)
-  const members = scanObjectMembers(body)
-  if (members === undefined) return body
-  const close = body.lastIndexOf('}')
-  if (close < 0) return body
-  const insertAt = close
-  const needsComma = members.length > 0
-  return body.slice(0, insertAt) + (needsComma ? ',' : '') + `"usage":${usageJson}` + body.slice(insertAt)
 }
 
 // ---------------------------------------------------------------------------
@@ -286,16 +262,15 @@ function ensureInSpan(body: string, start: number, end: number): string {
 
 /**
  * Ensures `detailKey.innerKey` exists inside a usage object: a missing
- * detail object appends at the end; a present object without the inner key
- * gains it inside.
+ * detail object appends at the end of the usage object; a present object
+ * without the inner key gains it inside.
  */
 function ensureDetail(usageText: string, detailKey: string, innerKey: string): string {
   const usage = tryParseJson(usageText)
   if (!isPlainObject(usage)) return usageText
   const detail = usage[detailKey]
-  const detailJson = `{"${innerKey}":0}`
   if (detail === undefined) {
-    return appendObjectMember(usageText, `"${detailKey}":${detailJson}`)
+    return appendObjectMember(usageText, `"${detailKey}":{"${innerKey}":0}`)
   }
   if (!isPlainObject(detail)) return usageText
   if (detail[innerKey] !== undefined) return usageText
@@ -308,27 +283,8 @@ function ensureDetail(usageText: string, detailKey: string, innerKey: string): s
   return usageText.slice(0, member.valueStart) + updatedDetail + usageText.slice(member.valueEnd)
 }
 
-// ---------------------------------------------------------------------------
-// Shared small helpers
-// ---------------------------------------------------------------------------
-
 function readNumber(value: unknown, key: string): number | undefined {
   if (!isPlainObject(value)) return undefined
   const raw = value[key]
   return typeof raw === 'number' && Number.isFinite(raw) ? raw : undefined
-}
-
-/** Echo of the declared chat tools (sorted-key re-marshal, chat shapes). */
-function chatToolEcho(declared: readonly DeclaredTool[]): WireObject[] {
-  void declared
-  return []
-}
-
-/** Response ids the reference synthesizes when the upstream carries none (dynamic field). */
-function synthesizeResponseId(now: () => number): string {
-  return `resp_${now().toString(16)}_0`
-}
-
-function stripResponsePrefix(id: string): string {
-  return id.startsWith('resp_') ? id.slice('resp_'.length) : id
 }

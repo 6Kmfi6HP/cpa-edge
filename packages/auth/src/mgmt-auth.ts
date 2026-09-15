@@ -48,10 +48,16 @@ export const MANAGEMENT_BUILD_HEADER_NAMES: readonly string[] = [
   'X-Cpa-Support-Plugin',
 ]
 
-/** Per-IP attempt record kept in the `mgmt/attempts` document. */
+/**
+ * Per-IP attempt record kept in the `mgmt/attempts` document. `last_seen`
+ * is the S6-registered activity timestamp (RFC3339, stamped on every
+ * counted failure); it is optional here only so untrusted reads stay
+ * narrow - every entry this module writes carries it.
+ */
 export type ManagementAttemptEntry = {
   readonly failures: number
   readonly banned_until?: string
+  readonly last_seen?: string
 }
 
 /** The whole attempts document: client IP to attempt record. */
@@ -108,6 +114,9 @@ function isIpv4(text: string): boolean {
   for (const part of parts) {
     if (part.length === 0 || part.length > 3) return false
     if (!/^\d+$/.test(part)) return false
+    // Go's net.ParseIP treats dotted quads with leading zeros (for
+    // example `01.1.1.1`) as unparseable; a lone `0` octet stays valid.
+    if (part.length > 1 && part.startsWith('0')) return false
     if (Number(part) > 255) return false
   }
   return true
@@ -269,18 +278,9 @@ export class ManagementAuthService {
     const local = isLocalIp(clientIp)
 
     // Ban check before any key validation; never counts a failure.
-    const doc = asAttemptsRecord(await this.store.get(MGMT_ATTEMPTS_NAMESPACE, MGMT_ATTEMPTS_KEY))
-    const entry = doc[clientIp]
-    const bannedUntil =
-      entry === undefined || entry.banned_until === undefined
-        ? undefined
-        : parseRfc3339Ms(entry.banned_until)
-    if (bannedUntil !== undefined && bannedUntil > nowMs) {
-      return { ok: false, status: 403, body: bannedBody(bannedUntil - nowMs) }
-    }
-    if (bannedUntil !== undefined && bannedUntil <= nowMs) {
-      // Ban expiry resets the counter.
-      await this.liftExpiredBan(clientIp, nowMs)
+    const banRemainingMs = await this.checkBan(clientIp, nowMs)
+    if (banRemainingMs !== undefined) {
+      return { ok: false, status: 403, body: bannedBody(banRemainingMs) }
     }
 
     const authorization = context.headers.authorization
@@ -299,7 +299,10 @@ export class ManagementAuthService {
       return { ok: false, status: 403, body: REMOTE_MANAGEMENT_KEY_NOT_SET_BODY }
     }
     if (presentedKey.length === 0) {
-      await this.recordFailure(clientIp, nowMs)
+      const bannedMs = await this.countFailure(clientIp, nowMs)
+      if (bannedMs !== undefined) {
+        return { ok: false, status: 403, body: bannedBody(bannedMs) }
+      }
       return { ok: false, status: 401, body: MISSING_MANAGEMENT_KEY_BODY }
     }
 
@@ -314,36 +317,83 @@ export class ManagementAuthService {
       authenticated = await verifyManagementSecret(presentedKey, config.configSecret as string)
     }
     if (authenticated) {
-      await this.reset(clientIp)
+      await this.reset(clientIp, nowMs)
       return { ok: true }
     }
-    await this.recordFailure(clientIp, nowMs)
+    const bannedMs = await this.countFailure(clientIp, nowMs)
+    if (bannedMs !== undefined) {
+      return { ok: false, status: 403, body: bannedBody(bannedMs) }
+    }
     return { ok: false, status: 401, body: INVALID_MANAGEMENT_KEY_BODY }
   }
 
-  private async recordFailure(ip: string, nowMs: number): Promise<void> {
+  /**
+   * Read-side ban check for the outcomes that never count a failure
+   * (valid key, remote gate, unset secret): returns the remaining ban
+   * milliseconds, or undefined when the IP is not banned. An expired ban
+   * is lifted here, resetting the counter as a side effect.
+   */
+  private async checkBan(ip: string, nowMs: number): Promise<number | undefined> {
+    const doc = asAttemptsRecord(await this.store.get(MGMT_ATTEMPTS_NAMESPACE, MGMT_ATTEMPTS_KEY))
+    const entry = doc[ip]
+    const bannedUntil =
+      entry === undefined || entry.banned_until === undefined
+        ? undefined
+        : parseRfc3339Ms(entry.banned_until)
+    if (bannedUntil === undefined) return undefined
+    if (bannedUntil > nowMs) return bannedUntil - nowMs
+    await this.liftExpiredBan(ip, nowMs)
+    return undefined
+  }
+
+  /**
+   * Counted-failure path: one atomic update both re-checks the ban and
+   * counts the failure, so a concurrent burst serializes on the store.
+   * Exactly `MANAGEMENT_BAN_THRESHOLD` requests answer 401 (the last of
+   * them triggers the ban) and the rest find the live ban and answer 403.
+   * Returns the remaining ban milliseconds when the request hit a live ban
+   * instead of being counted. An expired ban found here counts as lifted:
+   * the count starts over and the stale deadline is dropped.
+   */
+  private async countFailure(ip: string, nowMs: number): Promise<number | undefined> {
+    let banRemainingMs: number | undefined
     await this.store.update(MGMT_ATTEMPTS_NAMESPACE, MGMT_ATTEMPTS_KEY, (current) => {
+      // The callback may re-run against a newer document; the decision is
+      // recomputed from scratch on every run, so the reported outcome
+      // always matches the state this update commits.
+      banRemainingMs = undefined
       const doc: AttemptsRecord = asAttemptsRecord(current)
-      const existing = doc[ip] ?? { failures: 0 }
+      const existing = doc[ip]
       const bannedUntil =
-        existing.banned_until === undefined ? undefined : parseRfc3339Ms(existing.banned_until)
-      if (bannedUntil !== undefined && bannedUntil > nowMs) return doc
-      const failures = existing.failures + 1
+        existing === undefined || existing.banned_until === undefined
+          ? undefined
+          : parseRfc3339Ms(existing.banned_until)
+      if (bannedUntil !== undefined && bannedUntil > nowMs) {
+        banRemainingMs = bannedUntil - nowMs
+        return doc
+      }
+      const failures = (existing?.failures ?? 0) + 1
+      const lastSeen = formatRfc3339(nowMs)
       if (failures >= MANAGEMENT_BAN_THRESHOLD) {
         return {
           ...doc,
-          [ip]: { failures: 0, banned_until: formatRfc3339(nowMs + MANAGEMENT_BAN_DURATION_MS) },
+          [ip]: {
+            failures: 0,
+            banned_until: formatRfc3339(nowMs + MANAGEMENT_BAN_DURATION_MS),
+            last_seen: lastSeen,
+          },
         }
       }
-      return { ...doc, [ip]: { failures } }
+      return { ...doc, [ip]: { failures, last_seen: lastSeen } }
     })
+    return banRemainingMs
   }
 
-  private async reset(ip: string): Promise<void> {
+  private async reset(ip: string, nowMs: number): Promise<void> {
     await this.store.update(MGMT_ATTEMPTS_NAMESPACE, MGMT_ATTEMPTS_KEY, (current) => {
       const doc: AttemptsRecord = asAttemptsRecord(current)
       if (doc[ip] === undefined) return doc
-      return { ...doc, [ip]: { failures: 0 } }
+      return { ...doc, [ip]: { failures: 0, last_seen: formatRfc3339(nowMs) } }
     })
   }
 
@@ -354,18 +404,19 @@ export class ManagementAuthService {
       if (entry === undefined || entry.banned_until === undefined) return doc
       const until = parseRfc3339Ms(entry.banned_until)
       if (until === undefined || until <= nowMs) {
-        return { ...doc, [ip]: { failures: 0 } }
+        return { ...doc, [ip]: { failures: 0, last_seen: formatRfc3339(nowMs) } }
       }
       return doc
     })
   }
 
   /**
-   * Purges attempt entries that carry no live ban and no outstanding
-   * failures. Runtimes schedule this sweep; upstream runs it hourly with a
-   * 2-hour idle cutoff. The S6 attempts document has no activity
-   * timestamp, so idleness is judged by the entry's own contents; see the
-   * S6-consistency notes in the mission reply.
+   * Purges attempt entries that no longer matter: entries with a live ban
+   * are kept, zero-failure entries are dropped, and the rest are judged by
+   * the `last_seen` activity timestamp - idle beyond the 2-hour cutoff,
+   * with no live ban, they are removed. Runtimes schedule this sweep;
+   * upstream runs it hourly. An entry without a readable `last_seen` is
+   * kept, since its idleness cannot be judged.
    */
   async sweepIdleEntries(): Promise<void> {
     const nowMs = this.now()
@@ -379,8 +430,12 @@ export class ManagementAuthService {
           next[ip] = entry
           continue
         }
-        if (entry.failures > 0) {
-          next[ip] = { failures: entry.failures }
+        if (entry.failures === 0) continue
+        const lastSeen = entry.last_seen === undefined ? undefined : parseRfc3339Ms(entry.last_seen)
+        if (lastSeen !== undefined && nowMs - lastSeen > MANAGEMENT_SWEEP_MAX_IDLE_MS) continue
+        next[ip] = {
+          failures: entry.failures,
+          ...(entry.last_seen === undefined ? {} : { last_seen: entry.last_seen }),
         }
       }
       return next

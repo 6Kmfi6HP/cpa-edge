@@ -13,7 +13,7 @@
 | P0.2 | packages/core: Store interface + memory impl + error registry | 0 | — | merged | 2 | impl-p0-core impl; adv round1 FAIL (B1 aliasing) -> fix-p0-core -> round2 PASS; N8 portability note carried to S6/T2 |
 | ORACLE | reference env at _cpa_edge_ref (outside repo) | — | — | merged | 0 | v7.3.4 anchor; image digest recorded; 17 probes; recordable/credentialed table; harness proven |
 | S1 | spec: endpoint inventory | 1 | spec-s1-endpoints | merged | 2 | ADMITTED round 2. 25 goldens (283 files). Feeds T1 routing + all handler contracts. 4 residual nits -> writer cleanup, no re-gate per reviewer. |
-| S2d1 | spec: OpenAI client → Gemini upstream | 1 | spec-s2d1-oai2gem | spec | 0 |  |
+| S2d1 | spec: OpenAI client → Gemini upstream | 1 | spec-s2d1-oai2gem | spec-adv | 0 | section+21 goldens done; review assigned adv-spec-6 |
 | S2d2 | spec: Gemini client → OpenAI upstream | 1 | spec-s2d2-gem2oai | merged | 2 | ADMITTED round 2. 26 goldens; countTokens formula independently reproduced by reviewer. Unlocks I-tr-S2d2. |
 | S2d3 | spec: OpenAI client → Claude upstream | 1 | spec-s2d3-oai2cla | merged | 2 | ADMITTED round 2. 26 goldens. Unlocks I-tr-S2d3. |
 | S2d4 | spec: Claude client → OpenAI upstream | 1 | spec-s2d4-cla2oai | spec-adv | 0 | section+22 goldens done; review assigned adv-spec-4 |

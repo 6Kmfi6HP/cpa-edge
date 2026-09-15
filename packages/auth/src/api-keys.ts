@@ -132,13 +132,16 @@ export interface SafeModeDetection {
 
 /**
  * Detects example-key safe mode: active when any configured top-level key
- * equals one of the template values. Re-evaluated whenever the key list
- * changes (hot reload included); stateless by construction.
+ * equals one of the template values. The comparison runs against the
+ * normalized (trimmed, de-duplicated) key set, the same set credential
+ * matching uses, so a padded template value still seals the proxy.
+ * Re-evaluated whenever the key list changes (hot reload included);
+ * stateless by construction.
  */
 export function detectSafeMode(keys: readonly string[]): SafeModeDetection {
   const offending: string[] = []
   const seen = new Set<string>()
-  for (const key of keys) {
+  for (const key of normalizeApiKeys(keys)) {
     if (!TEMPLATE_API_KEYS.includes(key)) continue
     if (seen.has(key)) continue
     seen.add(key)

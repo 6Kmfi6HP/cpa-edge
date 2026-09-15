@@ -350,6 +350,66 @@ function scanString(text: string, index: number): number {
   return i
 }
 
+/** One member of a scanned raw JSON object. */
+export interface RawMember {
+  /** Member key (already unescaped). */
+  readonly key: string
+  /** Byte offset of the key's opening quote. */
+  readonly keyStart: number
+  /** Byte offset where the member value starts. */
+  readonly valueStart: number
+  /** Byte offset one past the member value. */
+  readonly valueEnd: number
+  /**
+   * Byte offset where the member's separator (comma plus whitespace)
+   * starts; equals `objectStart + 1` when the member is first and has no
+   * separator.
+   */
+  readonly sepStart: number
+  /** True when a comma precedes this member. */
+  readonly hasSep: boolean
+}
+
+/** Member list of a scanned raw JSON object (offsets into the same text). */
+export interface RawObjectScan {
+  /** Offset of the opening brace. */
+  readonly start: number
+  /** Offset one past the closing brace. */
+  readonly end: number
+  readonly members: readonly RawMember[]
+}
+
+/**
+ * Scans one raw JSON object (the `{` sits at `objectStart`) into its
+ * member spans, preserving every original byte. Object member surgery
+ * (tool declarations) needs the exact member/separator spans.
+ */
+export function scanRawObject(text: string, objectStart: number): RawObjectScan | undefined {
+  if (text[objectStart] !== '{') return undefined
+  const members: RawMember[] = []
+  let cursor = skipWs(text, objectStart + 1)
+  if (text[cursor] === '}') return { start: objectStart, end: cursor + 1, members }
+  let hasSep = false
+  let sepStart = objectStart + 1
+  for (;;) {
+    const keyStart = cursor
+    if (text[keyStart] !== '"') return undefined
+    const keyEnd = scanString(text, keyStart)
+    const key = text.slice(keyStart + 1, keyEnd - 1)
+    const colon = skipWs(text, keyEnd)
+    if (text[colon] !== ':') return undefined
+    const valueStart = skipWs(text, colon + 1)
+    const valueEnd = scanValue(text, valueStart)
+    members.push({ key, keyStart, valueStart, valueEnd, sepStart, hasSep })
+    const next = skipWs(text, valueEnd)
+    if (text[next] === '}') return { start: objectStart, end: next + 1, members }
+    if (text[next] !== ',') return undefined
+    sepStart = next
+    hasSep = true
+    cursor = skipWs(text, next + 1)
+  }
+}
+
 /** True when the text is a complete, valid JSON document. */
 export function isValidJson(text: string): boolean {
   if (text.trim().length === 0) return false

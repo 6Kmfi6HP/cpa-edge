@@ -24,6 +24,9 @@
     "curl User-Agent in request.http (record verbatim; contract layer masks)",
     "ports (8387/20001)"
   ],
-  "notes": [],
-  "expect_note": "expect entries are predictions; recorded bytes are authoritative"
+  "notes": [
+    "correction 2026-09-16 (spec-s2d1-oai2gem verification): the recorded upstream.jsonl is authoritative and shows thinking stripped/absent (mechanism per source: config-declared api-key models get UserDefined=false/Thinking=nil -> StripThinkingConfig / suffix ignored). The purpose text above carries the pre-recording prediction and did NOT hold."
+  ],
+  "expect_note": "expect entries are predictions; recorded bytes are authoritative",
+  "recorded_outcome": "upstream body has generationConfig:{} with NO thinkingConfig — reasoning_effort is STRIPPED for config-declared api-key models (recorded bytes; the case-file expectation of thinkingBudget 1024 did NOT hold)"
 }

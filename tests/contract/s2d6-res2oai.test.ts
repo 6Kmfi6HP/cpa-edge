@@ -857,14 +857,29 @@ async function resolveMockScript(
   }
 
   const variant = control.variant
+  const disconnectAbortAfter = mode === 'disconnect' ? control.after : undefined
+  if (disconnectAbortAfter !== undefined && (!Number.isInteger(disconnectAbortAfter) || disconnectAbortAfter < 0)) {
+    throw new Error(`S2d6[${caseId}]: disconnect control must carry a non-negative integer "after"`)
+  }
   if (variant === 'default') {
     return { script: { kind: 'nonstream', reply: DEFAULT_NONSTREAM_REPLY }, control, scripted: false }
   }
   if (variant === 'default-stream-done') {
-    return { script: { kind: 'stream', script: DEFAULT_STREAM_SCRIPT }, control, scripted: false }
+    return {
+      script: { kind: 'stream', script: DEFAULT_STREAM_SCRIPT, abortAfter: disconnectAbortAfter },
+      control,
+      scripted: false,
+    }
   }
   if (variant === 'default-stream-nodone') {
-    return { script: { kind: 'stream', script: { events: DEFAULT_STREAM_SCRIPT.events, terminator: null } }, control, scripted: false }
+    if (disconnectAbortAfter !== undefined) {
+      throw new Error(`S2d6[${caseId}]: disconnect must ride the default-stream-done variant`)
+    }
+    return {
+      script: { kind: 'stream', script: { events: DEFAULT_STREAM_SCRIPT.events, terminator: null } },
+      control,
+      scripted: false,
+    }
   }
   if (mode === 'disconnect' || mode === 'slow') {
     throw new Error(`S2d6[${caseId}]: mode ${mode} must name a default stream variant`)
@@ -1187,6 +1202,14 @@ function assertUpstreamClauses(caseId: CaseId, captured: CapturedUpstreamCall): 
   const clientStream = client.stream === true
   const acceptHeader = headerValue(captured.call.headers, 'accept')
   const cacheControlHeader = headerValue(captured.call.headers, 'cache-control')
+  if (captured.request.path === RESPONSES_COMPACT_PATH) {
+    // §2.4: the client stream field is DELETED from the compact passthrough body.
+    expect(Object.hasOwn(body, 'stream'), `${context}: compact bodies delete the stream key`).toBe(false)
+    expect(Object.hasOwn(body, 'stream_options'), `${context}: compact bodies never gain stream_options`).toBe(false)
+    expect(acceptHeader, `${context}: compact upstream calls carry no SSE Accept`).toBeUndefined()
+    expect(cacheControlHeader, `${context}: compact upstream calls carry no SSE Cache-Control`).toBeUndefined()
+    return
+  }
   if (clientStream) {
     // §2.3/§3.2: streaming is upstream-SSE with the forced usage option appended last.
     expect(body.stream, `${context}: stream flag`).toBe(true)
@@ -1205,11 +1228,6 @@ function assertUpstreamClauses(caseId: CaseId, captured: CapturedUpstreamCall): 
     ).toBe(false)
     expect(acceptHeader, `${context}: no SSE Accept on non-stream upstream calls`).toBeUndefined()
     expect(cacheControlHeader, `${context}: no SSE Cache-Control on non-stream upstream calls`).toBeUndefined()
-  }
-
-  if (captured.request.path === RESPONSES_COMPACT_PATH) {
-    // §2.4: the client stream field is deleted from the compact passthrough body.
-    expect(Object.hasOwn(body, 'stream'), `${context}: compact bodies delete the stream key`).toBe(false)
   }
 
   if (caseId === 'S2d6-nostream-basic') {
@@ -1233,14 +1251,17 @@ function assertDownstreamClauses(
   const context = `S2d6[${caseId}] downstream clauses`
   if (result.decoded === undefined) {
     const body = parseJsonRecord(result.body, context)
-    const isCompact = caseId.startsWith('S2d6-compact-')
-    if (!isCompact) {
+    // The translation-family clauses apply to the 200 JSON surfaces only; error and
+    // gateway-local JSON bodies (4xx/5xx, compact-stream-rejected) are byte gold alone.
+    const isNostream = caseId.startsWith('S2d6-nostream-')
+    const isCompact = caseId === 'S2d6-compact-passthrough' || caseId === 'S2d6-compact-streamfalse'
+    if (isNostream) {
       // §3.3 echo quirk: the non-stream response model echoes the RESOLVED upstream name.
       expect(body.model, `${context}: non-stream echo quirk — model is the resolved upstream name (§3.3)`).toBe(
         UPSTREAM_MODEL,
       )
     }
-    const usage = asRecord(body.usage)
+    const usage = isNostream || isCompact ? asRecord(body.usage) : undefined
     if (usage !== undefined) {
       // §3.3/§8-4: Ensure appends BOTH detail objects after total_tokens (this order).
       expect(usageKeyOrder(usage), `${context}: non-stream usage key order (details appended after total)`).toEqual(

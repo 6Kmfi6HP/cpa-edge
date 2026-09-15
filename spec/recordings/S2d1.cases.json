@@ -91,7 +91,8 @@
         "upstream: POST /v1beta/models/gemini-mock-model:generateContent (no query), headers Content-Type application/json + x-goog-api-key mock-gemini-upstream-key + User-Agent Go-http-client/1.1 + Accept-Encoding gzip, NO Authorization, no client headers forwarded",
         "upstream body: contents=[user text 'Say hello in one short sentence.'], model=gemini-mock-model, generationConfig{temperature:0.7,topP:0.9,maxOutputTokens:64}, systemInstruction{role:user,parts:[{text:'You are a concise assistant.'}]}, safetySettings=5 entries (4x OFF incl HARM_CIVIC_INTEGRITY? no: HARASSMENT/HATE_SPEECH/SEXUALLY_EXPLICIT/DANGEROUS_CONTENT=OFF, CIVIC_INTEGRITY=BLOCK_NONE)",
         "downstream: 200 application/json; object chat.completion; id:\"\"; created:0; model=gemini-mock-model (UPSTREAM name, not the alias); choices[0].message{role:assistant,content:'Hello from mock gemini upstream more',reasoning_content:null,tool_calls:null}; finish_reason 'stop'; native_finish_reason 'stop'; usage{completion_tokens:6,prompt_tokens:9,total_tokens:15}"
-      ]
+      ],
+      "recorded": true
     },
     {
       "id": "S2d1-C02-nostream-multiturn",
@@ -146,7 +147,8 @@
         "upstream contents (5 entries, roles in order): user / model / user / user / user; only the leading system becomes systemInstruction; the trailing system becomes a user content with text 'Keep it brief.'",
         "upstream body has NO empty boundary user turns (first is user, last is user)",
         "downstream 200 chat.completion, finish_reason stop"
-      ]
+      ],
+      "recorded": true
     },
     {
       "id": "S2d1-C03-nostream-tools-history",
@@ -230,7 +232,8 @@
         "upstream contents[2] parts=[{functionResponse:{name:get_weather,response:{result:'{\"temp_c\":15,\"unit\":\"C\"}'}}}] -- synthetic user turn, tool content embedded as a JSON STRING",
         "upstream tools=[{functionDeclarations:[{name:get_weather,description:...,parametersJsonSchema:{type:object,properties:{city:{type:string,description:'City name'}},required:['city']}}]}]",
         "no standalone tool-role content; no empty trailing user turn (last content 'Thanks, summarize.' is user)"
-      ]
+      ],
+      "recorded": true
     },
     {
       "id": "S2d1-C04-nostream-tool-call",
@@ -318,7 +321,8 @@
       ],
       "dynamic_fields_extra": [
         "choices[0].message.tool_calls[*].id"
-      ]
+      ],
+      "recorded": true
     },
     {
       "id": "S2d1-C05-nostream-max-tokens",
@@ -378,7 +382,8 @@
       "expect": [
         "upstream generationConfig.maxOutputTokens = 16",
         "downstream message.content 'The sea is vast and deep and full of'; finish_reason 'max_tokens'; native_finish_reason 'max_tokens'; usage{completion_tokens:8,prompt_tokens:7,total_tokens:15}"
-      ]
+      ],
+      "recorded": true
     },
     {
       "id": "S2d1-C06-nostream-usage-details",
@@ -444,7 +449,8 @@
         "downstream message.reasoning_content 'Adding two and two gives four.'; message.content '2+2 equals 4.'",
         "usage{completion_tokens:16 (4+12), prompt_tokens:10, total_tokens:26, completion_tokens_details:{reasoning_tokens:12}, prompt_tokens_details:{cached_tokens:3}}",
         "finish_reason 'stop'"
-      ]
+      ],
+      "recorded": true
     },
     {
       "id": "S2d1-C07-nostream-reasoning-effort",
@@ -481,9 +487,10 @@
         "mock-response.json"
       ],
       "expect": [
-        "upstream body generationConfig.thinkingConfig == {\"thinkingBudget\": 1024} (no thinkingLevel, no includeThoughts)",
-        "downstream 200 normal completion (no reasoning fields since mock reply has no thought parts)"
-      ]
+        "RECORDED OUTCOME (authoritative): outbound body has NO thinkingConfig — generationConfig == {} (empty object). The translated thinkingLevel is STRIPPED by the capability pass (config-declared gemini-api-key models resolve UserDefined=false, Thinking=nil).",
+        "downstream 200 normal completion"
+      ],
+      "recorded": true
     },
     {
       "id": "S2d1-C08-nostream-model-suffix",
@@ -519,10 +526,11 @@
         "mock-response.json"
       ],
       "expect": [
-        "upstream URL: POST /v1beta/models/gemini-mock-model-think:generateContent (suffix stripped from URL)",
-        "upstream body model 'gemini-mock-model-think' and generationConfig.thinkingConfig.thinkingBudget == 24576 (suffix 'high' -> level high -> budget 24576)",
+        "RECORDED OUTCOME (authoritative): upstream URL POST /v1beta/models/gemini-mock-model-think:generateContent (suffix stripped from URL and from body model)",
+        "outbound body has NO generationConfig at all — the suffix's thinking intent is DROPPED for thinking-less config-declared models",
         "downstream 200; model echoes mock modelVersion 'gemini-mock-model-think'"
-      ]
+      ],
+      "recorded": true
     },
     {
       "id": "S2d1-C09-nostream-n2-candidates",
@@ -594,7 +602,8 @@
       "expect": [
         "upstream generationConfig.candidateCount == 2",
         "downstream choices length 2; index 0 content 'Fact one.', index 1 content 'Fact two.'; both finish_reason 'stop'; single top-level usage{completion_tokens:6,prompt_tokens:9,total_tokens:15}"
-      ]
+      ],
+      "recorded": true
     },
     {
       "id": "S2d1-C10-nostream-image-data-url",
@@ -643,7 +652,8 @@
       "expect": [
         "upstream contents[0].role 'user' with parts[0]={text:'Describe this image.'}, parts[1]={inlineData:{mime_type:'image/png', data:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='}, thoughtSignature:'skip_thought_signature_validator'}",
         "downstream 200 chat.completion"
-      ]
+      ],
+      "recorded": true
     },
     {
       "id": "S2d1-C11-stream-basic",
@@ -685,7 +695,8 @@
         "frame 2: same with content ' more'",
         "frame 3: model 'gemini-mock-model', delta all-null (role null), finish_reason 'stop', native_finish_reason 'stop', usage{completion_tokens:6,prompt_tokens:9,total_tokens:15}",
         "final frame: literal 'data: [DONE]' then stream closes"
-      ]
+      ],
+      "recorded": true
     },
     {
       "id": "S2d1-C12-stream-tool-call",
@@ -803,7 +814,8 @@
       ],
       "dynamic_fields_extra": [
         "choices[0].delta.tool_calls[*].id (frames)"
-      ]
+      ],
+      "recorded": true
     },
     {
       "id": "S2d1-C13-stream-max-tokens",
@@ -879,7 +891,8 @@
         "frame 1 content 'The sea is '",
         "frame 2 finish_reason 'max_tokens', native_finish_reason 'max_tokens', usage{completion_tokens:8,prompt_tokens:7,total_tokens:15}, delta all-null",
         "final frame data: [DONE]"
-      ]
+      ],
+      "recorded": true
     },
     {
       "id": "S2d1-C14-stream-no-terminal-merge",
@@ -957,7 +970,8 @@
         "frame 2: delta all-null, finish_reason null, native_finish_reason null, NO usage (upstream finishReason seen but usage not in same chunk)",
         "NO third frame (usage-only upstream chunk filtered -> no downstream frame)",
         "final frame data: [DONE]"
-      ]
+      ],
+      "recorded": true
     },
     {
       "id": "S2d1-C15-error-429-nostream",
@@ -996,7 +1010,8 @@
         "downstream HTTP 429, Content-Type application/json, body byte-identical to the mock error body {\"error\":{\"code\":429,\"message\":\"mock rate limit\",\"status\":\"RESOURCE_EXHAUSTED\"}}",
         "no Retry-After header added"
       ],
-      "notes": "Record FIRST in the error window (this alias must be cold). Immediately follow with C16."
+      "notes": "Record FIRST in the error window (this alias must be cold). Immediately follow with C16.",
+      "recorded": true
     },
     {
       "id": "S2d1-C16-error-429-cooldown",
@@ -1030,15 +1045,16 @@
         "downstream status+headers+body (upstream.jsonl expected EMPTY for this case)"
       ],
       "expect": [
-        "downstream HTTP 500, body {\"error\":{...\"code\":\"model_cooldown\",\"message\":\"All credentials for model mock-gemini-err429 are cooling down via provider gemini (last error: <verbatim 429 body>)\"...}}",
-        "reset_time / reset_seconds / timing fields are DYNAMIC (mask); last_upstream_error contains the verbatim 429 body",
-        "NO upstream request emitted for this case"
+        "RECORDED OUTCOME (authoritative): HTTP 429 (not 500) with Retry-After: 1 and body {\"error\":{code:model_cooldown, last_upstream_error:<verbatim 429 body>, message:'All credentials for model mock-gemini-err429 are cooling down via provider gemini (last error: <verbatim>)', model, provider:'gemini', reset_seconds, reset_time}} — keys in alphabetical order",
+        "NO upstream request emitted for this case (empty upstream.jsonl)",
+        "reset_time / reset_seconds / Retry-After are DYNAMIC (mask)"
       ],
       "dynamic_fields_extra": [
         "error.reset_time",
         "error.reset_seconds"
       ],
-      "notes": "Run back-to-back with C15 (same shell script, <0.5s gap). If the cooldown window has already elapsed and you get a plain 429 again, re-run the pair with a faster driver and report."
+      "notes": "Run back-to-back with C15 (same shell script, <0.5s gap). If the cooldown window has already elapsed and you get a plain 429 again, re-run the pair with a faster driver and report.",
+      "recorded": true
     },
     {
       "id": "S2d1-C17-error-400-nostream",
@@ -1075,7 +1091,8 @@
       ],
       "expect": [
         "downstream HTTP 400 with body byte-identical to the mock INVALID_ARGUMENT error body"
-      ]
+      ],
+      "recorded": true
     },
     {
       "id": "S2d1-C18-stream-error-before-first-byte",
@@ -1113,7 +1130,8 @@
       "expect": [
         "downstream HTTP 429, Content-Type application/json (NOT text/event-stream), body verbatim gemini error JSON",
         "no SSE frames, no [DONE]"
-      ]
+      ],
+      "recorded": true
     },
     {
       "id": "S2d1-C19-stream-disconnect-mid-stream",
@@ -1206,7 +1224,8 @@
       ],
       "dynamic_fields_extra": [
         "terminal error message text if it embeds transport-specific info (expected stable 'unexpected EOF'; verify)"
-      ]
+      ],
+      "recorded": true
     },
     {
       "id": "S2d1-C20-nostream-force-mapping",
@@ -1244,7 +1263,8 @@
       "expect": [
         "upstream URL/body model 'gemini-mock-model-force'",
         "downstream model == 'mock-gemini-force' (rewritten to the alias; modelVersion 'gemini-mock-model-force' replaced)"
-      ]
+      ],
+      "recorded": true
     }
   ],
   "optional_cases": [
@@ -1282,9 +1302,10 @@
         "mock-response.json"
       ],
       "expect": [
-        "every chunk model == 'mock-gemini-force'"
+        "RECORDED: every chunk's model field rewritten to 'mock-gemini-force' (StreamRewriter path), incl. the terminal chunk; [DONE] terminator present"
       ],
-      "notes": "Skip if recording time is tight; the non-stream force-mapping behavior is already pinned by C20 and the same rewriter handles streams."
+      "notes": "Skip if recording time is tight; the non-stream force-mapping behavior is already pinned by C20 and the same rewriter handles streams.",
+      "recorded": true
     }
   ],
   "deferred": [
@@ -1304,5 +1325,20 @@
       "classification": "DEFERRED (non-credential)",
       "reason": "Specified from source; golden C09 covers non-stream n=2 only. Record later if a consumer needs it."
     }
-  ]
+  ],
+  "recording_status": {
+    "worker": "oracle-runner-2 (after reroute from oracle-runner via oracle-runner-5)",
+    "recorded": 21,
+    "deferred": [
+      "gemini OAuth (cloudcode-pa) transport",
+      "vertex-api-key wire",
+      "multi-candidate streaming"
+    ],
+    "fixture_root_verified": "tests/fixtures/S2d1/ (21 case dirs, RECIPES layout)",
+    "recorded_vs_predicted_deviations": [
+      "C16: rate-limit cooldown surfaces at HTTP 429 + Retry-After: 1 (predicted 500); consistent with the claude/antigravity 429 model_cooldown family; only the transient 500-class family surfaces 503 auth_unavailable",
+      "C07: reasoning_effort thinkingConfig is STRIPPED (generationConfig left {}), not converted to thinkingBudget 1024 — config-declared gemini-api-key models resolve with UserDefined=false/Thinking=nil (internal/modelconfig/model_info.go), contradicting the doc comment in internal/thinking/apply.go",
+      "C08: model-suffix thinking intent DROPPED (no generationConfig in outbound body), not thinkingBudget 24576"
+    ]
+  }
 }

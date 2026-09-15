@@ -16,12 +16,10 @@
  * not disable it). No transport happens here: the caller supplies `send`,
  * so the same facade runs on every runtime.
  */
-import { CpaError } from '@cpa-edge/core'
 import type { JsonValue, Store } from '@cpa-edge/core'
-import { isPlainObject, parseStrictJson } from './json'
+import { isPlainObject } from './json'
 import {
   buildClaudeErrorEnvelope,
-  buildInvalidRequestBody,
   buildModelCooldownResponse,
   renderUpstreamFailure,
   UNEXPECTED_EOF_MESSAGE,
@@ -53,15 +51,21 @@ export interface Cla2GemModelEntry {
   /** Client-facing alias; ONLY the alias routes (recorded routing fact). */
   readonly alias?: string
   /**
-   * Thinking capability of the entry. Absent marks a user-defined or
-   * unresolved model: the Stage-1 thinkingConfig is kept verbatim and the
-   * upstream validates it. `false` marks a capability-resolved model
-   * without thinking support: the Stage-2 strip deletes the
-   * thinkingConfig (leaving `"generationConfig":{}`). Budget/levels
-   * objects mark thinking-capable models (the budget max backs the
-   * adaptive-without-effort mapping).
+   * Thinking capability of the entry. Absent (the recorded config shape)
+   * marks a capability-resolved model WITHOUT thinking support: the
+   * Stage-2 pass deletes `generationConfig.thinkingConfig` (leaving
+   * `"generationConfig":{}` - golden-pinned by S2d8-07/10). `false` says
+   * the same thing explicitly. Budget/levels objects mark
+   * thinking-capable models (the budget max backs the adaptive-without-
+   * effort mapping).
    */
   readonly thinking?: false | { readonly min?: number; readonly max?: number; readonly levels?: readonly string[] }
+  /**
+   * Marks the entry as user-defined/unresolved: the Stage-1
+   * thinkingConfig is kept verbatim and the upstream validates it
+   * (section 3.1 thinking row). No golden exercises this path.
+   */
+  readonly userDefined?: boolean
 }
 
 /** One `gemini-api-key` credential entry. */
@@ -157,12 +161,13 @@ function routableId(entry: Cla2GemModelEntry): string {
   return entry.alias !== undefined ? entry.alias : entry.name
 }
 
-/** Model-entry thinking config -> translator capability descriptor. */
+/** Model-entry capability -> translator descriptor (absent = strip). */
 function thinkingCapability(
-  config: Cla2GemModelEntry['thinking'],
+  entry: Cla2GemModelEntry,
 ): Cla2GemThinkingCapability | undefined {
-  if (config === undefined) return undefined
-  if (config === false) return { kind: 'unsupported' }
+  if (entry.userDefined === true) return undefined
+  const config = entry.thinking
+  if (config === undefined || config === false) return { kind: 'unsupported' }
   if (config.levels !== undefined && config.levels.length > 0) {
     return { kind: 'levels', levels: config.levels }
   }
@@ -188,16 +193,22 @@ export function createCla2GemService(options: Cla2GemServiceOptions): Cla2GemSer
       const gate = checkGatewayKey(request, options.apiKeys)
       if (gate !== undefined) return gate
 
-      let parsedBody: Record<string, unknown>
+      // Recorded S2d8-20: a body that does not parse as a JSON object
+      // reads as an empty model and falls into the unknown-provider path
+      // (the strict-JSON boundary surfaces as the Claude 400 envelope, not
+      // a generic error shape).
+      let parsedBody: Record<string, unknown> | undefined
       try {
-        const parsed = parseStrictJson(request.body)
-        if (!isPlainObject(parsed)) throw new CpaError('invalid-input', 'malformed JSON body')
-        parsedBody = parsed
+        const parsed: unknown = JSON.parse(request.body)
+        if (isPlainObject(parsed)) parsedBody = parsed
       } catch {
-        return jsonBody(400, buildInvalidRequestBody('malformed JSON body'))
+        parsedBody = undefined
       }
 
-      const clientModel = typeof parsedBody['model'] === 'string' ? (parsedBody['model'] as string) : ''
+      const clientModel =
+        parsedBody !== undefined && typeof parsedBody['model'] === 'string'
+          ? (parsedBody['model'] as string)
+          : ''
       const candidates: Array<{
         readonly credentialIndex: number
         readonly credential: Cla2GemCredential
@@ -217,7 +228,7 @@ export function createCla2GemService(options: Cla2GemServiceOptions): Cla2GemSer
         return jsonBody(400, unknownProviderEnvelope(clientModel))
       }
 
-      const streaming = route === 'messages' && parsedBody['stream'] === true
+      const streaming = route === 'messages' && parsedBody?.['stream'] === true
       let lastCooldown: CooldownRecord | undefined
       let attempts = 0
       for (const candidate of candidates) {
@@ -246,7 +257,7 @@ export function createCla2GemService(options: Cla2GemServiceOptions): Cla2GemSer
   /** One upstream attempt through a resolved credential. */
   async function attempt(
     candidate: { readonly credentialIndex: number; readonly credential: Cla2GemCredential; readonly entry: Cla2GemModelEntry },
-    parsedBody: Record<string, unknown>,
+    parsedBody: Record<string, unknown> | undefined,
     request: Cla2GemRequest,
     route: 'messages' | 'count_tokens',
     streaming: boolean,
@@ -254,7 +265,7 @@ export function createCla2GemService(options: Cla2GemServiceOptions): Cla2GemSer
   ): Promise<AttemptOutcome> {
     const ctx: Cla2GemContext = {
       upstreamModel: candidate.entry.name,
-      thinking: thinkingCapability(candidate.entry.thinking),
+      thinking: thinkingCapability(candidate.entry),
     }
     const translated = translateClaudeToGemini(request.body, ctx, {
       forCountTokens: route === 'count_tokens',
@@ -320,10 +331,10 @@ export function createCla2GemService(options: Cla2GemServiceOptions): Cla2GemSer
   /** Stream clients: commit SSE only after the first translated event. */
   async function streamOutcome(
     upstream: Cla2GemUpstreamResponse,
-    parsedBody: Record<string, unknown>,
+    parsedBody: Record<string, unknown> | undefined,
     toolNames: ToolNameIndex,
   ): Promise<AttemptOutcome> {
-    const inputTokens = estimateClaudeInputTokens(parsedBody)
+    const inputTokens = parsedBody === undefined ? 0 : estimateClaudeInputTokens(parsedBody)
     try {
       const bootstrap = await bootstrapCla2GemStream(readableToAsyncIterable(upstream.body), {
         inputTokens,
@@ -448,7 +459,9 @@ function headerList(list: HeaderList): (name: string) => string | undefined {
 }
 
 function unknownProviderEnvelope(model: string): string {
-  return buildClaudeErrorEnvelope('invalid_request_error', `unknown provider for model ${model}`)
+  // The reference trims the rendered message (recorded: an empty model
+  // yields `unknown provider for model` with NO trailing space).
+  return buildClaudeErrorEnvelope('invalid_request_error', `unknown provider for model ${model}`.trim())
 }
 
 function unexpectedEofEnvelope(): string {

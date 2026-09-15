@@ -16,7 +16,16 @@
  *   plus the hint);
  * - a tool without an `input_schema` never reaches the wire.
  */
-import { isPlainObject, rawSpanAt, rawValueAt, readArray, readString, serializeOrdered } from './json'
+import {
+  isPlainObject,
+  rawSpanAt,
+  rawValueAt,
+  readArray,
+  scanRawObject,
+  readString,
+  serializeOrdered,
+} from './json'
+import type { WireValue } from './json'
 import { RawJson } from './json'
 import type { WireObject } from './json'
 
@@ -190,26 +199,60 @@ export function cleanGeminiSchema(rawSchema: string): string {
  * `functionDeclarations` collects every declared tool (recorded shape:
  * `tools:[{"functionDeclarations":[...]}]`). Tools without an
  * `input_schema` are skipped entirely.
+ *
+ * Each declaration keeps the client tool object's ORIGINAL bytes: member
+ * order, key spellings and separators survive; the `name` value is
+ * replaced by the sanitized name and the `input_schema` member is removed
+ * and re-appended as the compact gateway key `"parametersJsonSchema":`
+ * with the cleaned schema (recorded: S2d8-04/11 carry
+ * `{"name": "get_weather", "description": "...","parametersJsonSchema":…}`
+ * where the name/description spacing is the client's and only the
+ * appended key is compact).
  */
 export function buildFunctionDeclarations(
   tools: readonly WireObject[],
   rawBody: string,
 ): WireObject | undefined {
-  const declarations: WireObject[] = []
+  const declarations: WireValue[] = []
   for (let index = 0; index < tools.length; index++) {
     const tool = tools[index]
     if (tool === undefined) continue
     const schema = tool['input_schema']
     if (!isPlainObject(schema)) continue
-    const declaration: WireObject = {}
-    const name = readString(tool, 'name')
-    declaration['name'] = sanitizeFunctionName(typeof name === 'string' ? name : '')
-    const description = tool['description']
-    if (typeof description === 'string') declaration['description'] = description
-    const raw = rawValueAt(rawBody, ['tools', String(index), 'input_schema'])
-    const cleaned = raw !== undefined ? cleanGeminiSchema(raw) : serializeOrdered(schema)
-    declaration['parametersJsonSchema'] = new RawJson(cleaned)
-    declarations.push(declaration)
+    const span = rawSpanAt(rawBody, ['tools', String(index)])
+    if (span === undefined) continue
+    const scan = scanRawObject(rawBody, span.valueStart)
+    if (scan === undefined) continue
+    const rawSchema = rawValueAt(rawBody, ['tools', String(index), 'input_schema'])
+    if (rawSchema === undefined) continue
+    const cleaned = cleanGeminiSchema(rawSchema)
+    const clientName = readString(tool, 'name')
+
+    let out = '{'
+    let first = true
+    let nameSeen = false
+    for (const member of scan.members) {
+      if (member.key === 'input_schema') continue
+      if (member.key === 'name') {
+        nameSeen = true
+        if (!first) out += rawBody.slice(member.sepStart, member.keyStart)
+        out += rawBody.slice(member.keyStart, member.valueStart)
+        out += serializeOrdered(sanitizeFunctionName(clientName ?? ''))
+        first = false
+        continue
+      }
+      if (!first) out += rawBody.slice(member.sepStart, member.keyStart)
+      out += rawBody.slice(member.keyStart, member.valueEnd)
+      first = false
+    }
+    if (!nameSeen) {
+      if (!first) out += ','
+      out += serializeOrdered('name') + ':' + serializeOrdered(sanitizeFunctionName(clientName ?? ''))
+      first = false
+    }
+    out += (first ? '' : ',') + serializeOrdered('parametersJsonSchema') + ':' + cleaned
+    out += '}'
+    declarations.push(new RawJson(out))
   }
   if (declarations.length === 0) return undefined
   return { functionDeclarations: declarations }

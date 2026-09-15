@@ -104,20 +104,38 @@ export function claudeStopReason(sawFunctionCall: boolean, finishReason: string 
 // Non-stream mapping (section 3.4)
 // ---------------------------------------------------------------------------
 
-/** Raw argument bytes of a functionCall at a part path, or `{}`. */
-function rawArgsAt(body: string, partPath: readonly string[]): WireValue {
-  const callPath = [...partPath, 'functionCall']
-  const callSpan = rawValueAt(body, callPath)
-  if (callSpan === undefined) return {}
-  let call: unknown
+/**
+ * Argument value of a functionCall at a part path, re-serialized compactly
+ * (recordings pin compact downstream argument values; the REQUEST side is
+ * where raw client bytes survive). Missing arguments render `{}`.
+ */
+function argsValueAt(body: string, partPath: readonly string[]): WireValue {
+  const call = readCallAt(body, partPath)
+  if (call === undefined || call['args'] === undefined) return {}
+  return serializeOrdered(call['args'] as WireValue)
+}
+
+/** Parsed functionCall object at a part path, or undefined. */
+function readCallAt(body: string, partPath: readonly string[]): Record<string, unknown> | undefined {
+  const callSpan = rawValueAt(body, [...partPath, 'functionCall'])
+  if (callSpan === undefined) return undefined
   try {
-    call = JSON.parse(callSpan)
+    const parsed: unknown = JSON.parse(callSpan)
+    if (!isPlainObject(parsed)) return undefined
+    return parsed
   } catch {
-    return {}
+    return undefined
   }
-  if (!isPlainObject(call) || call['args'] === undefined) return {}
-  const raw = rawValueAt(body, [...callPath, 'args'])
-  return raw !== undefined ? new RawJson(raw) : {}
+}
+
+/**
+ * Compact argument text of a functionCall at a part path (the streamed
+ * `partial_json` payload), or undefined when the call carries no args.
+ */
+function argsTextAt(body: string, partPath: readonly string[]): string | undefined {
+  const call = readCallAt(body, partPath)
+  if (call === undefined || call['args'] === undefined) return undefined
+  return serializeOrdered(call['args'] as WireValue)
 }
 
 /**
@@ -190,7 +208,7 @@ export function translateGeminiResponseToClaude(ctx: GeminiToClaudeContext): str
         id: sanitizeClaudeToolId(`${restored}-${callCounter}`),
         name: restored,
       }
-      block['input'] = rawArgsAt(body, partPath)
+      block['input'] = argsValueAt(body, partPath)
       blocks.push(block)
       continue
     }
@@ -455,16 +473,16 @@ export class GeminiToClaudeStreamTranslator {
     if (name.length === 0 && this.mode === 'tool') {
       // Follow-up call with an empty name: an argument delta of the open
       // tool block (native Gemini streaming shape). partial_json carries
-      // the raw argument bytes as a string value.
-      const raw = rawValueAt(this.currentChunk, [...partPath, 'functionCall', 'args'])
-      if (raw === undefined) return ''
+      // the compact re-serialized argument bytes as a string value.
+      const argsText = argsTextAt(this.currentChunk, partPath)
+      if (argsText === undefined) return ''
       this.hasContent = true
       return formatClaudeEvent(
         'content_block_delta',
         serializeOrdered({
           type: 'content_block_delta',
           index: this.index,
-          delta: { type: 'input_json_delta', partial_json: raw },
+          delta: { type: 'input_json_delta', partial_json: argsText },
         }),
       )
     }
@@ -484,18 +502,16 @@ export class GeminiToClaudeStreamTranslator {
     this.mode = 'tool'
     this.hasContent = true
     this.sawFunctionCall = true
-    if (call['args'] !== undefined) {
-      const raw = rawValueAt(this.currentChunk, [...partPath, 'functionCall', 'args'])
-      if (raw !== undefined) {
-        out += formatClaudeEvent(
-          'content_block_delta',
-          serializeOrdered({
-            type: 'content_block_delta',
-            index: this.index,
-            delta: { type: 'input_json_delta', partial_json: raw },
-          }),
-        )
-      }
+    const argsText = argsTextAt(this.currentChunk, partPath)
+    if (argsText !== undefined) {
+      out += formatClaudeEvent(
+        'content_block_delta',
+        serializeOrdered({
+          type: 'content_block_delta',
+          index: this.index,
+          delta: { type: 'input_json_delta', partial_json: argsText },
+        }),
+      )
     }
     return out
   }
