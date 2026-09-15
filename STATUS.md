@@ -32,7 +32,7 @@
 | I-auth | packages/auth: OAuth/device/refresh | 2 | impl-i-auth | impl | 0 |  |
 | I-tr-S2d1 | packages/translators: OpenAI→Gemini | 2 | — | pending | 0 |  |
 | I-tr-S2d2 | packages/translators: Gemini→OpenAI | 2 | — | pending | 0 |  |
-| I-tr-S2d3 | packages/translators: OpenAI→Claude | 2 | impl-i-tr-s2d3 | impl | 0 |  |
+| I-tr-S2d3 | packages/translators: OpenAI→Claude | 2 | impl-i-tr-s2d3 | impl-adv | 0 | impl complete: 18 files ~4.4k lines, 26/26 goldens + 27/27 contract live; 10 ambiguity rulings sent to spec-side |
 | I-tr-S2d4 | packages/translators: Claude→OpenAI | 2 | — | pending | 0 |  |
 | I-tr-S2d5 | packages/translators: OpenAI→Codex/Responses | 2 | — | pending | 0 |  |
 | I-tr-S2d6 | packages/translators: Responses→OpenAI chat | 2 | — | pending | 0 |  |
@@ -57,4 +57,3 @@
 
 ## Verdict / escalation log
 (appended by orchestrator)
-- 2026-09-16 02:0x S2d3 GATE: PASS (round 2). oai2cla admitted: 26 goldens incl. is-compat, fingerprint profile, empty-stream 500 gate, Retry-After fuzz. I-tr-S2d3 dispatched.

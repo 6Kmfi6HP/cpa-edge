@@ -88,8 +88,11 @@ export function renderValidationFailure(message: string): { readonly status: num
 
 /** 500 envelope for a mid-aggregation transport failure (non-stream). */
 export function renderUnexpectedEofFailure(): { readonly status: number; readonly body: string } {
-  return { status: 500, body: buildErrorEnvelopeBody('unexpected EOF', 'server_error', 'internal_server_error') }
+  return { status: 500, body: buildErrorEnvelopeBody(UNEXPECTED_EOF_MESSAGE, 'server_error', 'internal_server_error') }
 }
+
+/** Pinned message for upstream transport failures (recorded: hard close). */
+export const UNEXPECTED_EOF_MESSAGE = 'unexpected EOF'
 
 /** In-stream terminal error frame (transport failure after commit). */
 export function formatInStreamErrorFrame(message: string): string {

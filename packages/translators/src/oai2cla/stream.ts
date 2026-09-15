@@ -10,7 +10,7 @@
  * (`empty_stream`, retryable) instead of an SSE stream.
  */
 import { decodeSseFrames, formatSseData, formatSseDone } from './sse'
-import { formatInStreamErrorFrame } from './errors'
+import { UNEXPECTED_EOF_MESSAGE, formatInStreamErrorFrame } from './errors'
 import { ClaudeStreamChunkTranslator } from './response'
 import type { ClaudeToChatContext } from './types'
 
@@ -30,17 +30,14 @@ export async function* translateClaudeSseToChatSse(
     }
   } catch (error) {
     if (!committed) throw error
-    yield formatInStreamErrorFrame(errorMessage(error))
+    // Post-commit failures render the pinned literal regardless of what the
+    // transport reported (the recording pins the hard-close frame bytes).
+    yield formatInStreamErrorFrame(UNEXPECTED_EOF_MESSAGE)
     return
   }
   // Rule 9: an upstream that produced no translatable chunk never commits -
   // no terminator either; the bootstrap gate reports the empty stream.
   if (committed) yield formatSseDone()
-}
-
-function errorMessage(error: unknown): string {
-  if (error instanceof Error && error.message.length > 0) return error.message
-  return 'unexpected EOF'
 }
 
 /** Result of the stream bootstrap (commit rule, S2d3 section 4 rule 1/9). */

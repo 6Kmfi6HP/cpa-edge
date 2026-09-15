@@ -12,9 +12,11 @@
  */
 import type { WireObject } from './types'
 
+/** The only local hash the direction needs (Web Crypto, runtime-agnostic). */
 const encoder = new TextEncoder()
 
-async function sha256Hex(seed: string): Promise<string> {
+/** sha256 of a UTF-8 string as lowercase hex. */
+export async function sha256Hex(seed: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', encoder.encode(seed))
   const bytes = new Uint8Array(digest)
   let hex = ''

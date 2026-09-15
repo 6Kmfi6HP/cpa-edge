@@ -84,3 +84,17 @@ export {
   claudeCodeCliSystemBlocks,
   claudeCodeCliUserId,
 } from './profile'
+
+export { createOai2ClaChatService } from './service'
+export type {
+  HeaderList,
+  Oai2ClaChatRequest,
+  Oai2ClaChatResponse,
+  Oai2ClaChatService,
+  Oai2ClaCredential,
+  Oai2ClaModelEntry,
+  Oai2ClaServiceOptions,
+  Oai2ClaUpstreamRequest,
+  Oai2ClaUpstreamResponse,
+  Oai2ClaUpstreamSender,
+} from './service'

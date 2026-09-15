@@ -7,7 +7,7 @@
  * first (S2d3 section 5.3) and rendered as one `chat.completion`.
  */
 import { serializeOrdered } from './json'
-import type { ClaudeToChatContext, WireObject, WireValue } from './types'
+import type { ClaudeToChatContext, WireObject } from './types'
 
 /** Upstream stop_reason -> downstream finish_reason (S2d3 section 3.3). */
 export function mapStopReason(stopReason: string | undefined): string {

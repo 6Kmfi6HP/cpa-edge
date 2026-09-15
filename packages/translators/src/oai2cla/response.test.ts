@@ -211,9 +211,11 @@ describe('S2d3 golden replay — stream translation', () => {
   })
 
   it('transport failure before the first chunk propagates instead of committing', async () => {
-    const source = (async function* () {
-      throw new Error('upstream connect failed')
-    })()
+    const source: AsyncIterable<string> = {
+      [Symbol.asyncIterator]: () => ({
+        next: () => Promise.reject(new Error('upstream connect failed')),
+      }),
+    }
     await expect(async () => {
       for await (const _frame of translateClaudeSseToChatSse(source, CTX)) {
         // no frame expected
