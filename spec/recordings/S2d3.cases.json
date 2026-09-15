@@ -486,7 +486,7 @@
   {
    "id": "s2d3-effort-thinking",
    "classification": "RECORDABLE-LOCALLY",
-   "purpose": "Pin reasoning_effort -> thinking for an unregistered (user-defined) model = budget style: 'high' -> thinking {type:enabled,budget_tokens:24576}; 'none' -> {type:disabled}; 'auto' -> {type:enabled} (no budget_tokens). Body key order pins thinking position (after metadata).",
+   "purpose": "Pin reasoning_effort handling for a stock claude-api-key model (no thinking block, catalog-unknown name): the translator converts it (high -> enabled+24576 / none -> disabled / auto -> enabled) but the executor capability check then STRIPS thinking+output_config.effort - recorded result: NO thinking key on the wire for any of the three efforts.",
    "mock_script": "happy",
    "control": {
     "mode": "happy"
@@ -558,7 +558,8 @@
     "metadata.user_id per step (recomputable)",
     "mock port"
    ],
-   "notes": "If the recorded step1 differs (e.g. budget clamped or dropped), record actual and flag - registry/catalog state could theoretically interfere."
+   "notes": "If the recorded step1 differs (e.g. budget clamped or dropped), record actual and flag - registry/catalog state could theoretically interfere.",
+   "recorded_result": "RECORDED 2026-09-16: all three efforts (high/none/auto) produced upstream bodies WITHOUT a thinking key - the translator computes thinking but the executor's api-key capability check strips it (ResolveModelInfo -> Thinking nil -> StripThinkingConfig). reasoning_effort is a wire no-op for stock claude-api-key alias models. Section 2.6 corrected to match recorded bytes."
   },
   {
    "id": "s2d3-userid-variants",

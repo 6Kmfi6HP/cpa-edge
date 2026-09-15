@@ -107,7 +107,7 @@ Field-by-field semantics (client → upstream):
 Applied to the translated body in this order (evidence: `claude_executor_execute.go` / `claude_executor_stream.go`):
 
 1. Model rewrite to alias-target (`SetStringIfDifferent`).
-2. Thinking application (§2.6; idempotent for this direction).
+2. Thinking application — for capability-less api-key models this STRIPS the translator's `thinking`/`output_config.effort` entirely (§2.6, recorded).
 3. Cloaking — OFF by default for plain `claude-api-key` credentials with unconfirmed clients (`resolveClaudeWirePolicy`: `auto` cloaks only OAuth/explicit opt-ins). Recorded: no system-prompt injection in t1/t2.
 4. `ensureModelMaxTokens` — no-op here (`max_tokens` always present).
 5. `disableThinkingIfToolChoiceForced` — if `tool_choice.type` is `any` or `tool`, `thinking` and `output_config.effort` are deleted (Anthropic constraint). Evidence: `claude_executor_request.go` lines 587–604.
@@ -117,14 +117,14 @@ Applied to the translated body in this order (evidence: `claude_executor_execute
 9. `stream` forced to `true` (§2.2).
 10. `betas` body key → `Anthropic-Beta` header merge (§2.3) — Chat clients never send it.
 
-### 2.6 `reasoning_effort` → thinking config
+### 2.6 `reasoning_effort` → thinking config — and the capability strip (recorded)
 
-Translator branch (evidence: `claude_openai_request.go` + `internal/thinking/convert.go`), applied when `reasoning_effort` is a non-empty string (lowercased, trimmed):
+**Recorded hard pin (case 8)**: for a stock `claude-api-key` model entry whose upstream name is unknown to the model catalog and which configures no `thinking` block, `reasoning_effort` has **NO wire effect** — `high`, `none` and `auto` all produce upstream bodies with NO `thinking` key at all. The mechanism is two-stage:
 
-- Registry lookup `registry.LookupModelInfo(model, "claude")` decides the style. For **api-key alias models (user-defined/unknown) the registry has no thinking levels** → the budget style is used. Goldens pin the budget style (§7.2 case 8).
-- Budget style (`ConvertLevelToBudget`): `none`→`{"thinking":{"type":"disabled"}}`; `auto`→`{"thinking":{"type":"enabled"}}` (no budget); `minimal`→512, `low`→1024, `medium`→8192, `high`→24576, `xhigh`→32768, `max`→128000 → `{"thinking":{"type":"enabled","budget_tokens":N}}`. Unknown strings → nothing.
-- Adaptive style (registry-known adaptive model only): `none`→`thinking.type=disabled`; `auto`→`thinking.type=adaptive` (no effort); else `thinking.type=adaptive` + `output_config.effort` = mapped effort (`minimal`→`low`; `low/medium/high` unchanged; `xhigh|max`→`max` if the model supports it else `high`). DEFERRED for goldens (§7.3) — needs a catalog-known 4.6-class model name and the startup model-catalog fetch to have succeeded.
-- The later thinking applier is idempotent for these shapes but enforces `max_tokens > budget_tokens` for registry models by lowering `budget_tokens` to `max_tokens-1` (`internal/thinking/provider/claude/apply.go` `normalizeClaudeBudget`); for user-defined models no clamp is applied.
+1. **Translator stage** (`claude_openai_request.go` effort branch): `reasoning_effort` (non-empty, lowercased, trimmed) is converted — budget style for models without registry thinking levels (`none`→`{"thinking":{"type":"disabled"}}`; `auto`→`{"thinking":{"type":"enabled"}}`; `minimal`→512, `low`→1024, `medium`→8192, `high`→24576, `xhigh`→32768, `max`→128000 as `{"thinking":{"type":"enabled","budget_tokens":N}}` via `internal/thinking/convert.go` `ConvertLevelToBudget`), adaptive style (`thinking.type=adaptive` + `output_config.effort`) for level-capable registry models.
+2. **Executor capability stage** (`claude_executor_execute.go` → `helps.ApplyRequestThinking` → `internal/thinking/apply.go`): the selected api-key model's capability snapshot is resolved via `modelconfig.ResolveModelInfo(<upstream name>, "claude", <configured models[].thinking block>)` (`internal/modelconfig/model_info.go` — static catalog lookup; the snapshot is explicitly marked NOT user-defined; bound to the request by `sdk/cliproxy/auth/api_key_model_capabilities.go`). If the resolved capability has `Thinking == nil` — the default for unknown names with no `thinking` config — `StripThinkingConfig(body, "claude")` (`internal/thinking/strip.go`) **deletes `thinking` and `output_config.effort` from the body**. Only when the model entry configures `models[].thinking` or the upstream name matches a catalog model with thinking metadata does the thinking config survive (then validated/normalized: budget clamp to `max_tokens-1`, level→effort mapping for level-capable models — `internal/thinking/provider/claude/apply.go`).
+
+Consequence for the contract: Chat clients get thinking on the Claude wire ONLY when the operator declares the capability on the model entry (or the upstream name is catalog-known with thinking metadata). The surviving-config variant is FIXTURE-DEFERRED (§7.3); the strip is the recorded golden.
 
 ## 3. Schemas — response mapping
 
@@ -272,6 +272,7 @@ Unknown model with no provider → 400 `{"error":{"message":"unknown provider fo
 - `stream_options.include_usage` from the client is ignored: the trailing usage chunk + usage-on-finish-chunk behavior is unconditional for this direction (differs from native OpenAI semantics — intentional non-equivalence).
 - Client `temperature`/`top_p` never reach the wire (§2.5.6) — intentional non-equivalence.
 - The upstream `Accept` header is the caller's (`*/*` from curl) even though the upstream is SSE — the gateway does not force `Accept: text/event-stream` when the client sent any `Accept` (recorded t1/t2).
+- `reasoning_effort` is a silent no-op on the wire for stock `claude-api-key` models (§2.6) — clients cannot tell; flagged as intentional non-equivalence.
 
 ## 7. Golden samples
 
@@ -292,7 +293,7 @@ Dynamic fields (mask in fixtures; listed per case): `Date`, `X-Cpa-Trace-Id`, do
 | 5 | `s2d3-multimodal-image` | data-URL image → base64 source block; http URL image → url source block; part passthrough | happy text |
 | 6 | `s2d3-tools-roundtrip` | `tools`/`input_schema` normalization (key-sorted), `tool_choice:auto`, assistant `tool_calls`→`tool_use`, `tool` role→`tool_result` user msg + same-role merge, cache markers (tools+messages) | happy text |
 | 7 | `s2d3-developer-respformat` | `developer` role → system blocks; `response_format` json_schema instruction block appended last; system cache marker on last system block | happy text |
-| 8 | `s2d3-effort-thinking` | `reasoning_effort` high/none/auto → thinking enabled+24576 / disabled / enabled (no budget) | happy text |
+| 8 | `s2d3-effort-thinking` | `reasoning_effort` high/none/auto → translated then STRIPPED by the capability check: NO `thinking` key on the wire (recorded) | happy text |
 | 9 | `s2d3-userid-variants` | `user` field verbatim; `prompt_cache_key` seeding | happy text |
 | 10 | `s2d3-res-tooluse-stream` | `tool_use` SSE → tool_calls delta chunk (index/id/name/args), arg accumulation, finish `tool_calls` | script `tool_use` |
 | 11 | `s2d3-res-tooluse-nonstream` | aggregated `message.tool_calls` + `finish_reason:"tool_calls"`, content `""` | script `tool_use` |
@@ -306,7 +307,7 @@ Dynamic fields (mask in fixtures; listed per case): `Date`, `X-Cpa-Trace-Id`, do
 
 The exact per-case requests, scripted upstream replies and required control-file contents are in `spec/recordings/S2d3.cases.json`. Fixture paths: `tests/fixtures/S2d3/<case-id>/`.
 
-**Recording status (2026-09-16)**: all 18 cases RECORDED by @oracle-runner-2 (18/18 fixture directories present, byte-exact transcripts). Recorded on the oracle's isolated stack (reference on 127.0.0.1:8387, claude mock on port 20002 — port/host values are listed as dynamic fields in each meta.yaml). The case-1 cross-stack anchor `metadata.user_id` = `120226d8c5cb...0e8b6c46` (sha256 of `content:Say hello`) held byte-exact, confirming the derivation is host/port-independent. One recorded refinement over the pre-recording predictions: §5.4 (cooldown surfaces as 429 + `Retry-After: 1`, not 500). Everything else matched prediction, including upstream body key order, sampling-knob deletion, cache-marker placement, tool/thinking/stop-reason mappings, usage arithmetic, and all error-path shapes.
+**Recording status (2026-09-16)**: all 18 cases RECORDED by @oracle-runner-2 (18/18 fixture directories present, byte-exact transcripts). Recorded on the oracle's isolated stack (reference on 127.0.0.1:8387, claude mock on port 20002 — port/host values are listed as dynamic fields in each meta.yaml). The case-1 cross-stack anchor `metadata.user_id` = `120226d8c5cb...0e8b6c46` (sha256 of `content:Say hello`) held byte-exact, confirming the derivation is host/port-independent. Two recorded refinements over the pre-recording predictions: (1) §5.4 — the cooldown surfaces as HTTP 429 + `Retry-After: 1`, not 500; (2) §2.6 — `reasoning_effort` is STRIPPED for stock api-key models (no `thinking` on the wire at all). Everything else matched prediction, including upstream body key order, sampling-knob deletion, cache-marker placement (tools/system/last-message), tool-roundtrip merge, response_format instruction block, image part mapping, tool/thinking/stop-reason chunk mappings, usage arithmetic (incl. cache-token fields), in-stream error shapes, and all error-path envelopes.
 
 ### 7.3 FIXTURE-DEFERRED (documented, not recordable locally — R-FIXTURE)
 
@@ -315,7 +316,7 @@ The exact per-case requests, scripted upstream replies and required control-file
 | `x-api-key` auth + default `https://api.anthropic.com` base-url | requires a real Anthropic API key; the `Bearer`-vs-`x-api-key` switch keys on the Anthropic host, unreachable with a local mock | `claude_executor_request.go` lines 904–915; `claude_executor.go` `PrepareRequest` |
 | Claude OAuth credential behaviors: CLI betas assembly, `X-App`/`X-Stainless-*`/`x-client-request-id`/`X-Claude-Code-Session-Id` identity headers, CCH signing, diagnostics, context-management, MCP alias, thinking replay, cloaking (auto) | OAuth-only control plane; fixed vendor endpoints (CREDENTIALED-ONLY per R-FIXTURE). Error paths that ARE recordable still get goldens (cases 14–16) | `claude_fingerprint_policy.go`, `applyClaudeHeadersWithNativeProfile` lines 1109–1235, `claude_executor_cloaking.go` |
 | `fingerprint-profile: claude-code-cli` on an api-key credential | recordable in principle, but synthesizes a CLI device identity + per-request session UUID (dynamic fields) and is a shared executor surface for all client protocols; recommend pinning once in a dedicated executor section, not per-direction | `claude_fingerprint_policy.go` `resolveClaudeFingerprintPolicy` |
-| Adaptive thinking (`output_config.effort`) | requires a registry-known adaptive (4.6-class) Claude model; api-key aliases are user-defined → budget path only; also depends on the startup model-catalog fetch | `claude_openai_request.go` effort branch; `internal/thinking/convert.go` `MapToClaudeEffort` |
+| Thinking-config survival incl. adaptive effort (`output_config.effort`) | requires an api-key model entry WITH a `thinking` block (`models[].thinking.levels/min/max`) or a catalog-known thinking-capable upstream name; stock alias models strip the config (§2.6, recorded) | `internal/modelconfig/model_info.go` `ResolveModelInfo`; `internal/thinking/apply.go` capability check; `internal/thinking/convert.go` `MapToClaudeEffort`; `internal/config/config_types.go` `ClaudeModel.Thinking` |
 | Model-name thinking suffixes (`alias(4096)`) | routing of suffixed aliases through api-key providers is a scheduling/registry concern (S4) and unverified for api-key aliases | `internal/thinking/suffix.go` `ParseSuffix` |
 
 ## 8. Open questions and intentional non-equivalences
@@ -326,5 +327,6 @@ The exact per-case requests, scripted upstream replies and required control-file
 4. **Legacy `functions`/`function_call` fields are silently dropped** — clients relying on them get no tools upstream. Open question: reject or document?
 5. **Unknown content parts (e.g. `audio`) are silently dropped** from user messages. Open question: reject or keep dropping?
 6. **Managed-beta stripping for caller betas** (`effort` beta removed when `thinking.type=disabled` or model contains `haiku`) applies a pinned CLI model list to caller-owned traffic; only the `effort` beta is affected in this mode. No golden; noted.
+9. **`reasoning_effort` strip**: the recorded behavior silently drops reasoning effort for capability-less api-key models (§2.6). Should the rewrite mirror the strip exactly (compatibility, recommended) or log/warn? Mirroring is what the golden pins.
 7. **`Accept-Encoding` override by credential `headers`** does not survive on streaming requests to non-Anthropic bases (§2.3). Operators may find this surprising; behavior kept as recorded.
 8. **Suffixed model aliases** (`cm(4096)`) — unverified whether api-key alias routing accepts them; deferred with §7.3.

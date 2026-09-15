@@ -1657,13 +1657,6 @@
       "reason": "Response embeds the remotely fetched codex model catalog (raw.githubusercontent.com) — not deterministic by construction in the oracle environment; also grok-shell UA catalog. Spec marks both OPTIONAL (OQ-2)."
     },
     {
-      "id": "S1-D3-example-api-key-safe-mode",
-      "purpose": "403 gate + warning page when api-keys contain template values.",
-      "classification": "FIXTURE-DEFERRED",
-      "reason": "Needs a second dedicated config run with example-template api-keys; behavior is fully specified in section 3.10 and remains testable via unit contract tests; not blocking S1 admission (OQ-5).",
-      "status": "CLOSING: recording authorized (gate round 1, N2) and included in the S1-25 batch (group E config variant V2); remove from this deferred list once the fixture lands."
-    },
-    {
       "id": "S1-D4-home-mode-gates",
       "purpose": "503 heartbeat gate and Home catalogs when home.enabled=true.",
       "classification": "FIXTURE-DEFERRED",

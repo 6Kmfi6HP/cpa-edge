@@ -203,3 +203,20 @@ persist-fail mounts `run4/run/auths-ro` read-only. The RO auth dir boots clean (
 does not write the auth dir at boot with no credentials — confirmed). Raw transcripts:
 `_cpa_edge_ref/run4/probes/S3-round2/` (README.md included). Egress-blocked bodies were
 fully deterministic (no timeout text). Teardown re-verified after the mission.
+
+### S5 gate-round-1 fix (2026-09-16, B2 + N8)
+
+Per @spec-s5-mgmt's gate request (reports/adversary/S5.md B2): appended STEP 9 to
+tests/fixtures/S5/S5-vertex-import/ — the fake-PEM rejection exchange (POST /vertex/import
+with the DRAFTED service account, private_key "mock") -> 400
+`{"error":"invalid service account","message":"private_key is not valid pem: missing pem markers"}`.
+Re-run LIVE on a fresh S5-baseline container; sent bytes byte-identical to the preserved
+drafted-content side probe; response matches the B2 expectation byte-exactly. Meta carries an
+`addendum` block (own recorded_at, expectation source = gate round-1 ruling B2, mismatch: none).
+Fixture step count is now 9.
+
+N8 housekeeping applied: deduped `dynamic_fields` in all 22 S5 metas — removed the per-case
+"Date" and "port numbers in URLs/paths" entries that duplicated the global
+"Date response header" / "port numbers anywhere (...)" entries; each list now holds the two
+global entries plus case-specific fields only. No other case gained a step. Stack torn down
+and verified clean after the fix.

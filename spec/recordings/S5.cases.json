@@ -1919,6 +1919,17 @@
             "Authorization: Bearer oracle-mgmt-key-1"
           ],
           "note": "second delete -> 404"
+        },
+        {
+          "seq": 9,
+          "method": "POST",
+          "path": "/v0/management/vertex/import",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1",
+            "Content-Type: multipart/form-data; boundary=X"
+          ],
+          "body": "multipart/form-data; field 'file' = file part 'sa.json' with content {\"type\":\"service_account\",\"project_id\":\"s5-project\",\"client_email\":\"s5@fixture.iam.gserviceaccount.com\",\"private_key\":\"mock\"}",
+          "note": "GATE-ROUND-1 B2 fix step (recorded live by oracle-runner-4; byte-identical to the drafted-content side probe): 400 {\"error\":\"invalid service account\",\"message\":\"private_key is not valid pem: missing pem markers\"}"
         }
       ],
       "record": "status+headers+body for all 8",
@@ -1931,13 +1942,15 @@
           400,
           200,
           200,
-          404
+          404,
+          400
         ],
         "body_notes": [
           "step 1/6: {\"status\":\"ok\",\"auth-file\":\"<path>\",\"project_id\":\"s5-project\",\"email\":\"...\",\"location\":\"us-central1\"/\"us-east1\"}",
           "step 3: {\"error\":\"file required\"}",
           "step 4: {\"error\":\"invalid json\",\"message\":\"...\"}",
-          "step 5: {\"error\":\"project_id missing\"}"
+          "step 5: {\"error\":\"project_id missing\"}",
+          "step 9 (B2 fix, RECORDED): 400 {\"error\":\"invalid service account\",\"message\":\"private_key is not valid pem: missing pem markers\"}"
         ]
       },
       "dynamic_fields": [
@@ -2219,8 +2232,8 @@
     "fixture_dir": "tests/fixtures/S5/",
     "cases_recorded": 22,
     "cases_skipped": 0,
-    "steps_recorded": 167,
-    "steps_note": "166 case steps + 1 AUX helper step (S5-quota-endpoints AUX-1); includes the 2-step addendum appended to S5-model-definitions and S5-oauth-session",
+    "steps_recorded": 168,
+    "steps_note": "167 case steps + 1 AUX helper step (S5-quota-endpoints AUX-1); includes the 2-step round-1 addendum (S5-model-definitions, S5-oauth-session) and the gate-round-1 B2 fix step (fake-PEM rejection, S5-vertex-import STEP 9, re-run live)",
     "deviations_from_predictions": [
       "model-definitions steps 1-2: query-form requests 404 with EMPTY body (route is path-form only)",
       "quota/reset with unknown auth_index: 404 auth not found (auth resolution precedes provider check)",
@@ -2229,6 +2242,8 @@
       "gin.H bodies marshal keys alphabetically (config-yaml success, oauth envelopes, status toggles)"
     ],
     "byte_order_rule": "gin.H/map bodies alphabetical; struct bodies keep declaration order",
-    "raw_evidence": "_cpa_edge_ref/run4/probes/S5/ (+ S5-vertex-import-drafted-content/ side probe)"
+    "raw_evidence": "_cpa_edge_ref/run4/probes/S5/ (+ S5-vertex-import-drafted-content/ side probe)",
+    "gate_round_1_b2": "fake-PEM golden appended to tests/fixtures/S5/S5-vertex-import/ (STEP 9, 400 {\"error\":\"invalid service account\",\"message\":\"private_key is not valid pem: missing pem markers\"}); recorded live, byte-identical to _cpa_edge_ref/run4/probes/S5/S5-vertex-import-drafted-content/step-1.req",
+    "n8_dedupe": "per-case meta.yaml dynamic_fields lists deduped by oracle-runner-4 across all 22 fixtures (globals only in the shared entries); cases-file per-case lists deduped on the spec side"
   }
 }

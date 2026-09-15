@@ -9,10 +9,8 @@
  "dynamic_fields": [
   "Date response header",
   "port numbers anywhere (8407 / 21999 / 22001-22007; masked for contract replay)",
-  "Date",
   "header map values inside api-call response (mock Server/Date)",
-  "ts field in upstream.jsonl",
-  "port numbers in URLs/paths"
+  "ts field in upstream.jsonl"
  ],
  "port_substitution": "cases file drafted for the oracle-runner-2 stack (8387/19999/20001-20007); recorded on the worker-4 stack with the mechanical map 8387->8407, 19999->21999, 2000N->2200N applied to request bodies/paths; everything else verbatim",
  "file_conventions": "request.http / downstream.md hold every step, delimited by '### <CASE> STEP <n> \u2014 <METHOD> <path>' sections (aux steps marked AUX). Request bytes are the exact bytes sent (CRLF rendered as LF, matching the S1/S2d9 fixture style); response bodies are the de-chunked entity bytes.",
