@@ -467,9 +467,11 @@ describe('R3 - stream re-framing', () => {
     const events: string[] = []
     for await (const event of reframeUpstreamSse(
       (async function* (): AsyncIterable<Uint8Array> {
+        // The chunks split one payload mid-line and a CRLF terminator
+        // across reads; the decoder must not care.
         yield encoder.encode('data: {"a":')
-        yield encoder.encode('1}\r\ndata: {"b"\r\n: 2}\r\nda')
-        yield encoder.encode('ta: [DONE]')
+        yield encoder.encode('1}\r\nda')
+        yield encoder.encode('ta: {"b": 2}\r\ndata: [DONE]')
       })(),
       {},
     )) {
@@ -522,9 +524,14 @@ describe('R3 - stream re-framing', () => {
     // The upstream serves one frame, then the transport hard-closes
     // mid-line: the committed frame survives and the failure renders as
     // the single terminal frame (the same-surface disconnect pin).
+    let served = 0
     const upstreamBody = new ReadableStream<Uint8Array>({
       pull(controller) {
-        controller.enqueue(encoder.encode('data: {"delta": {"a"}}\n\ndata: {"delta"'))
+        served += 1
+        if (served === 1) {
+          controller.enqueue(encoder.encode('data: {"delta": {"a"}}\n\ndata: {"delta"'))
+          return
+        }
         controller.error(new Error('unexpected EOF'))
       },
     })

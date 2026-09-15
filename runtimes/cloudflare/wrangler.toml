@@ -1,0 +1,42 @@
+# CPA-Edge Cloudflare Workers runtime (mission T2).
+#
+# One deployment = one gateway state, held by the `cpa-edge` Durable
+# Object. Deploy with:
+#   npx wrangler deploy
+# (run from runtimes/cloudflare; wrangler resolves the workspace TS
+# sources directly - no build step).
+
+name = "cpa-edge"
+main = "src/worker.ts"
+compatibility_date = "2026-09-15"
+workers_dev = true
+
+# The gateway's state substrate: sqlite-backed Durable Object.
+[durable_objects]
+bindings = [{ name = "CPA_EDGE_DO", class_name = "CpaEdgeDurableObject" }]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["CpaEdgeDurableObject"]
+
+# --- config sources (pick ONE; first boot seeds the stored copy) -----------
+#
+# Option A - KV binding (recommended): create the namespace, put the
+# config.yaml text under the key `config.yaml`, then bind it:
+#
+#   npx wrangler kv namespace create CPA_CONFIG
+#   [[kv_namespaces]]
+#   binding = "CPA_CONFIG"
+#   id = "<namespace-id-from-the-command-above>"
+#
+# Option B - plain-text var (small configs only; secrets must NOT go here):
+#
+#   [vars]
+#   CPA_CONFIG_YAML = "port: 8317\napi-keys:\n  - <client-key>\n..."
+#
+# After first boot the object persists its own copy; later edits go
+# through the management API (PUT /v0/management/config.yaml, scalar
+# PUTs) - that is the only mutation path on this platform (S7 F6).
+
+# Optional: management secret as a Worker secret instead of config text:
+#   npx wrangler secret put CPA_CONFIG_YAML   (only if not using [vars])

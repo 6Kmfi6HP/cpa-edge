@@ -299,7 +299,7 @@ describe('S1 golden replay - chat seam over the openai-compat executor', () => {
       // first three chunk objects; the S1-15 golden proves the re-framed
       // stream drops exactly that garbage and nothing else.
       for (const frame of mock.sseFrames.slice(0, 3)) {
-        expect(frame.endsWith('}]}'), `${caseId}: canned chunk frame shape`).toBe(true)
+        expect(frame.endsWith('}]}}'), `${caseId}: canned chunk frame shape`).toBe(true)
         const opens = (frame.match(/{/g) ?? []).length
         const closes = (frame.match(/}/g) ?? []).length
         expect(closes, `${caseId}: canned chunk carries exactly one stray closing brace`).toBe(opens + 1)

@@ -51,7 +51,7 @@ describe('kv store: documents', () => {
 
   it('delivers detached copies: mutation after write or read never leaks', async () => {
     const store = newStore()
-    const shared: unknown[] = [1, 2, 3]
+    const shared: number[] = [1, 2, 3]
     await store.put('ns', 'k', { list: shared })
     shared.push(4)
     await expect(store.get('ns', 'k')).resolves.toEqual({ list: [1, 2, 3] })

@@ -235,10 +235,18 @@ export function stripProxiedProviders(
  * booleans. The output round-trips through {@link parseBlockYaml} and
  * through the management facade's config parser.
  */
+/**
+ * Emits block-style YAML for the config dialect: two-space-indented
+ * mappings, `- ` sequence items (first key inline, the documented
+ * dialect of the config-file state layer), double-quoted strings,
+ * plain scalars for numbers and booleans. The output round-trips
+ * through {@link parseBlockYaml} and parses with the management
+ * facade's config loader. An empty document emits empty text.
+ */
 export function emitBlockYaml(value: Readonly<Record<string, unknown>>): string {
   const lines: string[] = []
   emitMapping(value, 0, lines)
-  return lines.length === 0 ? '{}' : `${lines.join('\n')}\n`
+  return lines.length === 0 ? '' : `${lines.join('\n')}\n`
 }
 
 function emitMapping(
@@ -248,31 +256,55 @@ function emitMapping(
 ): void {
   for (const [key, member] of Object.entries(value)) {
     if (member === undefined) continue
-    lines.push(`${' '.repeat(indent)}${quoteKey(key)}:${emitInline(member, indent, lines)}`)
+    const name = `${' '.repeat(indent)}${quoteKey(key)}:`
+    if (isScalarValue(member)) {
+      lines.push(`${name} ${emitScalar(member)}`)
+      continue
+    }
+    if (Array.isArray(member)) {
+      if (member.length === 0) {
+        lines.push(`${name} []`)
+        continue
+      }
+      lines.push(name)
+      emitSequence(member, indent, lines)
+      continue
+    }
+    const children = member as Readonly<Record<string, unknown>>
+    const present = Object.keys(children).filter((child) => children[child] !== undefined)
+    if (present.length === 0) {
+      lines.push(`${name} {}`)
+      continue
+    }
+    lines.push(name)
+    emitMapping(children, indent + 2, lines)
   }
 }
 
-function emitInline(member: unknown, indent: number, lines: string[]): string {
-  if (member === null) return ' null'
-  if (Array.isArray(member)) {
-    if (member.length === 0) return ' []'
-    const nested: string[] = []
-    for (const item of member) {
-      if (item === undefined) continue
-      nested.push(`\n${' '.repeat(indent + 2)}- ${emitScalar(item)}`)
+function isScalarValue(member: unknown): boolean {
+  return member === null || typeof member !== 'object'
+}
+
+/** Sequence items: scalars inline, mappings with their first key inline. */
+function emitSequence(member: readonly unknown[], indent: number, lines: string[]): void {
+  const dash = `${' '.repeat(indent + 2)}- `
+  for (const item of member) {
+    if (item === undefined) continue
+    if (isScalarValue(item)) {
+      lines.push(`${dash}${emitScalar(item)}`)
+      continue
     }
-    lines.push(nested.join(''))
-    return ''
-  }
-  if (typeof member === 'object') {
-    const keys = Object.keys(member as Record<string, unknown>)
-    if (keys.length === 0) return ' {}'
+    if (Array.isArray(item)) {
+      lines.push(dash.trimEnd())
+      lines.push(`${' '.repeat(indent + 4)}[]`)
+      continue
+    }
     const nested: string[] = []
-    emitMapping(member as Readonly<Record<string, unknown>>, indent + 2, nested)
-    lines.push(`\n${nested.join('\n')}`)
-    return ''
+    emitMapping(item as Readonly<Record<string, unknown>>, indent + 4, nested)
+    const first = nested.shift()
+    lines.push(`${dash}${first === undefined ? '' : first.trimStart()}`)
+    lines.push(...nested)
   }
-  return ` ${emitScalar(member)}`
 }
 
 function emitScalar(value: unknown): string {
@@ -385,20 +417,19 @@ function parseSequence(
       index += 1
       continue
     }
-    if (rest.includes(': ')) {
+    if (rest.includes(': ') || rest.endsWith(':')) {
       // Nested mapping opened inline after the dash: re-parse it as a
-      // mapping whose first line lost its `- ` marker.
-      const virtual: YamlLine[] = [
-        { indent: indent + 2, content: rest },
-      ]
+      // mapping at the item-key column, with the following sibling
+      // keys at the same column.
+      const virtual: YamlLine[] = [{ indent: indent + 4, content: rest }]
       let scan = index + 1
       while (scan < lines.length) {
         const candidate = lines[scan]
-        if (candidate === undefined || candidate.indent <= indent) break
+        if (candidate === undefined || candidate.indent <= indent + 2) break
         virtual.push(candidate)
         scan += 1
       }
-      const parsed = parseMapping(virtual, 0, indent + 2)
+      const parsed = parseMapping(virtual, 0, indent + 4)
       out.push(parsed.value)
       index = scan
       continue

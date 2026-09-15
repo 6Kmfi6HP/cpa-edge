@@ -33,12 +33,11 @@ import {
   upstreamErrorSummary,
 } from './errors'
 import { buildUpstreamHeaders, orderUpstreamHeaders, readHeaderValue, headerListToRecord } from './headers'
-import type { HeaderList } from './headers'
 import { parseStrictJson } from './json'
 import { translateChatPassthrough } from './request'
 import { DONE_TERMINATOR, dataFrame } from './sse'
 import { reframeUpstreamSse, rewriteResponseModel } from './stream'
-import type { ChatResponseContext, DownstreamStreamEvent } from './types'
+import type { ChatResponseContext, DownstreamStreamEvent, HeaderList } from './types'
 
 /** Path the executor appends to the credential base-url (recorded). */
 const CHAT_COMPLETIONS_PATH = '/chat/completions'
