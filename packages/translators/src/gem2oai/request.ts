@@ -380,11 +380,19 @@ function removeQueued(callQueues: Map<string, string[]>, name: string, id: strin
 // Media parts
 // ---------------------------------------------------------------------------
 
-/** Normalizes an inline-data mime: empty or non-media prefixes become octet-stream. */
+/**
+ * Normalizes an inline-data mime before classification: media families and
+ * recognized document types (pdf/txt/csv/json/xml) pass through; empty or
+ * unrecognized mimes become `application/octet-stream` and land in the
+ * file branch with the bare `document` filename.
+ */
 function normalizedMime(mime: string): string {
   const lower = mime.toLowerCase()
   if (lower.startsWith('image/') || lower.startsWith('audio/') || lower.startsWith('video/')) {
     return mime
+  }
+  for (const hint of ['pdf', 'txt', 'csv', 'json', 'xml'] as const) {
+    if (lower.includes(hint)) return mime
   }
   return 'application/octet-stream'
 }
