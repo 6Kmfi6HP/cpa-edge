@@ -59,10 +59,20 @@ Config reload semantics (hot-reload via file watcher):
 
 ### 2.2 Credential identity and ordering (determinism contract)
 
-- Each config-synthesized credential gets a stable ID `<kind>:<12-hex>` where `<kind>` is the family (e.g. `openai-compatibility:<provider-name>`, `gemini:apikey`, `claude:apikey`, `codex:apikey`, `xai:apikey`, `meta:apikey`) and `<12-hex>` = first 12 hex chars of SHA-256 over `kind` and each part (trimmed api-key, base-url, proxy-url, prefix, sorted header string) joined with NUL bytes; identical inputs get a `-N` counter suffix. `internal/watcher/synthesizer/helpers.go` (`StableIDGenerator.Next`), `synthesizer/config.go`.
+- Each config-synthesized credential gets a stable ID `<kind>:<12-hex>` where `<12-hex>` = first 12 hex chars of SHA-256 over `kind` and the family's part list, each part NUL-prefixed and trimmed; identical outputs get a `-N` counter suffix. `internal/watcher/synthesizer/helpers.go` (`StableIDGenerator.Next`). Per-family kinds and parts (`synthesizer/config.go`):
+  - `openai-compatibility:<lowercased name>` — parts `(api-key, base-url, proxy-url)` (NO prefix, NO headers); empty `name` falls back to kind `openai-compatibility`; a provider with no `api-key-entries` synthesizes one credential with parts `(base-url)` only.
+  - `gemini:apikey` — parts `(api-key, base-url, proxy-url, prefix, sorted-headers)`; `interactions` uses kind `gemini-interactions:apikey` with the same parts.
+  - `claude:apikey`, `codex:apikey`, `xai:apikey`, `meta:apikey` — parts `(api-key, base-url, proxy-url, prefix, sorted-headers)`.
+  - `vertex:apikey` — parts `(api-key, base-url, proxy-url)` (NO prefix, NO headers).
+  - Sorted headers = the entry's `headers` map serialized with keys sorted (`config.FormatSortedHeaders`).
 - **MUST**: cpa-edge MUST reproduce this ID derivation, because rotation order is defined over ID lexicographic order and is client-observable via which credential serves which request.
 - Rotation order (round-robin and the sort within priority buckets) = ascending auth ID byte order. `sdk/cliproxy/auth/scheduler.go` (`rebuildIndexesLocked` sort, `scheduledSuccessorIndex`).
-- `auth_index` (stable observability identity) = first 8 SHA-256 bytes as hex (16 chars) over a seed: for API-key credentials `<provider-family>:<base-url>+<api-key>` (e.g. `openai-compatibility:<base>+<key>`); for OAuth auth files `<auth-type>:<absolute-file-path>`; plugin-expanded credentials use `auth_index_seed`. `sdk/cliproxy/auth/types.go` (`indexSeed`, `EnsureIndex`, `stableAuthIndex`).
+- `auth_index` (stable observability identity) = first 8 SHA-256 bytes as hex (16 lowercase hex chars) of a seed chosen in this order (`sdk/cliproxy/auth/types.go` `indexSeed`, `EnsureIndex`, `stableAuthIndex`):
+  1. plugin-expanded credentials: `auth_index_seed:<seed attribute>`;
+  2. file-backed credentials: when the effective file path (Attributes `path`/`source`, else `FileName`, else the auth ID) ends in `.json`, seed = `<auth-type-or-lowercased-provider>:<absolutized file path>` (config-synthesized credentials' `source` attribute is `config:<name>[<token>]`, which never matches);
+  3. API-key credentials with a non-empty api-key, family literals exactly: `gemini-api-key`, `interactions-api-key`, `codex-api-key`, `xai-api-key`, `claude-api-key`, `meta-api-key`, `openai-compatibility` (compat matched via `compat_name` or provider `openai-compatibility`) — seed = `<family-literal>:<base-url>+<api-key>`. NOTE: vertex has no case in the switch, so `vertex-api-key` credentials never use this form;
+  4. fallback for everything else (empty api-key, vertex, unmatched families): seed = `id:<auth-ID>`.
+  Recorded proofs: S4-07 (compat entries), S4-20 (empty-api-key gemini credential: index `2f8a144d9ae23286` = sha256 of `id:gemini:apikey:88c747d7b66d` where the auth ID itself hashes the empty key + base-url).
 - Config-synthesis edge (recorded: S4-20): a credential entry with an EMPTY api-key but a non-empty base-url IS synthesized, registered, and scheduled (the synthesizer skips an entry only when both api-key and base-url are empty) — `internal/watcher/synthesizer/config.go`.
 - `auth_index` payload surfaces (S5 owns the routes; S4 owns the field semantics):
   - `GET /v0/management/{gemini-api-key|claude-api-key|codex-api-key|xai-api-key|meta-api-key|vertex-api-key|openai-compatibility|interactions-api-key}`: each entry carries `auth-index` (kebab-case). `internal/api/handlers/management/config_auth_index.go`.
@@ -84,7 +94,13 @@ Given the eligible credential set E for (provider, model) — eligibility = regi
 6. **Session affinity** (wrapper over the strategy when `routing.session-affinity: true`): extract a session identity (explicit headers first: `X-Claude-Code-Session-Id`, Claude Code `metadata.user_id`, `Session-Id`, `X-Http-Session-Id`, `X-Session-ID`/`X-Session-Affinity`/`X-Slot-Session-Id`, `X-Conversation-Id`/`X-Thread-Id`/`X-Client-Request-Id`, Gemini `cachedContent`, OpenAI `thread_id`, body `session_id`/`sessionId`, `prompt_cache_key`, `conversation.id`, `metadata.user_id`, `conversation_id`/`chat_id`, execution-session metadata; then LCP prefix matching; then a first-message hash fallback). Cache key = `provider :: session-id :: model` (model key = base model without thinking suffix). Bound credential is reused if still available — an established binding OUTRANKS priority (kept even if a higher-priority credential recovers). On cache miss, bind whatever the fallback strategy picks. On bound-credential unavailability, failover via the fallback strategy and rebind. On a successful result the binding is refreshed (TTL); on a credential-attributed failure the binding is dropped (compare-and-delete); request-scoped / lifecycle failures preserve bindings. `selector.go` (`SessionAffinitySelector.Pick`, `OnResult`, `LookupAffinity`, `InvalidateAuth`), `sdk/cliproxy/session/info.go` (`ExtractSessionInfo` priority list 1-12), `sdk/cliproxy/session/lcp.go`.
 7. **Pinned auth**: metadata `pinned_auth_id` restricts selection to one credential (used by Codex live sessions and Home); prefix model syntax (`prefix/model`) is resolved at routing, before scheduling. `sdk/cliproxy/executor/types.go:35-36`, `internal/client/codex/live/sideband.go:384`.
 
-Fast path note: with a built-in strategy the scheduler shard path runs; with session-affinity (or a plugin scheduler) the legacy `Selector.Pick` path runs. Both implement identical ordering semantics; observables must not differ. `conductor_selection.go` (`useSchedulerFastPath`, `isBuiltInSelector`).
+Websocket-transport credential preference (downstream-WS requests only; `websockets: true` on codex/xai api-key entries sets the auth attribute, `authWebsocketsEnabled` also reads auth metadata):
+- Shard path (built-in strategy active): `providerPrefersWebsocketTransport` covers **codex AND xai**; the preference applies when the downstream request is a WebSocket and no credential is pinned (`pinned_auth_id` empty). The websocket-enabled sub-view is searched **across ALL priority tiers first** — a ws-enabled credential in a LOWER priority tier beats a non-ws credential in the highest tier; within the chosen view the strategy order applies; an empty ws view falls back to the all-credentials view. `scheduler.go` (`pickSingleWithStrategy`, `highestReadyPriorityLocked`, `pickReadyAtPriorityLocked`, `buildReadyBucket`).
+- Legacy path (session-affinity or a plugin selector active): `preferCodexWebsocketAuths` covers **codex ONLY**; it filters the availability pass, which has already collapsed to the HIGHEST priority tier — it never crosses tiers — and falls back to the unfiltered tier when no ws-enabled credential exists there. `selector.go` (`preferCodexWebsocketAuths`, `getSelectorAvailableAuthsWithPriorityMode`).
+- DIVERGENCE (intentional upstream): for downstream-WS requests the two paths are NOT observably identical — xai gets the preference only on the shard path, and only the shard path lets a ws-enabled credential jump priority tiers. Contract tests must pin the path-relevant observable per surface. Recorded: S4-21 (shard path, codex).
+- Legacy cursor memory note: the legacy round-robin/weighted selectors key cursors by `provider:model` in maps capped at 4096 keys; inserting a NEW rotation key when the map is full resets the whole map (all cursors lost). `selector.go` (`ensureRotationKey`, `Pick`).
+
+Fast path note: with a built-in strategy the scheduler shard path runs; with session-affinity (or a plugin scheduler) the legacy `Selector.Pick` path runs. The strategies implement identical ordering semantics for non-WS requests; the WS preference divergence above is the one documented exception. `conductor_selection.go` (`useSchedulerFastPath`, `isBuiltInSelector`).
 
 ### 2.4 Availability gating and cooldown classification
 
@@ -108,7 +124,7 @@ Cooldown durations (per-model state; identical ladder applies credential-wide wh
 | 429 (quota) | `quota exhausted` | `Retry-After` if present, floored at **10 s**; else ladder `1 s × 2^level` capped at **30 min** (level increments at most once per still-open window) | marks `Quota.Exceeded` reason `quota`; cooldown re-arms, never shortens a live window | `conductor_refresh.go:36-37` (`quotaBackoffBase`, `quotaBackoffMax`, `minQuotaCooldownFloor`), `conductor_cooldown.go` (`quotaCooldownAfterFailure`, `nextQuotaCooldown`) |
 | 408, 500, 502, 503, 504, 520–526 | `transient upstream error` | `Retry-After` if present and positive; else `transient-error-cooldown-seconds` (0 = legacy **60 s**, negative = **no cooldown**) | blocked-unavailable (not quota) | `conductor_refresh.go:38` (`transientErrorCooldown = time.Minute`), `conductor_cooldown.go` (`recoverableFailureRetryAfterWithHint`) |
 | other statuses | `request failed` | same transient rule | | same |
-| Cloudflare challenge (403/503 + challenge markers) | `cloudflare challenge` | own backoff ladder | marks quota reason `cloudflare challenge` | `conductor_cooldown.go` (`nextCloudflareCooldown`) |
+| Cloudflare challenge (403/503 + challenge markers) | `cloudflare challenge` | same 1 s × 2^level ladder as quota, with a per-step 10 s floor (cap 30 min) | marks quota reason `cloudflare challenge` | `conductor_cooldown.go` (`nextCloudflareCooldown` → `nextQuotaCooldown` + 10 s floor) |
 | force-cooldown (`request-scoped-errors` action `stop-and-cooldown`/`continue-and-cooldown`) | — | 60 s transient cooldown, even when cooling disabled | `ErrorCodeForceCooldown` bypasses `disable-cooling` | `conductor_cooldown.go` (`MarkResult` force branch), `errors.go` (`ErrorCodeForceCooldown`) |
 
 Failures that never cool a credential: request-scoped faults (`request_scoped`), connection-lifecycle errors (client cancel `context canceled`/`deadline exceeded`, `eof`/`unexpected eof`, websocket close 1000/1001/1006, dropped connection), pre-HTTP transient transport errors (dial/DNS/TLS/reset; `transient_transport`) — transport errors remain eligible for retry rounds but skip cooldown. `conductor_cooldown.go` (`shouldSkipCredentialCooldown`, `isConnectionLifecycleError`, `isTransientTransportError`), `errors.go` codes.
@@ -200,6 +216,16 @@ Error-code classification precedence when a failure is recorded (`conductor_cool
 4. pre-HTTP transient transport shape → code `transient_transport` (no cooldown, rotation continues, retry rounds allowed);
 otherwise the raw upstream status drives the §2.4 ladder.
 
+### 3.4 Route-contextual classification overrides
+
+Three surfaces change how a failure is classified (they are scheduling contracts because they decide rotation and cooldown):
+
+1. **count_tokens endpoints** (`/v1beta/models/{m}:countTokens`, `/v1/messages/count_tokens`): a **404** that is NOT an explicit model-not-found shape is **availability-neutral** — the request success/failure counters update, but NO cooldown is set, quota observation is skipped (`SkipQuotaObservation`), and no scheduler state changes; rotation continues to the next credential. All other count_tokens failures classify normally. Evidence: `conductor_execution.go:824-837` (`isCountTokensEndpointNotFoundError` + `recordAvailabilityNeutralResult`), `conductor_cooldown.go` (`recordAvailabilityNeutralResult`). Recorded: S4-22.
+2. **`/responses/compact`** (Responses-compact requests, `opts.Alt == "responses/compact"`):
+   - Request-fault STOP: statuses **400, 404, 405, 409, 413, 422, 501**, or any request-fault body — unless the error is credential-scoped, a Cloudflare challenge, or invalid_grant — stop at the FIRST failing credential (no rotation). `conductor_cooldown.go` (`isResponsesCompactRequestFaultError`).
+   - Availability-NEUTRAL set: every OTHER failure on a compact request (including 5xx and transport errors) is recorded neutral — rotation continues, NO cooldown — EXCEPT: credential-scoped errors, Cloudflare challenges, invalid_grant, force-cooldown rule actions, and statuses **401, 402, 403, 429**, which mark cooldowns normally. `conductor_cooldown.go` (`isResponsesCompactAvailabilityNeutralError`). Recorded: S4-23.
+3. **`store:false` item-not-persisted 404**: an upstream 404 whose text contains `item with id`, `not found`, and `items are not persisted when \`store\` is set to false` is REQUEST-SCOPED — rotation stops at the first failing credential and no cooldown is applied. `internal/clienterror` (`IsItemNotPersisted`), `conductor_cooldown.go` (`isRequestScopedNotFoundResultError`).
+
 ## 4. Streaming rules (S4-relevant)
 
 1. Non-stream and stream requests use the same scheduling loop; count_tokens (`ExecuteCount`) also failovers.
@@ -226,6 +252,8 @@ otherwise the raw upstream status drives the §2.4 ladder.
 | 520–526 | YES | transient (same rule) | NO (not a retry-round status) | upstream VERBATIM; all-blocked → 503 auth_unavailable (3.2.2) |
 | transport error pre-HTTP (dial/DNS/TLS/reset) | YES | NO (transient_transport) | YES | 503/500 auth_unavailable (no upstream body) |
 | client disconnect / EOF mid-stream | NO (already committed) | NO (lifecycle) | NO | in-stream error frame, HTTP 200 |
+
+Route-contextual exceptions (§3.4): count_tokens-404 = neutral (rotate, NO cooldown — recorded S4-22); on `/responses/compact`, 400/404/405/409/413/422/501 stop at the first credential and every other failure except credential-scoped/cloudflare/invalid-grant/401/402/403/429 is NEUTRAL (rotate, no cooldown — recorded S4-23); `store:false` item-not-persisted 404 = request-scoped stop.
 
 ## 6. Golden-sample index
 

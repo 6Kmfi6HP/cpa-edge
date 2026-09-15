@@ -70,6 +70,18 @@
           "data: {\"error\":{\"message\":\"mock midstream failure\",\"type\":\"server_error\",\"code\":\"internal_server_error\",\"status\":502}}\n\n",
           "data: [DONE]\n\n"
         ]
+      },
+      "s2d2-stream-toolcall-multi": {
+        "where": "stream /v1/chat/completions, SSE frames in order",
+        "sse_frames": [
+          "data: {\"id\":\"chatcmpl-mock-s2\",\"object\":\"chat.completion.chunk\",\"created\":1770000000,\"model\":\"mock-gpt-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\n",
+          "data: {\"id\":\"chatcmpl-mock-s2\",\"object\":\"chat.completion.chunk\",\"created\":1770000000,\"model\":\"mock-gpt-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_multi_a\",\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"{\\\"city\\\":\"}}]},\"finish_reason\":null}]}\n\n",
+          "data: {\"id\":\"chatcmpl-mock-s2\",\"object\":\"chat.completion.chunk\",\"created\":1770000000,\"model\":\"mock-gpt-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"\\\"Paris\\\"}\"}}]},\"finish_reason\":null}]}\n\n",
+          "data: {\"id\":\"chatcmpl-mock-s2\",\"object\":\"chat.completion.chunk\",\"created\":1770000000,\"model\":\"mock-gpt-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":1,\"id\":\"call_multi_b\",\"type\":\"function\",\"function\":{\"name\":\"get_time\",\"arguments\":\"{\\\"tz\\\":\"}}]},\"finish_reason\":null}]}\n\n",
+          "data: {\"id\":\"chatcmpl-mock-s2\",\"object\":\"chat.completion.chunk\",\"created\":1770000000,\"model\":\"mock-gpt-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":1,\"function\":{\"arguments\":\"\\\"UTC\\\"}\"}}]},\"finish_reason\":null}]}\n\n",
+          "data: {\"id\":\"chatcmpl-mock-s2\",\"object\":\"chat.completion.chunk\",\"created\":1770000000,\"model\":\"mock-gpt-model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n",
+          "data: [DONE]\n\n"
+        ]
       }
     },
     "note": "All scenario bodies/frames are byte-exact; send them verbatim (json.dumps compact, no spaces)."
@@ -110,7 +122,7 @@
             "X-Client-Marker": "s2d2-case1",
             "User-Agent": "s2d2-test/1.0"
           },
-          "body": "{\"systemInstruction\":{\"parts\":[{\"text\":\"Be terse.\"}]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}],\"generationConfig\":{\"temperature\":0.5,\"maxOutputTokens\":128,\"topP\":0.9,\"topK\":4,\"stopSequences\":[\"END\"],\"candidateCount\":1,\"responseModalities\":[\"TEXT\"],\"thinkingConfig\":{\"thinkingLevel\":\"high\"}},\"service_tier\":\"flex\""
+          "body": "{\"systemInstruction\":{\"parts\":[{\"text\":\"Be terse.\"}]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}],\"generationConfig\":{\"temperature\":0.5,\"maxOutputTokens\":128,\"topP\":0.9,\"topK\":4,\"stopSequences\":[\"END\"],\"candidateCount\":1,\"responseModalities\":[\"TEXT\"],\"thinkingConfig\":{\"thinkingLevel\":\"high\"}},\"service_tier\":\"flex\"}"
         }
       ],
       "record": "downstream 200 + body; upstream request line for this case (headers + body)",
@@ -121,7 +133,8 @@
           "s2d2-test/1.0"
         ],
         "downstream_body": "{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Hello from mock openai upstream more\"}],\"role\":\"model\"},\"index\":0,\"finishReason\":\"STOP\"}],\"model\":\"mock-gpt-model\",\"usageMetadata\":{\"promptTokenCount\":9,\"candidatesTokenCount\":6,\"totalTokenCount\":15}}"
-      }
+      },
+      "re_record_note": "ROUND 2: round-1 recording used a truncated body (missing closing brace; lenient-parse witness — see section 7 entry 9). Re-record with this WELL-FORMED body; contract tests replay well-formed bodies only."
     },
     {
       "id": "gem2oai-system-snake-multimodal",
@@ -784,6 +797,288 @@
           "body_shape": "{\"totalTokens\":<N>,\"promptTokensDetails\":[{\"modality\":\"TEXT\",\"tokenCount\":<N>}]}"
         }
       }
+    },
+    {
+      "id": "gem2oai-stream-alt-json",
+      "purpose": "B1: raw-chunk mode for non-sse alt values: no SSE headers, translated chunks concatenated byte-adjacent with NO data: framing, keep-alives force-disabled",
+      "mock": {
+        "mode": "happy",
+        "scenario": "s2d2-stream-full"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:streamGenerateContent?alt=json",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}"
+        }
+      ],
+      "record": "downstream status + headers (record the ACTUAL Content-Type) + full raw body bytes (single block, no framing)",
+      "expected_downstream_body": "{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Hello\"}],\"role\":\"model\"},\"index\":0}],\"model\":\"mock-gpt-model\"}{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\" world\"}],\"role\":\"model\"},\"index\":0}],\"model\":\"mock-gpt-model\"}{\"candidates\":[{\"content\":{\"parts\":[],\"role\":\"model\"},\"index\":0,\"finishReason\":\"STOP\"}],\"model\":\"mock-gpt-model\"}{\"candidates\":[],\"usageMetadata\":{\"promptTokenCount\":8,\"candidatesTokenCount\":2,\"totalTokenCount\":10},\"model\":\"mock-gpt-model\"}",
+      "expected_headers_absent": [
+        "Content-Type: text/event-stream",
+        "Cache-Control: no-cache",
+        "Connection: keep-alive"
+      ],
+      "expected_status": 200
+    },
+    {
+      "id": "gem2oai-auth-transports",
+      "purpose": "B2: the three transports missing from round-1 goldens (X-Api-Key, ?key=, ?auth_token=) plus the non-Bearer verbatim Authorization rule; 401 shapes identical across transports",
+      "mock": {
+        "mode": "happy",
+        "scenario": "none - gateway-local (countTokens)"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:countTokens",
+          "headers": {
+            "Content-Type": "application/json",
+            "X-Api-Key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}]}",
+          "note": "R1: X-Api-Key header"
+        },
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:countTokens?key=<gateway-api-key>",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}]}",
+          "note": "R2: ?key= query param (drop x-goog-api-key from headers)"
+        },
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:countTokens?auth_token=<gateway-api-key>",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}]}",
+          "note": "R3: ?auth_token= query param"
+        },
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:countTokens",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}]}",
+          "note": "R4: Authorization WITHOUT Bearer prefix -> verbatim key"
+        }
+      ],
+      "record": "downstream status + body for all four",
+      "expected": {
+        "all": {
+          "status": 200,
+          "body_shape": "{\"totalTokens\":<N>,\"promptTokensDetails\":[{\"modality\":\"TEXT\",\"tokenCount\":<N>}]}"
+        },
+        "note": "use header sets EXACTLY as given per request (R2/R3 must NOT carry any auth header)"
+      }
+    },
+    {
+      "id": "gem2oai-thinking-clamps",
+      "purpose": "B3: effective thinking mapping after the stage-2 pipeline clamp for the openai-compat default capability (levels low/medium/high, no dynamic, no disable)",
+      "mock": {
+        "mode": "happy",
+        "scenario": "s2d2-nonstream-text"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:generateContent",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Hi.\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"thinkingLevel\":\"none\"}}}",
+          "note": "R1: none -> expect low"
+        },
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:generateContent",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Hi.\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"thinkingLevel\":\"minimal\"}}}",
+          "note": "R2: minimal -> expect low"
+        },
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:generateContent",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Hi.\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"thinkingLevel\":\"xhigh\"}}}",
+          "note": "R3: xhigh -> expect high"
+        },
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:generateContent",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Hi.\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"thinkingLevel\":\"max\"}}}",
+          "note": "R4: max -> expect high"
+        },
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:generateContent",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Hi.\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"thinkingBudget\":0}}}",
+          "note": "R5: budget 0 -> expect low"
+        },
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:generateContent",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Hi.\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"thinkingBudget\":300}}}",
+          "note": "R6: budget 300 -> expect low"
+        },
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:generateContent",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Hi.\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"thinkingBudget\":30000}}}",
+          "note": "R7: budget 30000 -> expect high"
+        }
+      ],
+      "record": "upstream request body each (primary); downstream 200 body each",
+      "expected_upstream_bodies": {
+        "R1": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"user\",\"content\":\"Hi.\"}],\"reasoning_effort\":\"low\",\"stream\":false}",
+        "R2": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"user\",\"content\":\"Hi.\"}],\"reasoning_effort\":\"low\",\"stream\":false}",
+        "R3": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"user\",\"content\":\"Hi.\"}],\"reasoning_effort\":\"high\",\"stream\":false}",
+        "R4": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"user\",\"content\":\"Hi.\"}],\"reasoning_effort\":\"high\",\"stream\":false}",
+        "R5": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"user\",\"content\":\"Hi.\"}],\"reasoning_effort\":\"low\",\"stream\":false}",
+        "R6": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"user\",\"content\":\"Hi.\"}],\"reasoning_effort\":\"low\",\"stream\":false}",
+        "R7": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"user\",\"content\":\"Hi.\"}],\"reasoning_effort\":\"high\",\"stream\":false}"
+      }
+    },
+    {
+      "id": "gem2oai-thinking-invalid",
+      "purpose": "B3: unsupported thinking level and budget < -1 fail with 400 (thinking validation runs before dispatch, also on countTokens); upstream wire log stays empty",
+      "mock": {
+        "mode": "happy",
+        "scenario": "none - validation fails before dispatch (assert: no upstream log line for this case)"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:generateContent",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Hi.\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"thinkingLevel\":\"ultra\"}}}",
+          "note": "R1: unknown level -> 400"
+        },
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:generateContent",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Hi.\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"thinkingBudget\":-5}}}",
+          "note": "R2: budget -5 -> 400"
+        },
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:countTokens",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Hi.\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"thinkingLevel\":\"ultra\"}}}",
+          "note": "R3: same bad level on countTokens -> 400"
+        }
+      ],
+      "record": "downstream status + headers + body for all three; empty upstream window",
+      "expected": {
+        "R1": {
+          "status": 400,
+          "body": "{\"error\":{\"message\":\"level \\\"ultra\\\" not supported, valid levels: low, medium, high\",\"type\":\"invalid_request_error\"}}"
+        },
+        "R2": {
+          "status": 400,
+          "body": "{\"error\":{\"message\":\"budget -5 cannot be converted to a valid level\",\"type\":\"invalid_request_error\"}}"
+        },
+        "R3": {
+          "status": 400,
+          "body": "same shape as R1",
+          "note": "if the recorded message differs (e.g. model name suffix), record actual - recorded bytes are authoritative"
+        }
+      }
+    },
+    {
+      "id": "gem2oai-count-tokens-tools",
+      "purpose": "B4: countTokens over a tool-call history + tools body: segments include roles, texts, tool_calls (id/type/name/description/arguments/parameters) and tools; deterministic recorded N; upstream wire log empty",
+      "mock": {
+        "mode": "happy",
+        "scenario": "none - gateway-local (assert: no upstream log line for this case)"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:countTokens",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"systemInstruction\":{\"parts\":[{\"text\":\"Be helpful.\"}]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Read a.txt\"}]},{\"role\":\"model\",\"parts\":[{\"functionCall\":{\"name\":\"read_file\",\"args\":{\"path\":\"a.txt\"}}}]},{\"role\":\"function\",\"parts\":[{\"functionResponse\":{\"name\":\"read_file\",\"response\":{\"result\":\"ok\"}}}]}],\"tools\":[{\"functionDeclarations\":[{\"name\":\"read_file\",\"description\":\"Read a file\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}}]}],\"toolConfig\":{\"functionCallingConfig\":{\"mode\":\"AUTO\"}}}"
+        }
+      ],
+      "record": "downstream 200 + body; empty upstream window",
+      "expected": {
+        "body_shape": "{\"totalTokens\":<N>,\"promptTokensDetails\":[{\"modality\":\"TEXT\",\"tokenCount\":<N>]}]}",
+        "note": "record the integer N; do not re-derive"
+      }
+    },
+    {
+      "id": "gem2oai-stream-toolcall-multi",
+      "purpose": "N5 volatility whitelist: 2 buffered tool calls flush into ONE finish frame; functionCall parts order is nondeterministic (Go map iteration) - contract compares parts SORTED (by functionCall.name, then functionCall.id)",
+      "mock": {
+        "mode": "happy",
+        "scenario": "s2d2-stream-toolcall-multi"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:streamGenerateContent?alt=sse",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Weather and time for Paris.\"}]}],\"tools\":[{\"functionDeclarations\":[{\"name\":\"get_weather\"},{\"name\":\"get_time\"}]}]}"
+        }
+      ],
+      "record": "downstream full SSE byte stream (record the actual part order in this emission)",
+      "expected_downstream_frames_count": 1,
+      "expected_frame_shape": "{\"candidates\":[{\"content\":{\"parts\":[<two functionCall parts in EITHER order>],\"role\":\"model\"},\"index\":0,\"finishReason\":\"STOP\"}],\"model\":\"mock-gpt-model\"}",
+      "expected_parts_as_set": [
+        "{\"functionCall\":{\"id\":\"call_multi_a\",\"name\":\"get_weather\",\"args\":{\"city\":\"Paris\"}}}",
+        "{\"functionCall\":{\"id\":\"call_multi_b\",\"name\":\"get_time\",\"args\":{\"tz\":\"UTC\"}}}"
+      ],
+      "volatility_whitelist": "candidates[0].content.parts compared as a sorted set for 2+ functionCall parts (section 7 entry 10)"
     }
   ],
   "recording_status": {

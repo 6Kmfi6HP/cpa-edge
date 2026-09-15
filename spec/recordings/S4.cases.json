@@ -990,13 +990,14 @@
         }
       ],
       "record": "status+headers+body (single downstream response, ~2-2.5s after request start); upstream.jsonl (4 hits)",
-      "expected": "wire log: K1 -> 500, K2 -> 500 (round 0), gap ~2.0-2.5s (cooldown wait + jitter <=0.5s), K1 -> 500, K2 -> 500 (round 1). Downstream = HTTP 500 with mock error body VERBATIM (relay of the last upstream attempt). No round 2 (request-retry is 1).",
+      "expected": "Round 0 hits all 3 keys in ascending auth-ID order (key-1, key-3, key-2), each 500; then a ~2.0-2.5s cooldown wait; round 1 repeats the same 3-key sweep (6 upstream hits total). Downstream = a single HTTP 500 response with the mock error body VERBATIM (relay of the last upstream attempt of round 1). No round 2 (request-retry is 1). Matches the recorded fixture (6 wire hits).",
       "dynamic_fields": [
         "Date",
         "X-Cpa-Trace-Id",
         "wire-log ts + inter-round gap duration (assert only: gap >= 2s)"
       ],
-      "mock_upstream_mode": "openai: error status 500"
+      "mock_upstream_mode": "openai: error status 500",
+      "n3_fix_note": "Round-1 review N3: earlier draft said '4 hits' from a 2-key mental model; baseline has 3 keys — corrected."
     },
     {
       "id": "S4-11-session-affinity",
@@ -1806,14 +1807,250 @@
         "wire-log ts"
       ],
       "mock_upstream_mode": "openai mock 404s gemini-style paths; gemini mock happy then error 500"
+    },
+    {
+      "id": "S4-21-ws-transport-preference",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "Downstream-WebSocket requests prefer websocket-enabled codex credentials ACROSS priority tiers (shard path): a ws-enabled LOWER-priority credential is picked before a non-ws higher-priority one; when the ws attempt fails upstream, the request fails over to the next credential; a non-WS request on the same pool respects priority order (no preference).",
+      "config": "baseline + codex-api-key block with TWO credentials sharing one client model (alias 'wsx'): cred-A: api-key 's4-codex-key-a', websockets: true, priority: -5 (LOWER tier); cred-B: api-key 's4-codex-key-b', no websockets flag, priority: 0 (higher tier); models: [{name: 'gpt-mock-codex', alias: 'wsx'}] on both entries; base-url http://host.docker.internal:19003 (codex mock).",
+      "config_delta_yaml": "codex-api-key:\n  - api-key: \"s4-codex-key-a\"\n    base-url: \"http://host.docker.internal:19003\"\n    websockets: true\n    priority: -5\n    models:\n      - name: \"gpt-mock-codex\"\n        alias: \"wsx\"\n  - api-key: \"s4-codex-key-b\"\n    base-url: \"http://host.docker.internal:19003\"\n    priority: 0\n    models:\n      - name: \"gpt-mock-codex\"\n        alias: \"wsx\"\n",
+      "control": {
+        "codex": "happy"
+      },
+      "requests": [
+        {
+          "step": 1,
+          "transport": "websocket",
+          "note": "WS request for model 'wsx' via the gateway's WebSocket API (/v1/ws): perform the upgrade and send one request frame; the downstream delivery details (frames or close) are recorded AS-IS — the CONTRACT for this case is the upstream wire log",
+          "model": "wsx"
+        },
+        {
+          "step": 2,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "wsx",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          },
+          "note": "non-WS control request: priority order must win (cred-B first)"
+        }
+      ],
+      "record": "step 1: full downstream WS byte stream (upgrade response + frames/close) + the codex mock wire log (the failed ws upgrade attempt carries cred-A's key; any failover HTTP request carries cred-B's); step 2: status+headers+body + wire log",
+      "expected": "Step 1 (WS): cred-A (ws-enabled, LOWER priority) is attempted FIRST — the codex mock receives a websocket upgrade attempt (GET with Upgrade headers, logged with credential s4-codex-key-a); the mock cannot upgrade, the attempt fails, and the request fails over to cred-B (POST /responses on the codex wire, always-SSE, 200/aggregated). Downstream WS bytes recorded as-is. Step 2 (HTTP): cred-B is picked FIRST (priority respected when not WS; single wire hit). If the WS client proves infeasible, record the upgrade-attempt wire log only and mark the downstream part of the fixture 'delivery not asserted' — the credential-preference observable must still be present.",
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "wire-log ts",
+        "WS frame boundaries/timestamps"
+      ],
+      "mock_upstream_mode": "codex: happy (mock rejects/ignores the ws upgrade; that rejection is the point)",
+      "needs": [
+        "websocket client (any minimal python ws client is fine)"
+      ]
+    },
+    {
+      "id": "S4-22-count-tokens-404-neutral",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "count_tokens endpoint 404 is availability-NEUTRAL: it rotates across all credentials but sets NO cooldown — repeated count_tokens requests keep hitting the pool — while the same 404 on a chat request DOES cool (12 h not-found cooldown) and the next chat request returns 503 auth_unavailable.",
+      "config": "baseline + gemini-api-key with TWO credentials (both base-url http://host.docker.internal:19001, api-keys 's4-gem-key-a'/'s4-gem-key-b', models [{name: 'gemini-mock-model', alias: 'ctm'}])",
+      "config_delta_yaml": "gemini-api-key:\n  - api-key: \"s4-gem-key-a\"\n    base-url: \"http://host.docker.internal:19001\"\n    models:\n      - name: \"gemini-mock-model\"\n        alias: \"ctm\"\n  - api-key: \"s4-gem-key-b\"\n    base-url: \"http://host.docker.internal:19001\"\n    models:\n      - name: \"gemini-mock-model\"\n        alias: \"ctm\"\n",
+      "control": {
+        "gemini": "{\"mode\":\"error\",\"status\":404}"
+      },
+      "requests": [
+        {
+          "step": 1,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1beta/models/ctm:countTokens",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "ctm",
+            "contents": [
+              {
+                "parts": [
+                  {
+                    "text": "s4"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "step": 2,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1beta/models/ctm:countTokens",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "ctm",
+            "contents": [
+              {
+                "parts": [
+                  {
+                    "text": "s4"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "step": 3,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "ctm",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 4,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "ctm",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        }
+      ],
+      "record": "per request: status+headers+body; gemini wire log per step (countTokens path + generateContent path)",
+      "expected": "R1 + R2 (count_tokens 404): EACH request sweeps BOTH gemini keys on the :countTokens path (rotation continued; NO cooldown set — that is why R2 hits the pool again instead of returning a scheduling error). Downstream = 404 relay (last attempt). R3 (chat, same 404 mock): sweeps both keys on :generateContent, then the not-found cooldowns are set; downstream 404 relay. R4 (chat again, immediately): NO upstream hit; downstream = 503 auth_unavailable (proves the chat 404 DID cool, in contrast with the neutral count_tokens 404).",
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "wire-log ts"
+      ],
+      "mock_upstream_mode": "gemini: error status 404 (all routes incl. countTokens)"
+    },
+    {
+      "id": "S4-23-compact-fault-neutral",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "/responses/compact route-contextual rules: a 500 on a compact request rotates across all credentials but is availability-NEUTRAL (no cooldown — a second compact request sweeps the pool again), while the same 500 on a normal /responses request DOES cool and the next request returns 503.",
+      "config": "baseline + codex-api-key with THREE credentials (api-keys s4-codex-key-a/b/c, base-url http://host.docker.internal:19003, models [{name: 'gpt-mock-codex', alias: 'cxx'}])",
+      "config_delta_yaml": "codex-api-key:\n  - api-key: \"s4-codex-key-a\"\n    base-url: \"http://host.docker.internal:19003\"\n    models:\n      - name: \"gpt-mock-codex\"\n        alias: \"cxx\"\n  - api-key: \"s4-codex-key-b\"\n    base-url: \"http://host.docker.internal:19003\"\n    models:\n      - name: \"gpt-mock-codex\"\n        alias: \"cxx\"\n  - api-key: \"s4-codex-key-c\"\n    base-url: \"http://host.docker.internal:19003\"\n    models:\n      - name: \"gpt-mock-codex\"\n        alias: \"cxx\"\n",
+      "control": {
+        "codex": "{\"mode\":\"error\",\"status\":500}"
+      },
+      "requests": [
+        {
+          "step": 1,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/responses/compact",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "<minimal valid Responses-compact body per the codex mock probes — reuse the S2d9/fleet compact shape>",
+          "note": "compact request"
+        },
+        {
+          "step": 2,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/responses/compact",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "<same as step 1>",
+          "note": "compact request again — must sweep the pool again (no cooldown from step 1)"
+        },
+        {
+          "step": 3,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/responses",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "cxx",
+            "input": "s4",
+            "stream": false
+          },
+          "note": "normal Responses request — 500 DOES cool"
+        },
+        {
+          "step": 4,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/responses",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "cxx",
+            "input": "s4",
+            "stream": false
+          },
+          "note": "immediately after — expect 503, no upstream hits"
+        }
+      ],
+      "record": "per request: status+headers+body; codex wire log per step",
+      "expected": "R1 + R2 (compact, 500): EACH sweeps all 3 codex keys (rotation continued, NEUTRAL — no cooldown; that is why R2 sweeps again); downstream = 500 relay per request (record exact shape as delivered by the compact handler). R3 (normal /responses, 500): sweeps all 3 keys, transient cooldowns set; downstream 500 relay. R4 (immediately): NO upstream hit; downstream = 503 auth_unavailable. The R2-vs-R4 contrast is the contract: compact 500s do not cool; normal 500s do.",
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "wire-log ts"
+      ],
+      "mock_upstream_mode": "codex: error status 500 (all routes)"
     }
   ],
   "case_count": {
-    "recordable": 20,
-    "recordable_core": 19,
+    "recordable": 23,
+    "recordable_core": 22,
     "optional": 1,
     "fixture_deferred": 3,
     "recorded": 20,
-    "notes": "All 20 recordable cases recorded (S4-18 re-recorded 2026-09-16 with corrected config; first attempt bytes kept as S4-20). 3 FIXTURE-DEFERRED (CREDENTIALED-ONLY)."
+    "pending_follow_up": [
+      "S4-21-ws-transport-preference",
+      "S4-22-count-tokens-404-neutral",
+      "S4-23-compact-fault-neutral"
+    ],
+    "notes": "Round-1 gate: 20 recorded; 3 follow-up goldens authorized (WS preference, count_tokens-404, compact). 3 FIXTURE-DEFERRED (CREDENTIALED-ONLY)."
   }
 }

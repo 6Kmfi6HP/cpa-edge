@@ -25,7 +25,7 @@
 | S2d10 | spec: Antigravity redirect rules | 1 | spec-s2d10-antigravity | spec-adv | 0 | section+17 goldens; synthetic-credential precedent; review queued on adv-spec-2 |
 | S3 | spec: auth flows | 1 | spec-s3-auth | merged | 3 | ADMITTED after 3 rounds. Goldens: 44 dirs. Unlocked I-auth + S3 contract tests. |
 | S4 | spec: scheduling | 1 | spec-s4-scheduling | spec-fix | 1 | R1: adv-spec-1 FAIL (B1 per-family ID parts; B2 auth_index seeds; B3 WS preference MIRROR ruling; B4 route overrides); 3-golden batch authorized |
-| S5 | spec: management API | 1 | spec-s5-mgmt | spec-adv-r2 | 1 | fixes applied + PEM golden STEP 9; round-2 running on adv-spec-3 |
+| S5 | spec: management API | 1 | spec-s5-mgmt | merged | 2 | ADMITTED round 2. 22 goldens / 168 steps. Unlocks I-mgmt (after I-auth interfaces land) + S5 contract tests. |
 | S6 | spec: state & storage schemas | 1 | spec-s6-state | spec-adv | 0 | section+17 goldens done; S7 amendments applied; review assigned adv-spec-6 |
 | S7 | spec: platform degradation matrix | 1 | spec-s7-platform | merged | 3 | ADMITTED after 3 rounds. NE registry feeds SPEC §5. RuntimeCapabilities -> I-core; T2/T3/D1 bindings recorded. |
 | I-core | packages/core: scheduling algorithms | 2 | — | pending | 0 |  |
@@ -57,3 +57,4 @@
 
 ## Verdict / escalation log
 (appended by orchestrator)
+- 2026-09-16 01:4x S5 GATE: PASS (round 2). Management API admitted: 143 routes, two marshaling regimes, config/secrets mirror ruling, canonical header casing.
