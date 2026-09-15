@@ -1,4 +1,4 @@
-# s3-mgmt-remote-disabled — response 1/1 (step 1)
+# s3-mgmt-remote-disabled — response 1/2 (step 1)
 
 ## Status line
 HTTP/1.1 403 Forbidden
@@ -13,11 +13,10 @@ X-Cpa-Build-Date: 2026-09-15T14:07:06Z
 X-Cpa-Commit: 8335eac
 X-Cpa-Support-Plugin: 1
 X-Cpa-Version: v7.3.4
-Date: Tue, 15 Sep 2026 16:55:30 GMT
+Date: Tue, 15 Sep 2026 17:39:22 GMT
 Content-Length: 38
 Connection: close
 
 ## Body (exact bytes received, 38 bytes)
 ```
-{"error":"remote management disabled"}
-```
+{"error":"remote management disabled"}```

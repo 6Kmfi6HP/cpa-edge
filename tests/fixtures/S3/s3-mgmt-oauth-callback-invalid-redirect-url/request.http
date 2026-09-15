@@ -1,0 +1,9 @@
+POST /v0/management/oauth-callback HTTP/1.1
+Host: 127.0.0.1:8407
+Content-Type: application/json
+User-Agent: oracle-s3-probe/1.0
+Accept: */*
+Connection: close
+Content-Length: 83
+
+{"redirect_url":"http://%zz","state":"0123456789abcdef0123456789abcdef","code":"x"}

@@ -177,3 +177,29 @@ boot logs at probes/S5/<case>/boot-addendum.log; metas carry an `addendum` prove
   `{"error":"invalid body","status":"error"}` (non-JSON fails binding before the state check;
   matches byte-exactly).
 Stack torn down and verified clean after the addendum.
+
+## S3 round-2 recording mission (2026-09-16, complete)
+
+Executed @spec-s3-auth's round-2 gate-fix request (7 cases: 6 new + 1 re-record) into
+`tests/fixtures/S3/`, matching the round-1 S3 fixture conventions (raw-socket client,
+`User-Agent: oracle-s3-probe/1.0`, `Connection: close`, per-step request-N.http /
+downstream-N.md, full config_fragment in meta.yaml). All 7 recorded byte-exactly vs the
+source-derived expectations:
+
+| case | instance | result |
+|---|---|---|
+| s3-realtime-ek-invalid-secret | default | 401 `{"error":{"code":"invalid_realtime_client_secret",...}}` |
+| s3-mgmt-oauth-callback-invalid-redirect-url | default | 400 `{"error":"invalid redirect_url","status":"error"}` |
+| s3-mgmt-oauth-callback-persist-fail | default-readonly-authdir | step1 200 auth-url ($S captured), step2 500 `{"error":"failed to persist oauth callback","status":"error"}` |
+| s3-device-auth-url-egress-blocked-kimi | egress-blocked | 500 `{"error":"failed to generate authorization url"}` |
+| s3-device-auth-url-egress-blocked-xai | egress-blocked | 500 `{"error":"failed to start device authorization flow"}` |
+| s3-device-auth-url-egress-blocked-meta | egress-blocked | 500 `{"error":"failed to start device authorization flow"}` |
+| s3-mgmt-remote-disabled (RE-RECORD) | mgmt-local-only | XFF 10.0.0.99 -> 403 `{"error":"remote management disabled"}`; XFF 127.0.0.1 -> 200 `{"api-keys":["oracle-local-key-1"]}` |
+
+Instance configs: `run4/run/config.s3default.yaml` (BOOTSTRAP §3 template on port 8407, no
+providers) and `config.s3localonly.yaml` (allow-remote false); egress-blocked adds
+`--add-host {auth.kimi.com, auth.x.ai, api.x.ai, auth.meta.com, api.meta.ai}:127.0.0.1`;
+persist-fail mounts `run4/run/auths-ro` read-only. The RO auth dir boots clean (server
+does not write the auth dir at boot with no credentials — confirmed). Raw transcripts:
+`_cpa_edge_ref/run4/probes/S3-round2/` (README.md included). Egress-blocked bodies were
+fully deterministic (no timeout text). Teardown re-verified after the mission.

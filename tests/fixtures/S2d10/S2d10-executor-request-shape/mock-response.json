@@ -1,0 +1,29 @@
+{
+ "mode": "happy",
+ "generateContent": {
+  "response": {
+   "candidates": [
+    {
+     "content": {
+      "role": "model",
+      "parts": [
+       {
+        "text": "hello"
+       }
+      ]
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 1,
+    "candidatesTokenCount": 1,
+    "totalTokenCount": 2
+   }
+  }
+ },
+ "countTokens": {
+  "totalTokens": 7
+ }
+}

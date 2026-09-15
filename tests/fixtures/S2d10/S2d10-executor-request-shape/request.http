@@ -1,0 +1,10 @@
+POST /v0/management/auth-files?name=antigravity-oracle@synth.json HTTP/1.1
+Host: 127.0.0.1:8387
+Authorization: Bearer oracle-mgmt-key-1
+Content-Type: application/octet-stream
+User-Agent: oracle-s3-probe/1.0
+Accept: */*
+Connection: close
+Content-Length: 246
+
+{"type": "antigravity", "email": "oracle@synth", "project_id": "synth-project", "access_token": "fake-token", "refresh_token": "fake-refresh", "expires_in": 3600, "expired": "2030-01-01T00:00:00Z", "base_url": "http://host.docker.internal:20008"}

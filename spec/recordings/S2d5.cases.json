@@ -35,8 +35,9 @@
   },
   "ordering_notes": [
     "Run happy/script cases first; 429 and cooldown cases (S2D5-15, -16, -24) last.",
-    "Every 429 arms a ~1s rate-limit cooldown; wait >1s after each error-mode case before the next case, EXCEPT inside S2D5-24 where the pair must be back-to-back.",
-    "The mock log (mock/logs/codex.jsonl) is truncated on mock start; keep one reference+mock restart for the whole batch and copy per-case wire lines from it (or note per-case timestamps)."
+    "Every 429 arms a rate-limit cooldown; the codex window recorded as ~4s (see S2D5-24 notes) — space error-mode cases >=5s apart, EXCEPT inside S2D5-24 where the pair must be back-to-back.",
+    "The mock log (mock/logs/codex.jsonl) is truncated on mock start; keep one reference+mock restart for the whole batch and slice per-case wire lines by offsets (recorded batch: one mock start, per-request line counts in meta.yaml).",
+    "Port adaptation for the recording stack is captured in each fixture meta.yaml (worker-3 batch: downstream 8397, mock 21003; the spec section §6 documents this)."
   ],
   "scripts": {
     "$comment": "Canned SSE event lists. Each entry: {\"event\": <SSE event name or null>, \"data\": <JSON object serialized with json.dumps>}. Framing: (\"event: <name>\\n\" if name) + \"data: <json>\\n\\n\", chunked per frame, terminated with 0\\r\\n\\r\\n (mocklib.send_sse already does this).",
@@ -1219,7 +1220,7 @@
         "upstream: mock wire log entry for each upstream request (method, path, headers, body — what the reference emitted)",
         "mock-response: the scripted response bytes the mock served"
       ],
-      "expected_downstream": "200 chat.completion. Upstream body reasoning object exactly {\"effort\":\"high\",\"summary\":\"auto\"}."
+      "expected_downstream": "RECORDED (2026-09-15): 200 chat.completion (canned). Upstream body has NO reasoning object — the capability-less model strips reasoning entirely (spec §2.3, §7 item 3); reasoning_effort:\"high\" is dropped silently. Pre-recording expectation (effort+summary auto) was WRONG; recorded bytes are truth."
     },
     {
       "id": "S2D5-05-reasoning-effort-none",
@@ -1254,7 +1255,7 @@
         "upstream: mock wire log entry for each upstream request (method, path, headers, body — what the reference emitted)",
         "mock-response: the scripted response bytes the mock served"
       ],
-      "expected_downstream": "200 chat.completion. Upstream body reasoning object exactly {\"effort\":\"none\"}."
+      "expected_downstream": "RECORDED (2026-09-15): 200 chat.completion (canned). Upstream body has NO reasoning object (same strip as S2D5-04)."
     },
     {
       "id": "S2D5-06-tools-history",
@@ -1481,7 +1482,7 @@
         "upstream: mock wire log entry for each upstream request (method, path, headers, body — what the reference emitted)",
         "mock-response: the scripted response bytes the mock served"
       ],
-      "expected_downstream": "200 SSE: reasoning_content \"Step one done.\", reasoning_content \" Step two done.\", reasoning_content \"\\n\\n\", content \"Final answer.\", terminal finish stop + usage {completion_tokens:4,total_tokens:14,prompt_tokens:10,completion_tokens_details:{reasoning_tokens:2}}, [DONE]. Upstream body reasoning {\"effort\":\"low\",\"summary\":\"auto\"}."
+      "expected_downstream": "200 SSE: reasoning_content \"Step one done.\", reasoning_content \" Step two done.\", reasoning_content \"\\n\\n\", content \"Final answer.\", terminal finish stop + usage {completion_tokens:4,total_tokens:14,prompt_tokens:10,completion_tokens_details:{reasoning_tokens:2}}, [DONE]. RECORDED: upstream body has NO reasoning object (client reasoning_effort:\"low\" stripped — capability-less model)."
     },
     {
       "id": "S2D5-10-nonstream-reasoning-item",
@@ -1999,7 +2000,7 @@
     },
     {
       "id": "S2D5-24-rate-limit-cooldown-pair",
-      "purpose": "After an upstream 429, the credential enters a rate-limit cooldown (reset ~1s) that transient-error-cooldown-seconds:-1 does NOT disable; immediate retry within the window gets 500 model_cooldown with last_upstream_error = the verbatim 429 body.",
+      "purpose": "After an upstream 429, the credential enters a rate-limit cooldown that transient-error-cooldown-seconds:-1 does NOT disable; the immediate retry gets the model_cooldown error (RECORDED: HTTP 429 + Retry-After, not 500).",
       "priority": 1,
       "mock": {
         "mode": "error",
@@ -2048,7 +2049,18 @@
         "upstream: expect exactly TWO upstream requests (both 429)",
         "ordering: request-b MUST be sent within ~1s after request-a completes (replay back-to-back); if request-b does not show model_cooldown, wait for cooldown reset and re-run the pair"
       ],
-      "expected_downstream": "request-a: HTTP 429 verbatim body. request-b: HTTP 500 with body {\"error\":{...}} marshaled with ALPHABETICAL keys: code=\"model_cooldown\", last_upstream_error=\"rate_limit_exceeded: mock rate limit\" (summary derived from the 429 body), message=\"All credentials for model cx are cooling down via provider codex (last error: rate_limit_exceeded: mock rate limit)\" (model string expected to be the requested alias 'cx' — gemini analog recorded 'gm'; if the recording shows the resolved model name instead, keep the recorded bytes), model, provider=\"codex\", reset_seconds (dynamic ~1), reset_time (dynamic \"1s\"). Mask reset_seconds/reset_time/X-Cpa-Trace-Id/Date in meta.yaml dynamic_fields."
+      "expected_downstream": "RECORDED (2026-09-15, oracle-runner-3): request-a: HTTP 429, verbatim mock error body. request-b: HTTP 429 with Retry-After: 4 and body {\"error\":{\"code\":\"model_cooldown\",\"last_upstream_error\":\"<VERBATIM 429 body, json.dumps spacing preserved>\",\"message\":\"All credentials for model cx are cooling down via provider codex (last error: <verbatim 429 body>)\",\"model\":\"cx\",\"provider\":\"codex\",\"reset_seconds\":4,\"reset_time\":\"4s\"}} (alphabetical keys). Recorded R2 omits X-Cpa-Trace-Id. Mask reset_seconds/reset_time/Retry-After/X-Cpa-Trace-Id/Date in meta.yaml dynamic_fields (remaining-window values are time-dependent on replay).",
+      "notes": "Recorded fixture supersedes the original expected shape (500/summary-form last_upstream_error) — see spec section §5 E2 and §7 items 13-15. Pair must be replayed back-to-back; prior 429 cases must be ≥5s in the past (residual cooldown observed at 1.2s)."
     }
-  ]
+  ],
+  "recording_status": {
+    "status": "COMPLETE",
+    "recorded_by": "oracle-runner-3",
+    "recorded_at": "2026-09-15",
+    "fixtures": "tests/fixtures/S2d5/ (24/24 cases)",
+    "raw_transcripts": "_cpa_edge_ref/run3/probes/S2d5/",
+    "mock_script_registry": "s2d5_scripts.json (generated byte-exactly from this file's scripts object)",
+    "deviations_from_expectations": "S2D5-24: cooldown surfaced as HTTP 429 + Retry-After: 4, reset_seconds/reset_time 4/4s, last_upstream_error VERBATIM body (not summary form), model_cooldown R2 without X-Cpa-Trace-Id — incorporated into spec §5 E2 + §7 items 13-15. S2D5-04/05/09 (and all other request-side cases): upstream body carries NO reasoning object — the capability-less model strip removes reasoning.effort/reasoning.summary before the wire, even for explicit reasoning_effort values; spec §2.3 + §7 item 3/17 rewritten to the recorded behavior.",
+    "operational_lesson": "Rate-limit cooldown window (~4s for codex) exceeds the gemini wire-note's ~1s; leave >=5s between error-mode cases when re-recording. Request-body claims must be derived from recorded wire logs first (reasoning strip lesson)."
+  }
 }

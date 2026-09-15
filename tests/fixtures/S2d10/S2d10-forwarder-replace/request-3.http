@@ -1,0 +1,6 @@
+GET /oauth-callback?code=cc&state=3dd95f514d2a4f2000daf1ae7094c565 HTTP/1.1
+Host: 127.0.0.1:51121
+User-Agent: oracle-s3-probe/1.0
+Accept: */*
+Connection: close
+

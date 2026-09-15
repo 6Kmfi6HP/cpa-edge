@@ -91,7 +91,7 @@
         "Date"
       ],
       "mock_upstream": null,
-      "determinism": "Only the hash string varies. Assert: after == before except the secret-key line; after line matches ^[ \\t]*secret-key: *\"?\\$2[aby]\\$10\\$[./A-Za-z0-9]{53}\"?$; step 4 returns 200 proving plaintext still valid."
+      "determinism": "Only the hash string varies. Recorded: after == before except the secret-key line AND one cosmetic blank line (write-back is surgical, comments preserved); after line matches ^[ \\t]*secret-key: *\"?\\$2[aby]\\$10\\$[./A-Za-z0-9]{53}\"?$; step 4 returns 200 proving plaintext still valid."
     },
     {
       "id": "S6-03-config-yaml-roundtrip",
@@ -422,14 +422,15 @@
           "n": 2,
           "transport": "resp",
           "conn": 2,
-          "send": "*2\r\n$4\r\nAUTH\r\n$12\r\nwrong-key-123\r\n",
-          "expect": "-ERR invalid management key\r\n"
+          "send": "*2\r\n$4\r\nAUTH\r\n$13\r\nwrong-key-123\r\n",
+          "expect": "-ERR invalid management key\r\n",
+          "recording_note": "Initial recording followed an off-by-one frame spec ($12 for a 13-byte key) and captured the malformed-frame path (-ERR protocol error — kept as a bonus conn-2 segment). Follow-up conn 4 re-recorded with the corrected $13 frame: reply is exactly -ERR invalid management key."
         },
         {
           "n": 3,
           "transport": "resp",
           "conn": 3,
-          "send": "*2\r\n$4\r\nAUTH\r\n$16\r\noracle-mgmt-key-1\r\n",
+          "send": "*2\r\n$4\r\nAUTH\r\n$17\r\noracle-mgmt-key-1\r\n",
           "expect": "+OK\r\n"
         },
         {
@@ -451,7 +452,7 @@
           "transport": "resp",
           "conn": 3,
           "send": "*3\r\n$4\r\nRPOP\r\n$5\r\nusage\r\n$1\r\n1\r\n",
-          "expect": "$-1\r\n (RPOP reads the same head; empty now)"
+          "expect": "*0\r\n (counted pop on empty queue returns an EMPTY ARRAY, not $-1 — recorded)"
         },
         {
           "n": 7,
@@ -472,7 +473,7 @@
           "transport": "resp",
           "conn": 3,
           "send": "*1\r\n$4\r\nQUIT\r\n",
-          "expect": "+OK\r\n then server closes"
+          "expect": "-ERR unknown command 'quit'\r\n (QUIT is not a command outside subscriptions — recorded)"
         }
       ],
       "record": {
@@ -679,7 +680,8 @@
         {
           "n": 2,
           "transport": "disk",
-          "capture": "/root/.cli-proxy-api/s6-test-claude.json (must equal the uploaded bytes verbatim)"
+          "capture": "/root/.cli-proxy-api/s6-test-claude.json (must equal the uploaded bytes verbatim)",
+          "expect": "File on disk is NOT the verbatim upload: the token store re-serializes the credential metadata — recorded bytes: {\"access_token\":\"s6-fake-access\",\"disabled\":false,\"email\":\"s6@example.com\",\"expired\":\"2099-01-01T00:00:00Z\",\"last_refresh\":\"2026-01-01T00:00:00Z\",\"refresh_token\":\"s6-fake-refresh\",\"type\":\"claude\"} (single-line JSON, alphabetical keys, disabled:false injected)"
         },
         {
           "n": 3,
@@ -701,7 +703,7 @@
             "Authorization: Bearer oracle-mgmt-key-1": ""
           },
           "body": null,
-          "expect": "200 raw bytes == step-1 body; Content-Disposition: attachment; filename=\"s6-test-claude.json\"; Content-Type: application/json"
+          "expect": "200 raw bytes == the REWRITTEN on-disk form (re-serialized, not the original upload); Content-Disposition: attachment; filename=\"s6-test-claude.json\"; Content-Type: application/json"
         },
         {
           "n": 5,
@@ -1209,7 +1211,7 @@
             "Content-Type": "application/json"
           },
           "body": "{\"model\":\"mock-model\",\"messages\":[{\"role\":\"user\",\"content\":\"during cooldown\"}]}",
-          "expect": "500 with cooldown error shape: {\"error\":{\"code\":\"model_cooldown\",\"last_upstream_error\":...,\"message\":\"All credentials for model mock-model are cooling down via provider mock-openai (last error: ...)\"}} — record actual"
+          "expect": "HTTP 503 {\"error\":{\"message\":\"auth_unavailable: no auth available (providers=openai-compatible-mock-openai, model=mock-model; last upstream error: <verbatim mock error body>)\",\"type\":\"server_error\",\"code\":\"internal_server_error\"}} — recorded (NOT the 500 model_cooldown shape; that belongs to rate-limit cooldowns)"
         },
         {
           "n": 5,
@@ -1231,6 +1233,12 @@
           "n": 7,
           "transport": "file",
           "delete": "mock/control/openai.json"
+        },
+        {
+          "n": 8,
+          "transport": "restart-check",
+          "docker": "restart container, wait for boot line, repeat the during-cooldown POST",
+          "expect": "STILL 503 auth_unavailable; /v0/management/auth-files listing unchanged — cooldown state reloaded from .cds (RECORDED)"
         }
       ],
       "record": {
@@ -1268,6 +1276,67 @@
       "mock_upstream": null,
       "determinism": "On-disk shapes are specified from upstream source (section 3.4.2/3.4.3). Synthetic uploads (S6-10/11) cover read/patch/list/delete behavior locally. Revisit only if a credentialed environment is provided.",
       "deferred_reason": "CREDENTIALED-ONLY: real OAuth account required; token issuance cannot be mocked locally."
+    },
+    {
+      "id": "S6-18-failed-usage-record",
+      "purpose": "Failed requests also enqueue usage records: failed:true, zeroed tokens, fail carrying upstream status + verbatim body (section 3.5.1).",
+      "classification": "RECORDABLE-LOCALLY",
+      "preconditions": "Fresh container with usage-statistics-enabled: true; mock openai control {\"mode\":\"error\",\"status\":500}.",
+      "steps": [
+        {
+          "n": 1,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"model\":\"mock-model\",\"messages\":[{\"role\":\"user\",\"content\":\"trigger failure\"}]}",
+          "expect": "500 (mock error body passed downstream verbatim)"
+        },
+        {
+          "n": 2,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v0/management/usage-queue?count=1",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": null,
+          "expect": "200 array with EXACTLY 1 record: failed:true, zeroed tokens{9 fields}, fail{status_code:500, body:verbatim mock error}, non-zero latency_ms"
+        }
+      ],
+      "record": {
+        "http": "status+headers+body both steps",
+        "disk": []
+      },
+      "dynamic_fields": [
+        "record.timestamp",
+        "record.latency_ms",
+        "record.ttft_ms",
+        "record.request_id",
+        "record.client_ip",
+        "record.user_agent",
+        "record.access_token_sha256 if populated",
+        "record.session_id",
+        "Date"
+      ],
+      "mock_upstream": {
+        "type": "openai",
+        "mode": "error",
+        "status": 500,
+        "port": 19999
+      },
+      "determinism": "Fixed mock error body; single failing request. Recorded by oracle-runner-2 (added post-hoc from the bonus observation)."
     }
-  ]
+  ],
+  "recorded": true,
+  "recorded_by": "oracle-runner-2",
+  "recorded_at": "2026-09-16",
+  "fixture_dir": "tests/fixtures/S6/",
+  "recorded_counts": {
+    "recordable_recorded": 17,
+    "deferred": 1
+  }
 }

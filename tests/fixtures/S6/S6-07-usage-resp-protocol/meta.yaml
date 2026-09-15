@@ -51,6 +51,8 @@
     "1": "conn1 LPOP-noauth",
     "2": "conn2 AUTH-bad",
     "3-9": "conn3 sequential",
-    "seeds": "request-seed*.http (queue seeding, preconditions)"
-  }
+    "seeds": "request-seed*.http (queue seeding, preconditions)",
+    "conn-4 follow-up": "spec-s6-state re-record: AUTH with the CORRECTED $13 bulk length for wrong-key-123 (their original $12 was off-by-one); single new connection; reply appended to both transcripts"
+  },
+  "conn4_reply_escaped": "-ERR invalid management key\\r\\n"
 }

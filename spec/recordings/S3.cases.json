@@ -1235,7 +1235,16 @@
       "'&' inside url JSON values emitted as \\u0026 (Go json HTML escaping)"
     ],
     "recorded_request_files": 47,
-    "round2_status": "in flight (oracle-runner-4)"
+    "round2_status": "delivered",
+    "delivered_by_round2": "oracle-runner-4",
+    "recorded_cases_total": 44,
+    "recorded_response_transcripts_total": 65,
+    "recorded_request_files_total": 55,
+    "round2_corrections": [
+      "ek_ 401 on client routes carries no X-Cpa-* headers (management-only) — consistent with round-1 realtime fixtures",
+      "server boots clean with auth dir mounted :ro (no boot-time writes with no credentials)",
+      "egress-blocked 500s fully deterministic, no timeout text (conn-refused via --add-host vendor:127.0.0.1)"
+    ]
   },
   "round2": {
     "review": "reports/adversary/S3.md (gate round 1, verdict FAIL)",

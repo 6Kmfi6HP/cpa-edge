@@ -1,0 +1,6 @@
+GET /some/deep/path/that/is/not/oauth-callback?z=1&code=ac2&state=12ca2483cc705bcf054638a7ee5764ad&x=abc HTTP/1.1
+Host: 127.0.0.1:51121
+User-Agent: oracle-s3-probe/1.0
+Accept: */*
+Connection: close
+

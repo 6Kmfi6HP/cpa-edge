@@ -22,6 +22,7 @@ All persistent state crosses the `Store` interface from `@cpa-edge/core` (`packa
 | Per-credential recent-request counters | document | namespace `requests`, key = `<auth_index>` | `RecentRequestBuckets` = 20 × `RecentRequestBucket` (§3.6.4) | `update()` callback — bucket counters are read-modify-write increments; concurrent completions must not lose counts (document, not ring: buckets are addressed by bucket id, not append-only) |
 | Model catalog cache | document | namespace `models`, keys `catalog:<provider>` | `ModelCatalogEntry[]` (§3.7.2) | `put()` on catalog refresh; availability registry is derived in-memory (rebuilt at startup, not persisted — upstream parity) |
 | Mgmt auth-failure counters / bans | document | namespace `mgmt`, key `attempts` | `MgmtAttemptsDocument` | `update()` callback (5 failures → 30 min ban per client IP; §3.3.3) |
+| OAuth session registry | document | namespace `oauth-sessions`, key = state token (≤128 chars) | `OAuthSessionDocument` (§3.3.6) | `update()` callback for state transitions (register → pending → completed/error); **Store-backed registry is the designed divergence from upstream in-memory map** — flow semantics are S3; substrate MUSTs (Cloudflare DO alarms for poll execution, Node in-process timers) are S7 §2.3-F5b/F5c |
 
 Rules carried from P0.2 adversary review (`reports/adversary/P0.2.md`):
 - **N8 portability**: `list()` orders by UTF-16 code units, not UTF-8 bytes. Keys with astral characters can sort differently on remote stores. S6 keys MUST stay ASCII (they are: file names, `catalog:*`, fixed strings). T2 must keep this note for the Cloudflare store.
@@ -92,6 +93,17 @@ export type MgmtAttemptsDocument = {
   readonly [ip: string]: { readonly failures: number; readonly banned_until?: string }
 }
 
+/** OAuth session registry entry (§3.3.6; S3 flow semantics). */
+export type OAuthSessionDocument = {
+  readonly provider: string
+  readonly status: string
+  readonly source: 'builtin' | 'plugin'
+  readonly metadata?: JsonValue
+  readonly completed: boolean
+  readonly created_at: string
+  readonly expires_at: string
+}
+
 /** Model catalog cache entry (§3.7.2). */
 export type ModelCatalogEntry = {
   readonly id: string
@@ -140,8 +152,8 @@ All management endpoints require the management key: `Authorization: Bearer <key
 | B10 | Request log download | GET `/v0/management/request-log-by-id/:id` | 200 file attachment; 400 `{"error":"missing request ID"}` / `{"error":"invalid request ID"}` (id containing `/` or `\`); 404 `{"error":"log file not found for the given request ID"}` | `logs.go` `GetRequestLogByID` |
 | B11 | Error log download | GET `/v0/management/request-error-logs/:name` | 200 attachment (`error-*.log` names only); 400 `{"error":"invalid file name"}` (empty name, `/` or `\` in name, wrong prefix/suffix); 404 `{"error":"log file not found"}` | `logs.go` `DownloadRequestErrorLog` |
 | B12 | Auth files list | GET `/v0/management/auth-files[?name=&auth_index=]` | 200 `{"observed_at":<RFC3339 UTC>, "files":[<entry>…]}` (§3.4.5); disk fallback variant §3.4.5 | `management/auth_files.go` `ListAuthFiles` |
-| B13 | Auth file download | GET `/v0/management/auth-files/download?name=<n>.json` | 200 raw file bytes, `Content-Disposition: attachment; filename="<n>.json"`, `Content-Type: application/json`; 400 `{"error":"invalid name"}` / `{"error":"name must end with .json"}`; 404 `{"error":"file not found"}` | `auth_files_crud.go` `DownloadAuthFile` |
-| B14 | Auth file upload | POST `/v0/management/auth-files` (multipart file(s), or raw body + `?name=<n>.json`) | 200 `{"status":"ok"}` (single) / `{"status":"ok","uploaded":<n>,"files":[...]}` (multi) / 207 `{"status":"partial",...}` (multi w/ failures); 400 `{"error":"file must be .json"}`, `{"error":"no files uploaded"}`, `{"error":"invalid name"}`, `{"error":"name must end with .json"}`; 500 on write errors | `auth_files_crud.go` `UploadAuthFile` |
+| B13 | Auth file download | GET `/v0/management/auth-files/download?name=<n>.json` | 200 the CURRENT on-disk file bytes (i.e. the re-serialized form of B14, not the original upload), `Content-Disposition: attachment; filename="<n>.json"`, `Content-Type: application/json`; 400 `{"error":"invalid name"}` / `{"error":"name must end with .json"}`; 404 `{"error":"file not found"}` | `auth_files_crud.go` `DownloadAuthFile` |
+| B14 | Auth file upload | POST `/v0/management/auth-files` (multipart file(s), or raw body + `?name=<n>.json`) | 200 `{"status":"ok"}` (single) / `{"status":"ok","uploaded":<n>,"files":[...]}` (multi) / 207 `{"status":"partial",...}` (multi w/ failures); 400 `{"error":"file must be .json"}`, `{"error":"no files uploaded"}`, `{"error":"invalid name"}`, `{"error":"name must end with .json"}`; 500 on write errors. **Recorded reality (S6-10)**: after upload the file on disk is RE-SERIALIZED by the token store — single-line JSON, keys in Go map-marshal (alphabetical) order, `disabled` injected (`false` when absent in the upload) | `auth_files_crud.go` `UploadAuthFile`, `sdk/auth/filestore.go` `Save` |
 | B15 | Auth file delete | DELETE `/v0/management/auth-files?name=<n>` / `?all=true` / repeated `name` / JSON body `{name|names}` / `[names]` | 200 `{"status":"ok"}` / `{"status":"ok","deleted":<n>[,"files":[...]]}` / 207 partial; 404 `{"error":"auth file not found"}`; 400 `{"error":"invalid name"}`; 409 `{"error":"plugin virtual auth cannot be modified directly; edit or delete the source auth file"}` | `auth_files_crud.go` `DeleteAuthFile` |
 | B16 | Auth file status patch | PATCH `/v0/management/auth-files/status` | 200 `{"status":"ok"}`; 400/404 per §3.4.6 | `auth_files_fields.go` `PatchAuthFileStatus` |
 | B17 | Auth file field patch | PATCH `/v0/management/auth-files/fields` | 200 `{"status":"ok"}`; 400 `{"error":"name is required"}`, `{"error":"no fields to update"}`, `{"error":"weight must be an integer"}`, `{"error":"weight must not exceed 1000000"}`, `{"error":"weight does not support nested fields"}`, `{"error":"request_retry must be an integer or null"}`, `{"error":"request_retry does not support nested fields"}`, `{"error":"invalid request body"}`; 404 `{"error":"auth file not found"}`; 409 plugin-virtual | `auth_files_fields.go` `PatchAuthFileFields` |
@@ -303,11 +315,17 @@ Serialization = the effective `Config` with its JSON tags. MUST omit (`json:"-"`
 
 ### 3.3 Config persistence, secret-key mutation, management auth gate
 
-1. **Bcrypt-at-startup mutation (B21)** — MUST: on load, when `remote-management.secret-key` is non-empty and does not look like bcrypt (`$2a$`/`$2b$`/`$2y$` prefix), hash it (bcrypt default cost) and write the hash back into `config.yaml` via a comment/order-preserving scalar update (`remote-management.secret-key` path only). The plaintext remains the accepted key. Evidence: `config_load.go` (hash + persist), `config_validation.go`.
+1. **Bcrypt-at-startup mutation (B21)** — MUST: on load, when `remote-management.secret-key` is non-empty and does not look like bcrypt (`$2a$`/`$2b$`/`$2y$` prefix), hash it (bcrypt default cost) and write the hash back into `config.yaml` via a comment/order-preserving scalar update (`remote-management.secret-key` path only). The plaintext remains the accepted key. Recorded reality (S6-02): the write-back is surgical — after-boot file == before-boot except the secret-key line and one cosmetic blank line; comments and all other bytes preserved. Evidence: `config_load.go` (hash + persist), `config_validation.go`.
 2. **Mgmt mutation persistence (B4)** — every management write endpoint persists the full config through `SaveConfigPreserveComments`: comments and key order of existing keys are preserved; new keys are added only when non-zero and not a known default (`pprof.addr`, `remote-management.panel-github-repository`, `plugins.dir`, `routing.strategy`, `error-logs-max-files`=10 exceptions; `weight` explicit zero always kept); sequences merged element-wise keyed by identity fields (`id`, `name`, `alias`, `api-key`, …); legacy keys removed on save (`auth`, `openai-compatibility[].api-keys`, `amp*`, `generative-language-api-key`); `oauth-model-alias`/`oauth-request-scoped-errors`/`plugins.configs` pruned to generated keys (explicit empty map kept when user deleted the last channel); collection nodes rendered block-style; standalone comment lines de-indented. After persist, the change is hot-reloaded asynchronously. Evidence: `config_yaml.go`.
 3. **Management auth gate (§3.3.3 → B19)** — management routes are registered iff `remote-management.secret-key != ""` OR env `MANAGEMENT_PASSWORD` set OR a local (TUI) password exists. Otherwise every `/v0/management/*` request returns **404 with empty body** and the usage queue is disabled. The accepted key: `Authorization: Bearer <key>` or `X-Management-Key: <key>`; `MANAGEMENT_PASSWORD` env compared constant-time; local password accepted for loopback only; config secret compared as bcrypt hash. Failure shaping: no key → 401 `{"error":"missing management key"}`; wrong key → 401 `{"error":"invalid management key"}`; non-local without allow-remote → 403 `{"error":"remote management disabled"}`; secret unset → 403 `{"error":"remote management key not set"}`; 5 consecutive failures per client IP → 403 `{"error":"IP banned due to too many failed attempts. Try again in <duration>"}` for 30 min. Evidence: `handler.go` `Middleware`, `AuthenticateManagementKey`; `server.go`.
-4. **Hot reload (B22)** — MUST: watch `config.yaml`; debounce 150 ms; on the debounced event read the file; skip when empty or sha256 unchanged; on parse/validate error log and keep the old config; otherwise swap effective config, log `"config successfully reloaded, triggering client reload"`, re-synthesize credentials (auth-dir change → full rescan; `force-model-prefix`/`oauth-model-alias`/retry config change → forced auth refresh), apply usage toggles (`usage-statistics-enabled`, retention seconds) live. Persistence side effects of the load itself (bcrypt rewrite) re-trigger the watcher harmlessly (hash gate). Evidence: `watcher/config_reload.go`, `internal/api/server_reload.go`.
+4. **Hot reload (B22)** — MUST: watch `config.yaml`; debounce 150 ms; on the debounced event read the file; skip when empty or sha256 unchanged; on parse/validate error log (recorded: `failed to reload config: failed to parse config file: yaml: line 16: did not find expected key` — bonus probe `_cpa_edge_ref/run2/s6/probes/S6-15-reload-of-invalid-yaml/`) and keep the old config without crashing; otherwise swap effective config, log `"config successfully reloaded, triggering client reload"`, re-synthesize credentials (auth-dir change → full rescan; `force-model-prefix`/`oauth-model-alias`/retry config change → forced auth refresh), apply usage toggles (`usage-statistics-enabled`, retention seconds) live. Persistence side effects of the load itself (bcrypt rewrite) re-trigger the watcher harmlessly (hash gate). Evidence: `watcher/config_reload.go`, `internal/api/server_reload.go`.
 
+
+
+
+#### 3.3.6 OAuth session registry (storage mapping only — flow semantics are S3)
+
+Upstream keeps OAuth login sessions (state → session) in a process-local map with a TTL of 30 min for pending sessions (long enough to cover device-code flows: xAI ~30 m, Kimi ~15 m) and 1 min for completed ones, purging lazily on access; state strings are capped at 128 chars; a session carries `{provider, status, source: builtin|plugin, metadata?, completed, created_at, expires_at}` (evidence: `internal/api/handlers/management/oauth_sessions.go`). CPA-Edge MUST keep this registry in Store documents (`oauth-sessions` namespace, `update()` for state transitions) so multi-instance and serverless runtimes share login state — the designed divergence from the upstream in-memory map, registered here and in §7. Timed behavior (expiry purges, device-code poll execution) runs on the platform substrate that S7 §2.3-F5b/F5c mandates: Cloudflare Durable Object alarms; Node in-process timers.
 ### 3.4 Auth-file on-disk schema (recorded from container disk; auth dir default `/root/.cli-proxy-api` in the image)
 
 Loading rules (evidence `sdk/auth/filestore.go` `readAuthFiles`, `internal/watcher/synthesizer/file.go`): only non-directory `*.json` files (case-insensitive suffix); empty files skipped; JSON-parse failures skipped (warn); `type` field (string) lowercased+trimmed selects the provider; `type: "gemini"` is remapped to `gemini-cli` and then **skipped by built-in synthesis** (v7.3.4 handles Gemini OAuth through plugin providers); missing/empty `type` skipped. Auth ID = relative path under auth dir (lowercased on Windows).
@@ -343,7 +361,7 @@ Loading rules (evidence `sdk/auth/filestore.go` `readAuthFiles`, `internal/watch
 | `antigravity` | `access_token`, `refresh_token`, `expires_in` (int), `timestamp` (unix ms), `expired` (RFC3339), `email?`, `project_id?` | `management/auth_files_provider_oauth.go` `RequestAntigravityToken` |
 | `gemini` / `gemini-cli` | skipped by built-in synthesis (plugin territory) — MUST NOT register a credential | `synthesizer/file.go`, `filestore.go` |
 
-Writes: files created with mode 0600, parent dirs 0700 (`filestore.go` `Save`, token `SaveTokenToFile`); token-file write = JSON object with metadata flattened at top level (`internal/misc/credentials.go` `MergeMetadata`); a disabled credential whose source file was deleted is never recreated.
+Writes: files created with mode 0600, parent dirs 0700 (`filestore.go` `Save`, token `SaveTokenToFile`); token-file write = JSON object with metadata flattened at top level (`internal/misc/credentials.go` `MergeMetadata`); a disabled credential whose source file was deleted is never recreated. **Re-serialization rule (recorded, S6-10/S6-11)**: whenever the credential manager persists (upload registration, PATCH-fields, refresh), the whole metadata map is re-marshaled — single-line JSON, keys in Go map-marshal (alphabetical) order, `disabled` always materialized. The upload endpoint first writes the raw body, then the store save immediately rewrites it; downloads read the current disk file.
 
 #### 3.4.3 File naming conventions
 
@@ -373,7 +391,7 @@ When `save-cooldown-status: true`, one `<authfile-base>.cds` JSON file per auth 
 }
 ```
 
-Records sorted by model; stale `.cds` files for vanished auths are removed on save; missing dir = empty state. Evidence: `sdk/cliproxy/auth/cooldown_state.go` (`cooldownStateFile`, `stateRelativePath`, `NewFileCooldownStateStoreWithAuthDir(authDir, authDir)` from `sdk/cliproxy/service_auth.go`). **Restored cooldowns survive restart** (persisted runtime state). Scheduling effects are S4.
+Records sorted by model; stale `.cds` files for vanished auths are removed on save; missing dir = empty state. Evidence: `sdk/cliproxy/auth/cooldown_state.go` (`cooldownStateFile`, `stateRelativePath`, `NewFileCooldownStateStoreWithAuthDir(authDir, authDir)` from `sdk/cliproxy/service_auth.go`). **Restored cooldowns survive restart** (persisted runtime state — PROVEN by S6-16 step 8: after `docker restart`, the during-cooldown request still returns 503 `auth_unavailable` and the auth-files listing is unchanged). Recorded field values (S6-16): envelope `auth_id` keeps the raw separator form (`openai-compatibility:<name>:<hash12>`) while the file name sanitizes separators to `_`; `status` is `"cooling"` during a transient cooldown; `reason` = verbatim upstream error body; `last_error` = `{message, retryable, http_status}`; per-model records add the `model` key; a quota block with zero `next_recover_at`/`observed_at` (`0001-01-01T00:00:00Z`) is present when the quota struct is zero-valued. Downstream effect of an exhausted credential pool (recorded): HTTP **503** `{"error":{"message":"auth_unavailable: no auth available (providers=<provider>, model=<model>; last upstream error: <verbatim>)","type":"server_error","code":"internal_server_error"}}` — the `model_cooldown` error shape belongs to rate-limit cooldowns (S4 scope). Scheduling effects are S4.
 
 #### 3.4.5 Auth-file listing entry — GET /v0/management/auth-files (B12)
 
@@ -417,6 +435,8 @@ A usage record is produced once per provider request completion. Production is g
 
 Normalization rules (evidence `internal/redisqueue/plugin.go`): empty `model`/`provider`/`executor_type`/`auth_type` → `"unknown"`; empty `alias` → model; `failed` falls back to downstream status ≥ 400; `fail.status_code` = record status, else downstream status, else 500; non-failed ⇒ `fail = {200, ""}`; `fail.body` trimmed; `session_id`/`parent_session_id` normalized to canonical UUID (empty parent dropped); `service_tier` falls back `default`. `api_key` = the **client** API key used on the proxy. Evidence: `sdk/cliproxy/usage/manager.go` (`Record`), `usage/accounting.go` (`TokenBreakdown`, version 2).
 
+Recorded value semantics (fixture S6-05, byte-exact): `source` = the **upstream credential's API key** (recorded `"mock-upstream-key"`); `response_headers` = the **upstream** response headers (Go-canonical-cased keys); `provider` for openai-compat credentials = `openai-compatible-<name>`; `executor_type` = the executor class (recorded `"OpenAICompatExecutor"`); `auth_type` = `"apikey"` for config keys; `endpoint` = `"<METHOD> <path>"` of the client call; `auth_index` = 16-hex-char credential index; `service_tier` = `"auto"` on OpenAI-protocol requests (recorded), `default` via direct SDK callers. **Failed requests also enqueue records** (fixture S6-18, byte-exact): `failed:true`, zeroed token counts, `fail` carrying the upstream status and verbatim error body. `parent_session_id` is omitted when empty (`omitempty`).
+
 #### 3.5.2 Error events (ring `errors`)
 
 Emitted on failed executions when the queue is enabled (NOT gated by `usage-statistics-enabled`). Wire parity: the RESP `errors` channel delivers events **only to subscribers attached at emission time**; with no subscriber attached the event is dropped on the floor (upstream `EnqueueError` publishes without buffering). CPA-Edge MAY retain the same events in Store ring `errors` for observability, but `SUBSCRIBE errors` MUST NOT replay ring history. Payload:
@@ -438,7 +458,7 @@ Upstream in-memory FIFO with subscriber fan-out (evidence `internal/redisqueue/q
 - enqueue at request completion (payload = §3.5.1 record); empty payloads skipped.
 - **live-subscriber precedence**: when a RESP/SSE subscriber is attached, records are delivered to subscribers and NOT queued; pop endpoints only see records that arrived with no subscriber attached. (Upstream `publishToSubscribers` returns true and skips the buffer.)
 - pop is oldest-first and destructive (HTTP B5; RESP LPOP/RPOP). Missing/empty → empty result.
-- retention: records older than `redis-usage-queue-retention-seconds` (normalized §3.1.2) are dropped lazily at enqueue/pop. In the Store mapping the retention check runs in the consumer loop (claim → check `timestamp` → ack-drop or redeliver); at-least-once redelivery after lease takeover MUST be tolerated by sinks (idempotent inserts).
+- retention: records older than `redis-usage-queue-retention-seconds` (normalized §3.1.2) are dropped lazily at enqueue/pop. In the Store mapping the retention check runs in the consumer loop (claim → check `timestamp` → ack-drop or redeliver); at-least-once redelivery after lease takeover MUST be tolerated by sinks (idempotent inserts). The consumer loop is timed work: runtimes execute it on the substrate S7 §2.3-F5b/F5c mandates (Cloudflare Durable Object alarms; Node in-process timers).
 - subscriber buffer = 256 records; a full (slow) subscriber is dropped and closed (records continue to the queue).
 - `SubscribeUsage` immediately delivers `{"support_refresh":true}`; `NotifyUsageRefresh` publishes `{"refresh":true}`; `SubscribeErrors` has no initial payload. Not in Home mode (usage wire rejects with `-ERR redis usage output disabled in home mode`).
 
@@ -459,7 +479,7 @@ Upstream in-memory FIFO with subscriber fan-out (evidence `internal/redisqueue/q
 
 - Query: `cursor` (opaque), `after` (unix seconds cutoff), `limit` (positive int).
 - `logging-to-file: false` ⇒ 400 `{"error":"logging to file disabled"}` (MUST).
-- Cursor = base64url(RawURL, padded fallback) of `{"v":1,"file":"<name>","offset":<int>,"size":<int>,"modTime":<s>,"modTimeUnixNano":<int>?,"latestTimestamp":<unix s>,"fingerprint":"<base64url 12 bytes>"}`; fingerprint = base64url(sha256(`log-cursor-v1:<boundary>:` + first ≤4096 B + `:<tailStart>:` + last ≤4096 B)[0:12]); cursor validation: v==1, file allow-listed (main.log or rotated pattern, no path), non-negative offsets, non-empty fingerprint — invalid cursor ⇒ `cursor-reset: true` tail replay. Truncated/rotated-away files ⇒ cursor-reset. Response keys exactly: `lines` ([]string, empty array not null), `line-count` (int), `latest-timestamp` (unix s), `next-cursor` (string), plus `cursor-reset: true` only on reset paths. Timestamps parsed from line prefix `[YYYY-MM-DD HH:MM:SS` (local time). Log line ≤ 8 MiB; larger ⇒ 500.
+- Cursor = base64url(RawURL, padded fallback) of `{"v":1,"file":"<name>","offset":<int>,"size":<int>,"modTime":<s>,"modTimeUnixNano":<int>?,"latestTimestamp":<unix s>,"fingerprint":"<base64url 12 bytes>"}`; fingerprint = base64url(sha256(`log-cursor-v1:<boundary>:` + first ≤4096 B + `:<tailStart>:` + last ≤4096 B)[0:12]); cursor validation: v==1, file allow-listed (main.log or rotated pattern, no path), non-negative offsets, non-empty fingerprint — invalid cursor ⇒ `cursor-reset: true` tail replay. Truncated/rotated-away files ⇒ cursor-reset. Response keys exactly: `lines` ([]string, empty array not null), `line-count` (int), `latest-timestamp` (unix s), `next-cursor` (string), plus `cursor-reset: true` only on reset paths. Serialization order is alphabetical (map marshal; recorded S6-13: `{"latest-timestamp":…,"line-count":…,"lines":[…],"next-cursor":"…"}`). Timestamps parsed from line prefix `[YYYY-MM-DD HH:MM:SS` (local time). Log line ≤ 8 MiB; larger ⇒ 500.
 - Evidence: `management/logs.go` (cursor struct, `logFileFingerprint`, `parseTimestamp`, `writeLogsResponse`).
 
 #### 3.6.3 Ring mapping (`logs` ring) — CPA-Edge storage contract
@@ -476,6 +496,12 @@ Log line format (MUST for entries produced by CPA-Edge when file logs are on; re
 
 ```
 [YYYY-MM-DD HH:MM:SS] [<request_id or -------->] [<level %-5s, warning→warn>] [<file>:<line>] <message>[ field=value …]
+```
+
+Recorded example (S6-13):
+
+```
+[2026-09-16 01:24:48] [--------] [info ] [gin_logger.go:103] 200 |          74ms |      172.17.0.1 | GET     "/v0/management/logs"
 ```
 
 Evidence: `internal/logging/global_logger.go` `LogFormatter.Format`; quoted fields: credential/connection/proxy_scheme/remote_transport/media_session_id/call_id/peer/state/reason; field order: provider, model, plugin_id, plugin_name, source_id, version, … (logFieldOrder).
@@ -498,16 +524,18 @@ Per-client-IP failure counts and ban deadlines (5 failures → 30-min ban) are i
 
 ## 4. Streaming rules (usage wire — byte-exact contract)
 
+**Platform scope (S7 ruling, matrix row F8)**: the RESP usage protocol in this section is the **NODE-RUNTIME contract** — Node is EQUIVALENT (raw TCP listener + protocol multiplexing); Cloudflare and Vercel are DEGRADED: no raw TCP listener and NO substitute wire surface for the RESP channel. The HTTP usage endpoints (GET `/v0/management/usage-queue`, GET `/v0/management/api-key-usage`) remain cross-runtime with identical semantics per §3.5.
+
 Transport: the management TCP port multiplexes HTTP and RESP (first-byte dispatch: `*`, `$`, `+`, `-`, `:` ⇒ RESP). Evidence: `internal/api/mux_listener.go`, `protocol_multiplexer.go`, `redis_queue_protocol.go` (`isRedisRESPPrefix`).
 
 Command sequence (single connection, CRLF framing, RESP arrays of bulk strings):
 
 1. No AUTH yet + any command ⇒ `-NOAUTH Authentication required.\r\n` (or `-ERR IP banned due to too many failed attempts. Try again in <duration>` when banned). Home mode ⇒ `-ERR redis usage output disabled in home mode` and connection closes.
-2. `AUTH <password>` (or `AUTH <user> <password>`) ⇒ `+OK\r\n` on success; `-ERR invalid management key` / `-ERR missing management key` / `-ERR remote management disabled` / `-ERR remote management key not set` / `-ERR wrong number of arguments for 'auth' command` on failure.
+2. `AUTH <password>` (or `AUTH <user> <password>`) ⇒ `+OK\r\n` on success; `-ERR invalid management key` / `-ERR missing management key` / `-ERR remote management disabled` / `-ERR remote management key not set` / `-ERR wrong number of arguments for 'auth' command` on failure. Bulk strings must declare the true byte length (e.g. `oracle-mgmt-key-1` is 17 bytes ⇒ `$17`); a frame whose declared length does not match the payload bytes answers `-ERR protocol error\r\n` (recorded in S6-07 conn 2).
 3. `SUBSCRIBE usage` ⇒ `*3\r\n$9\r\nsubscribe\r\n$5\r\nusage\r\n:1\r\n` then immediately `*3\r\n$7\r\nmessage\r\n$5\r\nusage\r\n$21\r\n{"support_refresh":true}\r\n`. `SUBSCRIBE errors` ⇒ ack only (`…$6\r\nerrors\r\n:1\r\n`), no initial message. Unsupported channel ⇒ `-ERR unsupported channel '<name>'`.
 4. While subscribed: each queued/published record ⇒ `*3\r\n$7\r\nmessage\r\n$<ch-len>\r\n<channel>\r\n$<len>\r\n<payload>\r\n`. `PING [payload]` ⇒ `*2\r\n$4\r\npong\r\n$<len>\r\n<payload>\r\n` (empty payload ⇒ `$0\r\n\r\n`). `UNSUBSCRIBE` ⇒ `*3\r\n$11\r\nunsubscribe\r\n$<ch>\r\n:0\r\n` then close. `QUIT` ⇒ `+OK\r\n` then close. Unknown ⇒ `-ERR unknown command '<lowercased>'` and the stream continues.
-5. `LPOP usage <n>` / `RPOP usage <n>` ⇒ `*<k>\r\n` + k bulk strings (records oldest-first); `LPOP usage` (no count) ⇒ single bulk or `$-1\r\n` when empty; count ≤ 0 or unparsable ⇒ `-ERR value is not an integer or out of range`; `errors` channel ⇒ `-ERR unsupported channel 'errors'`; wrong arity ⇒ `-ERR wrong number of arguments for 'lpop' command`.
-6. Unknown top-level command ⇒ `-ERR unknown command '<lowercased>'`.
+5. `LPOP usage <n>` / `RPOP usage <n>` (counted form) ⇒ `*<k>\r\n` + k bulk strings (records oldest-first), and `*0\r\n` (empty array) when the queue is empty; `LPOP usage` (no count) ⇒ single bulk string or `$-1\r\n` when empty; count ≤ 0 or unparsable ⇒ `-ERR value is not an integer or out of range`; `errors` channel ⇒ `-ERR unsupported channel 'errors'`; wrong arity ⇒ `-ERR wrong number of arguments for 'lpop' command`.
+6. Unknown top-level command ⇒ `-ERR unknown command '<lowercased>'`. **`QUIT` is state-dependent** (recorded, S6-07 + S6-09): on a SUBSCRIBED connection it answers `+OK\r\n` and closes; on a merely AUTHed (non-subscribed) connection it is NOT a command — `-ERR unknown command 'quit'\r\n` (the connection stays usable); unauthenticated ⇒ NOAUTH first.
 
 Slow-subscriber rule: buffer 256; overflow ⇒ subscriber dropped/closed (§3.5.3). Errors channel receives only live-published events (§3.5.2).
 
@@ -548,10 +576,11 @@ Recorded by @oracle-runner-2 against `eceasy/cli-proxy-api:v7.3.4` (digest `sha2
 | `tests/fixtures/S6/S6-13-logs-enabled/` | GET/DELETE logs with file logging on (B7/B8, §3.6.2) |
 | `tests/fixtures/S6/S6-14-models-created-epoch/` | /v1/models created=server epoch + alias mapping (B26, §3.7.3) |
 | `tests/fixtures/S6/S6-15-hot-reload-provider/` | config file edit → live provider add (B22, §3.3.4) |
-| `tests/fixtures/S6/S6-16-cds-cooldown/` | save-cooldown-status .cds sidecar + cooldown error shape (B24, §3.4.4) |
+| `tests/fixtures/S6/S6-16-cds-cooldown/` | save-cooldown-status .cds sidecar, 503 `auth_unavailable` during cooldown, restart persistence re-check (B24, §3.4.4) |
+| `tests/fixtures/S6/S6-18-failed-usage-record/` | failed-request usage record: `failed:true`, zeroed tokens, `fail{status_code:500, body:verbatim}` (§3.5.1) |
 | — `S6-17-oauth-token-file-live-login` | **FIXTURE-DEFERRED** (CREDENTIALED-ONLY): real OAuth token-file bytes; schemas specified in §3.4.2/§3.4.3 |
 
-Case definitions: `spec/recordings/S6.cases.json` — 17 cases: 16 RECORDABLE-LOCALLY (S6-01…S6-16) + 1 FIXTURE-DEFERRED (S6-17, CREDENTIALED-ONLY: live OAuth token files — on-disk shapes specified from source in §3.4.2/§3.4.3, not recorded). Status: **pending recording** — this index is updated with actual fixture paths and counts once @oracle-runner-2 confirms the recordings.
+Case definitions: `spec/recordings/S6.cases.json` — 18 cases: 17 RECORDABLE-LOCALLY recorded in full (S6-01…S6-16, S6-18) + 1 FIXTURE-DEFERRED (S6-17, CREDENTIALED-ONLY: live OAuth token files — on-disk shapes specified from source in §3.4.2/§3.4.3, not recorded). Status: **RECORDED 17/17 by @oracle-runner-2** (2026-09-16, isolated stack: reference on 127.0.0.1:8387, mocks on 19999/200xx; port substitution masked per §4); S6-07 also carries a follow-up conn 4 (wrong-key AUTH with correct `$13` frame → `-ERR invalid management key`) and a bonus conn-2 malformed-frame segment (`-ERR protocol error`). Fixture layout per case: `meta.yaml`, `request[N].http` + `downstream[N].md` (numbered multi-step; `### <n>` sections), RESP cases carry byte-exact hex+ascii socket transcripts (client→server in `request.http`, server→client in `downstream.md`, numbered connections; HTTP steps inside RESP cases as `request-hN.http`/`request-hN.down.md`, seed requests as `request-seedN.*`), `upstream.jsonl` + `mock-response.json` for mock-driven cases, `disk/` for verbatim on-disk captures (paths relative to `disk/`, listed in `meta.yaml`). Recorded-vs-predicted corrections are folded into §2/§3/§4 above (AUTH `$17`, counted-pop `*0`, state-dependent QUIT, upload re-serialization, 503 `auth_unavailable` cooldown shape, surgical bcrypt write-back). Bonus probes: failed-request usage record was promoted to fixture S6-18; the invalid-YAML hot-reload keep-old-config transcript remains a sandbox probe (`_cpa_edge_ref/run2/s6/probes/S6-15-reload-of-invalid-yaml/`, cited in §3.3(4)), available for promotion on request.
 
 ---
 

@@ -11,7 +11,8 @@
     "Sequence cases (S7-02, S7-08, S7-13, S7-14, S7-15) must run in order on one container; S7-08 continues from S7-07 state.",
     "S7-13 additionally publishes container port 54545 (docker run -p 127.0.0.1:54545:54545).",
     "Fixture layout per reports/oracle/BOOTSTRAP.md RECIPES: meta.yaml / request.http / downstream.md / upstream.jsonl / mock-response.json; for multi-step cases use downstream-<step>.md.",
-    "Dynamic fields must be listed in meta.yaml dynamic_fields (state values, PKCE code_challenge in URLs, log line contents, latest-timestamp, next-cursor, Sec-WebSocket-Key/Accept, UnixNano states, container paths)."
+    "Dynamic fields must be listed in meta.yaml dynamic_fields (state values, PKCE code_challenge in URLs, log line contents, latest-timestamp, next-cursor, Sec-WebSocket-Key/Accept, UnixNano states, container paths).",
+    "Dynamic-fields hygiene (adversary N9): meta.yaml dynamic_fields must list every environment-dependent byte exhaustively (ports, timestamps, states, log contents, container paths)."
   ],
   "cases": [
     {
@@ -545,7 +546,7 @@
             "Authorization": "Bearer oracle-mgmt-key-1"
           },
           "body": "",
-          "expect": "200 {\"success\":true,\"message\":\"Logs cleared successfully\",\"removed\":<N>=number of rotated files removed; expect 0 on a fresh container>"
+          "expect": "200 with RECORDED byte order {\"message\":\"Logs cleared successfully\",\"removed\":N,\"success\":true} (N=0 on a fresh container; do not reorder keys)"
         },
         {
           "step": 5,
@@ -570,7 +571,8 @@
         }
       ],
       "record": [
-        "all exchanges; dynamic_fields: line contents, latest-timestamp, next-cursor"
+        "all exchanges; dynamic_fields: line contents, latest-timestamp, next-cursor",
+        "step 3 response key order as recorded: {\"latest-timestamp\":...,\"line-count\":N,\"lines\":[...]}"
       ],
       "mock_upstream_mode": "none",
       "config_setup": "run/config.yaml; RECORDED FACT: log files materialize under the AUTH DIR (<auth-dir>/logs/main.log, host: run3/run/auths/logs/), NOT next to config.yaml. Per-request error-*.log dumps appear there even while logging-to-file=false (separate feature, error-logs-max-files retention) — capture samples as aux artifacts.",

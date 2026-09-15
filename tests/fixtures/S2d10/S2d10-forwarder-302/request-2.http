@@ -1,0 +1,6 @@
+GET /oauth-callback?code=ac_test_code&state=0774b97f4bc86b56712694f514520a62 HTTP/1.1
+Host: 127.0.0.1:51121
+User-Agent: oracle-s3-probe/1.0
+Accept: */*
+Connection: close
+

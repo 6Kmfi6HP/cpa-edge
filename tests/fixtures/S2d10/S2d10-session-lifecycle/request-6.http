@@ -1,0 +1,6 @@
+GET /antigravity/callback?code=late&state=36c4c2e17892148caed9b6a3d67e4136 HTTP/1.1
+Host: 127.0.0.1:8387
+User-Agent: oracle-s3-probe/1.0
+Accept: */*
+Connection: close
+

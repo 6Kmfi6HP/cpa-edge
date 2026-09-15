@@ -71,6 +71,10 @@ Owner: @spec-writer (S7). Feeds SPEC §5 non-equivalence registry; every degrada
     `DELETE /plugins/:id` → `200 {"status":"deleted","id":...,"path":...,"file_deleted":bool,"configured_removed":bool,"restart_required":false}`,
     `GET /plugins/:id/config` for unknown id → `404 {"error":"plugin_not_found","message":"plugin not found"}`.
   - `GET /v0/management/plugin-store`, `POST /plugin-store/:id/install` — live registry fetch + binary download.
+  - Plugin quota routes (`GET/POST/DELETE /plugins/:id/quota`, `POST /plugins/:id/quota/reset`) exist
+    upstream but are NOT golden-covered by S7: no plugin binary can be loaded in any CPA-Edge runtime,
+    so quota providers never exist. Route shapes are deferred to S5; on every runtime they follow the
+    F2 degradation rules (config-only surface, no plugin state behind it).
 - Plugin-provided executors, auth providers, management routes, and command-line flags exist only when a binary loads.
 
 **F3 — File logging.**
@@ -91,7 +95,9 @@ Owner: @spec-writer (S7). Feeds SPEC §5 non-equivalence registry; every degrada
     If true: `200 {"lines":[...],"line-count":N,"latest-timestamp":<epoch>,"next-cursor":"<string>"}`
     (+ `"cursor-reset":true` after a cursor reset); supports `limit`, `after`, `cursor` query params.
   - `DELETE /v0/management/logs` → `400 {"error":"logging to file disabled"}` when off; when on
-    truncates `main.log` and removes rotated files → `200 {"success":true,"message":"Logs cleared successfully","removed":N}`.
+    truncates `main.log` and removes rotated files → `200` with recorded byte order
+    `{"message":"Logs cleared successfully","removed":N,"success":true}` (S7-10 step 4, 66 bytes at
+    N=0; key order as serialized — do not reorder).
 
 **F4 — Inbound WebSocket (`GET /v1/ws`).**
 - The route is always registered on the main engine (GET only), wrapped in a conditional API-key
@@ -142,7 +148,9 @@ Owner: @spec-writer (S7). Feeds SPEC §5 non-equivalence registry; every degrada
     Bind failure → `500 {"error":"failed to start callback server"}`.
   - Device flows (kimi/xai/meta) call the vendor device-authorization endpoint and return
     `200 {"status":"ok","url":...,"state":"<vendor-prefixed UnixNano>","flow":"device","user_code":...,"expires_in":N}` —
-    no inbound socket is involved. Evidence: `auth_files_provider_oauth.go` (`RequestXAIToken` etc.), `sdk/auth/{kimi,xai,meta}.go`.
+    no inbound socket is involved. This bullet is SOURCE-BASED (S7-16 is FIXTURE-DEFERRED; no golden
+    covers it). Evidence: `auth_files_provider_oauth.go` (`RequestXAIToken` etc.), `sdk/auth/{kimi,xai,meta}.go`.
+    Platform applicability and substrate requirements are §2.3-F5b.
 - OAuth session registry (all runtimes, pure HTTP):
   - `GET/POST /v0/management/oauth-callback` — registered OUTSIDE the management auth group (availability
     middleware only). Error ladder (`internal/api/handlers/management/oauth_callback.go`):
@@ -180,16 +188,24 @@ Owner: @spec-writer (S7). Feeds SPEC §5 non-equivalence registry; every degrada
 | F3 | File logging | **EQUIVALENT** | **EQUIVALENT** (DO-storage-backed, §2.3-F3) | **DEGRADED** → 501 when enabled |
 | F4 | Inbound WebSocket `/v1/ws` | **EQUIVALENT** | **EQUIVALENT** (DO hibernation) | **DEGRADED** → 501 after auth |
 | F5a | Redirect-flow auth-URLs + localhost forwarders | **EQUIVALENT** | **DEGRADED** → 501 | **DEGRADED** → 501 |
-| F5b | Device-flow auth-URLs (xai/meta/kimi) | **EQUIVALENT** | **EQUIVALENT** | **EQUIVALENT** |
-| F5c | Main-port OAuth callback routes + session registry | **EQUIVALENT** | **EQUIVALENT** | **EQUIVALENT** |
+| F5b | Device-flow auth-URLs (xai/meta/kimi) | **EQUIVALENT** | **EQUIVALENT** (conditional: §2.3-F5b substrate MUSTs) | **DEGRADED** → envelope-only, no completion (§2.3-F5b) |
+| F5c | Main-port OAuth callback routes + session registry | **EQUIVALENT** | **EQUIVALENT** (conditional: Store-backed registry, §2.3-F5c) | **DEGRADED** → error ladder upstream-shaped; sessions never complete (§2.3-F5c) |
 | F5d | CLI `--login` UX (browser open, user-code print, SSH hints) | out of HTTP contract (OPTIONAL) | **ABSENT** | **ABSENT** |
 | F6 | External file watching / hot-reload | **EQUIVALENT** | **DEGRADED** (management-writes-only) | **DEGRADED** (management-writes-only) |
+| F7 | TLS listener (`tls.enable/cert/key`) | **EQUIVALENT** | platform-terminated; config-accepted no-op | platform-terminated; config-accepted no-op |
+| F8 | Local Redis RESP usage output (TCP side-band) | **EQUIVALENT** (S6 §4 = node-runtime contract) | **DEGRADED** → no listener, no substitute wire (§2.3-F8) | **DEGRADED** → no listener, no substitute wire (§2.3-F8) |
 
 Adjacent Node-bound surfaces, classified once here for completeness (no goldens beyond what S1/S5 record):
 `pprof` debug server — ABSENT on every runtime (config key accepted, ignored); mDNS/DNS-SD `discovery`
-— ABSENT on every runtime (config key accepted, ignored); TUI mode — ABSENT; local Redis RESP usage
-output — ABSENT; keep-alive watchdog route `/keep-alive` — ABSENT (upstream itself only registers it in
-TUI mode; probe 16 recorded 404). Each of these is an INTENTIONAL-NON-EQUIVALENCE listed in §7.
+— ABSENT on every runtime (config key accepted, ignored); TUI mode — ABSENT; keep-alive watchdog route
+`/keep-alive` — ABSENT (upstream itself only registers it in TUI mode; probe 16 recorded 404); Home mode
+(`-home-jwt` cluster membership, `credential-concurrency` policies) — ABSENT on cloudflare/vercel (a
+serverless invocation cannot sustain Home membership; config keys accepted, ignored), out of HTTP contract
+on node; management control panel (GitHub asset download + on-disk `management.html`, requires a writable
+filesystem at first access) — ABSENT on cloudflare/vercel (route 404s exactly as if
+`remote-management.disable-control-panel: true` were set; config key accepted). Each of these is an
+INTENTIONAL-NON-EQUIVALENCE listed in §7. The local Redis RESP usage output is NOT in this list — it is
+feature F8 with its own matrix row and §2.3-F8 block.
 
 ### 2.3 Substitute behavior (exact observables)
 
@@ -206,6 +222,10 @@ TUI mode; probe 16 recorded 404). Each of these is an INTENTIONAL-NON-EQUIVALENC
    `400 model_not_found` even if proxied credentials exist for other models.
 5. Invalid proxy values (parse errors) behave as upstream on ALL runtimes: the request proceeds direct
    (log + fall-through); no 501. (Fail-closed only for explicit proxy URLs the runtime cannot honor.)
+6. OAuth token auto-refresh for proxy-credentialed credentials follows the same degradation: on
+   `proxyTransport: false` runtimes refresh attempts are NOT made through the configured proxy — the
+   credential is treated as excluded (§2.3-F1-3) and its refresh is skipped rather than silently sent
+   direct. Node behavior is unchanged (refresh through the configured transport).
 6. `POST /v0/management/api-call`: request `proxy_url` invalid → `400 {"error":"invalid proxy_url"}` (upstream);
    request/credential/global resolved mode `proxy` on a runtime without `proxyTransport` → 501 with the
    F1-501 management body (§5). On `proxyTransport: true` runtimes the upstream behavior applies
@@ -279,6 +299,68 @@ TUI mode; probe 16 recorded 404). Each of these is an INTENTIONAL-NON-EQUIVALENC
    their error ladders are the S7-11/S7-12 goldens. On serverless the device flows are the documented
    substitute for redirect flows (§7, NE-S7-05).
 
+**F5b — device-flow auth-URLs (substrate requirements).**
+Upstream runs each device flow with in-process state: the session registry is in memory and the
+device-code polling (`WaitForAuthorization`) runs in a goroutine that dies with the process
+(evidence: `internal/api/handlers/management/oauth_sessions.go` — in-memory session map,
+`oauthSessionTTL = 30 * time.Minute`; `sdk/auth/{kimi,xai,meta}.go` poll loops; recorded envelope:
+S7-16 source spec, deferred). A serverless invocation cannot keep either alive, so:
+1. The OAuth session registry MUST be Store-backed on every runtime (S6 owns the store mapping; S3
+   owns flow semantics). Session records carry provider, state, status, timestamps.
+2. Poll execution substrate: `runtimes/node` — in-process timers as upstream. `runtimes/cloudflare` —
+   DO alarms drive the device-code polling loop (the observable ladder is unchanged: sessions complete
+   with the same recorded transitions). `runtimes/vercel` — DEGRADED, pinned observables below.
+3. `runtimes/vercel` (DEGRADED) exact observable semantics: `GET /v0/management/{xai,meta,kimi}-auth-url`
+   returns the recorded 200 envelope (`status/url/state/flow:user_code/expires_in`) — the vendor
+   device-authorization request runs synchronously inside that invocation and the session is persisted
+   to the Store; the polling loop CANNOT run afterwards, so `GET /v0/management/get-auth-status?state=`
+   returns `{"status":"wait"}` for the session's remaining lifetime; at the 30-minute TTL the session
+   expires and reads return `{"status":"error","error":"unknown or expired state"}` (same ladder as
+   S7-12). Token exchange and persistence never happen on vercel; no other status value is emitted.
+4. S3 cross-ref: flow internals (vendor endpoints, poll intervals, user-code UX) are S3's; S7 pins only
+   the platform applicability and substitute observables above.
+
+**F5c — main-port callback routes + session registry (substrate requirements).**
+1. The callback routes themselves are plain HTTP on the main port and remain EQUIVALENT on every
+   runtime: fixed 200 HTML for anthropic/codex/antigravity, strict devin 400 ladder, wrong-method 404
+   per R-404 (S7-11 golden; Ruling R-S7-C).
+2. The session registry behind `oauth-callback`/`get-auth-status`/`oauth-session` MUST be Store-backed
+   on cloudflare/vercel (S6 store-mapping row); on node the upstream in-memory registry is fine.
+   With a Store-backed registry the error ladder is upstream-exact everywhere (S7-12 golden).
+3. Upstream's callback handoff between the redirect flows and the waiting flow uses a file under the
+   auth dir (`.oauth-<provider>-<state>.oauth`); on cloudflare this handoff goes through the Store, and
+   on vercel the redirect flows are already 501 (F5a) so the handoff path is unreachable — device
+   sessions there degrade per §2.3-F5b-3. Statuses: `wait` while pending, `unknown or expired state`
+   after TTL — no completion transitions occur on vercel.
+
+**F7 — TLS listener (`tls.enable/cert/key`).**
+Upstream wraps the single multiplexed listener in TLS when `tls.enable: true`, requires non-empty
+`tls.cert`/`tls.key` (else startup error `failed to start HTTPS server: tls.cert or tls.key is empty`),
+configures HTTP/2, and errors out of startup if the key pair fails to load
+(evidence: `internal/api/server.go` `useTLS` block; `config.example.yaml` `tls:` block). The same
+flag also selects the `https` scheme in the management callback URL builder
+(`auth_files_oauth_callback.go` `managementCallbackURL`).
+1. `runtimes/node`: EQUIVALENT — TLS listener with the same startup validation errors.
+2. `runtimes/cloudflare` / `runtimes/vercel`: TLS is terminated by the platform edge. The `tls` config
+   block is accepted (parsed, persisted, echoed) and is a NO-OP: no application-bound TLS listener
+   exists. The config-driven callback-URL scheme rule stays uniform (scheme is `https` iff
+   `tls.enable: true`) so one rule governs all runtimes; no 501 exists for this feature.
+3. Cross-ref: the listener also carries the RESP usage multiplexing (F8) on node — TLS and RESP
+   compose as in S6 §4.
+
+**F8 — local Redis RESP usage output.**
+The management TCP port multiplexes HTTP and RESP (first-byte dispatch; byte-exact command sequence
+recorded in S6 §4 with goldens S6-07/08/09; evidence: `internal/api/mux_listener.go`,
+`protocol_multiplexer.go`, `redis_queue_protocol.go`). Classification:
+1. `runtimes/node`: EQUIVALENT. S6 §4 is hereby the NODE-RUNTIME contract for this feature (the S6
+   writer rescopes §4 accordingly); raw-listener dispatch is implementable in `runtimes/node`.
+2. `runtimes/cloudflare` / `runtimes/vercel`: DEGRADED — no raw TCP listener can exist, so the RESP
+   side-band has NO substitute wire surface (there is no HTTP fallback for a TCP protocol). Exact
+   substitute observables: the config keys `usage-statistics-enabled` and
+   `redis-usage-queue-retention-seconds` are accepted and echoed; no RESP listener is bound; the
+   in-memory usage queue that feeds `/v0/management/usage-queue` keeps its S6 semantics. No 501
+   exists for this feature (there is no route to return one on).
+
 **F6 — file watching.**
 1. Management-driven updates are EQUIVALENT on every runtime: a config write through
    `/v0/management/*` applies immediately to subsequent requests (no restart), and the S7-02/S7-09/S7-10
@@ -301,6 +383,9 @@ TUI mode; probe 16 recorded 404). Each of these is an INTENTIONAL-NON-EQUIVALENC
   inherited hazard: the deployment guide (D1) MUST warn that serverless deployments are public by
   default and that omitting `api-keys` (and `remote-management.secret-key`) exposes an open proxy.
   No golden is added here (S1/S3 own the auth fixtures); S7 records the ruling only.
+  Related (S5 §8.3 conflict): config-echo endpoints return values AS STORED, mirroring upstream
+  (e.g. the startup-mutated bcrypt `secret-key`) — S7 introduces no masking non-equivalence; the D1
+  deploy guide carries the security warning instead.
   CONFIRMED by orchestrator (2026-09-16): stands on all runtimes; D1 must carry a prominent security
   warning plus "how to close the gateway" instructions; D2's final report lists it for visibility.
 - **Ruling R-S7-B (S3 O-4: OAuth login flows bind loopback callback servers).**
@@ -314,6 +399,14 @@ TUI mode; probe 16 recorded 404). Each of these is an INTENTIONAL-NON-EQUIVALENC
   capability to serve them. Recorded in S7-11 (fixed 200 HTML body byte-for-byte; devin 400 ladder
   `code or error is required` / `invalid or expired OAuth callback`); no runtime deviation exists to
   declare.
+
+- **Note N7 (operator-local clients, R-S7-A style).** Upstream assumes operator-local clients reach
+  the gateway at `localhost:<port>`: the CLI login flows (F5d), the AIStudio browser-bridge WebSocket
+  client (F4), and the localhost redirect URIs (F5a). Platform applicability is explicit and follows
+  the corresponding rows: node — all reachable as configured; cloudflare — the WebSocket bridge yes
+  (public URL), localhost-redirect flows no (F5a DEGRADED); vercel — none beyond plain HTTP clients.
+  This is a deployment-topology statement, not a new behavior; D1 must state which client interactions
+  survive on each runtime.
 
 ## 3. Schemas
 
@@ -383,8 +476,9 @@ Management routes (`{"error": "<string>"}` management style):
 
 All 501 responses: `Content-Type: application/json; charset=utf-8`, the standard CORS header block
 present (added by the response middleware, same as all middleware-handled responses — the S1-recorded
-exception is redirects, which are a different mechanism and do not apply here), no extra headers, body
-is a single compact JSON line + `\n`.
+exception is redirects, which are a different mechanism and do not apply here), no extra headers, body is a single compact JSON object with NO trailing newline
+(byte-consistency with the gin JSON family — S7-01 recorded `{"error":"Missing API key"}` at exactly
+27 bytes, no `\n`).
 
 ### 3.3 Error body → trigger mapping
 
@@ -454,13 +548,13 @@ Case definitions: `spec/recordings/S7.cases.json`. Raw `-v` transcripts: `_cpa_e
 | S7-07 | F2+F6 | external config edit: plugins block live-reloads; list shows `configured:true, registered:false, effective_enabled:false` | tests/fixtures/S7/S7-07/ | 6 |
 | S7-08 | F2 | plugin ops: PATCH enabled, GET/PUT config echo, list, DELETE `{status:deleted, file_deleted:false, path:"", configured_removed:true}`, unknown id → 404 `plugin_not_found`; final config snapshot kept | tests/fixtures/S7/S7-08/ | 14 |
 | S7-09 | F3 | logs GET/DELETE → `400 {"error":"logging to file disabled"}`; size-key PUT/GET echo | tests/fixtures/S7/S7-09/ | 11 |
-| S7-10 | F3 | enabled: `{"lines":[...],"line-count":N,"latest-timestamp":N,"next-cursor":...}`; DELETE `{"success":true,"message":"Logs cleared successfully","removed":0}`; restore → 400 again; log files under `<auth-dir>/logs/`, error dumps present while disabled | tests/fixtures/S7/S7-10/ | 11 |
+| S7-10 | F3 | enabled: `{"latest-timestamp":...,"line-count":N,"lines":[...]}` (recorded key order); DELETE → `{"message":"Logs cleared successfully","removed":0,"success":true}` (recorded byte order); restore → 400 again; log files under `<auth-dir>/logs/`, error dumps present while disabled | tests/fixtures/S7/S7-10/ | 11 |
 | S7-11 | F5c | callback routes: anthropic/codex/antigravity 200 fixed HTML (byte-exact), devin 400 ladder, POST → 404 empty | tests/fixtures/S7/S7-11/ | 12 |
 | S7-12 | F5c | oauth-callback GET/POST error ladder (no mgmt auth on that route), get-auth-status: without key → 401 `missing management key`, with key → ok/error-ladder, oauth-session DELETE ladder | tests/fixtures/S7/S7-12/ | 16 |
 | S7-13 | F5a | anthropic-auth-url?is_webui=1 → 200 `{status,url,state}`; forwarder 54545 → `302` + `Cache-Control: no-store` + `Location: http://127.0.0.1:<server-port>/anthropic/callback?...` (no CORS — raw Go server); get-auth-status `wait`; DELETE session `cancelled:true` | tests/fixtures/S7/S7-13/ | 9 |
 | S7-14 | F6 | external api-keys edit: hot-added key serves GET /v1/models 200 (wired-template model list), removed key → 401 Invalid; live both directions; watcher log lines captured | tests/fixtures/S7/S7-14/ | 9 |
 | S7-15 | F6 | fake kimi JSON hot-registered (auth-files entry, oauth account type) and hot-removed on delete; `auth file changed (CREATE/REMOVE)` log lines | tests/fixtures/S7/S7-15/ | 8 |
-| S7-16 | F5b | device-flow auth-url envelopes (xai/meta/kimi) — NOT recorded | — | 0 |
+| S7-16 | F5b | device-flow auth-url envelopes (xai/meta/kimi) — NOT recorded; F5b behavior claims in this section are source-based, golden coverage deferred (see §7) | — | 0 |
 
 Recording-session notes (for the contract layer):
 - Port adaptations on the recording stack (8397/20999/24545 vs the bootstrap's 18317/18999) are listed
@@ -471,6 +565,10 @@ Recording-session notes (for the contract layer):
 - S7-14's `/v1/models` body content is environment-specific (the recording template wires 8 providers);
   the S7 claim is only "the hot-added key authenticates" — model-list content belongs to S1/S2 sections.
 - S7-15's fixture retains the fake auth file (`fake-auth-file.json`) as the input artifact.
+- Dynamic-fields hygiene (future recordings): `meta.yaml` `dynamic_fields` MUST list every
+  environment-dependent byte exhaustively — ports, hostnames, timestamps, state/code_challenge values,
+  UnixNano states, log line contents, container paths — so the contract layer can mask without
+  guessing; the S7 recordings set this standard for later sections.
 
 ## 7. Intentional non-equivalences & open questions
 
@@ -501,9 +599,22 @@ Intentional non-equivalences (to be appended to SPEC §5 registry by the orchest
   watching is EQUIVALENT (S7-14/S7-15).
 - **NE-S7-07 (F4, vercel).** `/v1/ws` cannot accept upgrades; 501 `websocket_unavailable` after the
   upstream-identical auth gate (§3.2).
-- **NE-S7-08 (adjacent, all runtimes).** pprof server, mDNS/DNS-SD discovery, TUI, local Redis RESP
-  usage output, and the `/keep-alive` watchdog route are ABSENT; their config keys are accepted and
-  ignored (no route, no listener). `/keep-alive` returns 404 identical to upstream's non-TUI mode.
+- **NE-S7-08 (adjacent).** pprof server, mDNS/DNS-SD discovery, TUI, and the `/keep-alive` watchdog
+  route are ABSENT on every runtime (config keys accepted, ignored; `/keep-alive` returns 404 identical
+  to upstream's non-TUI mode). Home mode (`-home-jwt` cluster membership) and the management control
+  panel (GitHub-asset bootstrap to a writable disk) are ABSENT on cloudflare/vercel — the panel route
+  404s exactly as if `disable-control-panel: true` were set — and out of HTTP contract on node.
+
+- **NE-S7-09 (F7, cloudflare+vercel).** TLS is terminated by the platform edge; the upstream
+  application-level TLS listener (`tls.enable/cert/key`, HTTP/2 via the wrapped mux listener) does not
+  exist. Substitute: the `tls` config block is accepted and echoed but is a no-op; the config-driven
+  callback-URL scheme rule (https iff `tls.enable: true`) stays uniform; no 501 (no route involved).
+  On node the listener is EQUIVALENT, including the startup validation errors.
+- **NE-S7-10 (F8, cloudflare+vercel).** The local Redis RESP usage output (raw TCP side-band on the
+  management port) cannot exist without a raw listener; there is no substitute wire surface. Config
+  keys `usage-statistics-enabled` / `redis-usage-queue-retention-seconds` are accepted; the usage
+  queue behind `/v0/management/usage-queue` keeps S6 semantics. S6 §4 is the node-runtime contract
+  for this feature (rescoped by the S6 writer per the B2 ruling).
 
 Open questions:
 - **OQ-S7-01 — DECIDED (orchestrator 2026-09-16).** T3 ships with vercel `inboundWebSocket: false`;

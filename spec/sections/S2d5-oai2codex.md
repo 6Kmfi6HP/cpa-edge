@@ -66,15 +66,16 @@ MUST:
 
 The translator builds the body in a FIXED field order (sjson append semantics; evidence: `internal/translator/codex/openai/chat-completions/codex_openai_request.go`, then executor mutations in `codex_executor_execute.go` / `codex_executor_stream.go`). Canonical order:
 
-`instructions, stream, reasoning, parallel_tool_calls, include, model, input, [text], [tools], [tool_choice], store, [tools entries appended by image-gen injection], [prompt_cache_key]`
+`instructions, stream, [reasoning — see below], parallel_tool_calls, include, model, input, [text], [tools], [tool_choice], store, [prompt_cache_key]`
+
+Position notes (all [RECORDED]): when the client sends no `tools`, the injected image-generation tool CREATES the `tools` key AFTER `store` (recorded order: `…, input, store, tools, prompt_cache_key`); when the client sends tools, the injected tool is appended INSIDE the array as the LAST element and the `tools` key keeps its translator position (before `tool_choice`/`store`; recorded order: `…, input, tools, tool_choice, store, prompt_cache_key`).
 
 MUST rules, field by field:
 - `instructions`: ALWAYS `""` (system messages do NOT populate it; evidence: translator template `{"instructions":""}` and the commented-out extraction; `normalizeCodexInstructions` only guarantees presence).
 - `stream`: ALWAYS `true` upstream, regardless of the client `stream` flag [RECORDED]. The non-stream executor path forces it after translation; the stream path translates with `stream=true`.
-- `reasoning`: object.
-  - `reasoning.effort`: client `reasoning_effort` VERBATIM when present (no validation/normalization for user-defined codex-api-key models — arbitrary strings pass through); `"medium"` when absent. Empty string passes through as `""`.
-  - `reasoning.summary`: `"auto"` is INJECTED when the client `reasoning_effort` is present, non-empty and not `"none"` (evidence: `internal/thinking/summary.go` openai extraction + codex application). When `reasoning_effort` is `"none"` the summary key is ABSENT (deleted; and the `reasoning` object is dropped entirely only if it would be empty). When `reasoning_effort` is absent, no `summary` key.
-  - Model-name thinking suffixes (e.g. `gpt-5-codex(high)`) are OPTIONAL (config-dependent).
+- `reasoning`: **[RECORDED] ABSENT from the upstream body in every recorded case** — the client's `reasoning_effort` (including explicit `high`/`none`) does NOT reach the codex upstream when the resolved model has NO thinking capability. This is the DEFAULT for codex-api-key models declared in config `models[]` whose name is not a known catalog model and whose entry has no `thinking` support: the capability resolver marks API-key models `UserDefined=false` with `Thinking=nil` (`sdk/cliproxy/auth/api_key_model_capabilities.go` `addConfiguredModelCapability` + `internal/modelconfig/model_info.go` `ResolveModelInfo`), and the thinking pipeline then strips the whole `reasoning` object via `StripThinkingConfig` (`internal/thinking/apply.go` modelInfo.Thinking==nil branch → `internal/thinking/strip.go` case `codex`). Goldens S2D5-01/02/04/05/09 pin the strip.
+  - Internal two-phase construction (before the strip): the translator always sets `reasoning.effort` = client `reasoning_effort` verbatim (`"medium"` when absent, `""` when empty), and the summary pipeline adds `reasoning.summary:"auto"` for non-empty non-`"none"` efforts (evidence: translator + `internal/thinking/summary.go`). This phase is client-invisible for capability-less models — it matters only when the model HAS thinking capability.
+  - Capability-ON variant (model name matches the catalog, e.g. `gpt-5-codex`, or the models[] entry declares `thinking` support): `reasoning.effort` passes through as above (source-derived; NOT pinned by S2d5 goldens — the mock model has no capability). Model-name thinking suffixes (e.g. `gpt-5-codex(high)`) are OPTIONAL (config-dependent).
 - `parallel_tool_calls`: ALWAYS `true` after translation. It is REMOVED only when the final `tools` array is empty — with default config that never happens because image-generation is injected (below). Evidence: `normalizeCodexParallelToolCalls`.
 - `include`: ALWAYS `["reasoning.encrypted_content"]`. [RECORDED]
 - `model`: the RESOLVED upstream model name.
@@ -277,12 +278,12 @@ All 24 fixtures are RECORDED under `tests/fixtures/S2d5/<case-id>/` in the RECIP
 | S2D5-01-nonstream-basic-aggregation | always-SSE upstream + aggregation; upstream body canonical order; chat.completion bytes | happy (canned) |
 | S2D5-02-stream-basic | chunk template/order; delta mapping; terminal chunk + usage; [DONE] | happy (canned) |
 | S2D5-03-system-developer-multimodal | system→developer; multimodal parts (input_text/input_image/input_file); instructions stays "" | happy (canned) |
-| S2D5-04-reasoning-effort-high | reasoning.effort passthrough + reasoning.summary:"auto" injection | happy (canned) |
-| S2D5-05-reasoning-effort-none | effort "none" verbatim; summary key absent | happy (canned) |
+| S2D5-04-reasoning-effort-high | [RECORDED] `reasoning_effort:"high"` produces NO `reasoning` object upstream (capability-less model strip) | happy (canned) |
+| S2D5-05-reasoning-effort-none | [RECORDED] `reasoning_effort:"none"` produces NO `reasoning` object upstream (same strip) | happy (canned) |
 | S2D5-06-tools-history | tools flatten (strict:false default); input items function_call/function_call_output; tool_choice mapping; image-gen tool appended last | happy (canned) |
 | S2D5-07-stream-toolcall | announcement/args-delta/terminal chunks; name shortening + restoration; finish tool_calls | script `s2d5-toolcall` |
 | S2D5-08-nonstream-toolcall | aggregated message.tool_calls; restored long name; custom input-as-arguments | script `s2d5-toolcall` |
-| S2D5-09-stream-reasoning-deltas | reasoning_content deltas + "\n\n" separator chunk | script `s2d5-reasoning` |
+| S2D5-09-stream-reasoning-deltas | downstream reasoning_content deltas + "\n\n" separator chunk; upstream reasoning object stripped (client sent reasoning_effort:"low") | script `s2d5-reasoning` |
 | S2D5-10-nonstream-reasoning-item | message.reasoning_content from summary/content | script `s2d5-reasoning` |
 | S2D5-11-stream-incomplete-length | finish length + native max_output_tokens + usage on incomplete | script `s2d5-incomplete-length` |
 | S2D5-12-nonstream-empty-output-patch | output patch from output_item.done when completed output is empty | script `s2d5-empty-output-patch` |
@@ -307,7 +308,7 @@ FIXTURE-DEFERRED (CREDENTIALED-ONLY, R-FIXTURE): default chatgpt.com base URL be
 
 1. **Session UUID derivation** — the derivation chain (caller-scope SHA-256 + canonical message-content hash → FNV-64 `msg:` identity → SHA-1 UUID v5) is complex and version-sensitive. CPA-Edge MUST satisfy the observable contract (§2.9) but MAY pick a different derivation algorithm; exact-UUID mirroring is OPTIONAL. Contract tests mask the value.
 2. **In-stream error type mapping for 408** — the codex incomplete-stream error surfaces with `"type":"invalid_request_error"` and NO `code` (status <500 falls through the default branch). This looks odd but is recorded-verified behavior; flagged as a possible upstream bug we mirror intentionally.
-3. **`reasoning.summary` injection** — an OpenAI-chat `reasoning_effort` (any non-empty value except `none`) silently enables Responses summaries (`summary:"auto"`). Mirrored as MUST because it is upstream-visible in every golden with an effort.
+3. **[RECORDED — supersedes the pre-recording draft]** `reasoning_effort` is NOT forwarded to codex-api-key upstreams by default: the whole `reasoning` object is stripped for models without thinking capability (§2.3). The effort-passthrough + `summary:"auto"` mapping is the capability-ON variant, specified from source only; if a future recording uses a capability-bearing model name, pin it there. CPA-Edge MUST mirror the strip for capability-less models (client-visible: upstream wire has no reasoning key; goldens S2D5-04/05 prove the client's effort value is dropped silently).
 4. **Ignored sampling params** — `temperature`, `top_p`, `max_tokens` etc. are silently dropped (not forwarded, not rejected). Mirrored as MUST (drop) — clients get no error.
 5. **Image-generation tool injection** — every request (default config) silently gains `{"type":"image_generation","output_format":"png"}` in `tools`. Mirrored as MUST.
 6. **assistant multimodal** — image/file/audio parts in assistant messages are dropped (only text survives as `output_text`); user-role-only conversions. Mirrored as MUST.
@@ -321,3 +322,4 @@ FIXTURE-DEFERRED (CREDENTIALED-ONLY, R-FIXTURE): default chatgpt.com base URL be
 14. **[RECORDED] `last_upstream_error` carries the VERBATIM upstream body** for codex 429s (mock `json.dumps` spacing preserved inside the JSON string), because the upstream-summary heuristic strips at the first `": {"`, leaves a dangling `}` and therefore fails its own validity check, falling back to the sanitized raw text. The message field embeds the same verbatim body in its `(last error: …)` suffix. The summary form (`code: message`) seen on other providers does not occur on this path. Do NOT "improve" this without registering a non-equivalence.
 15. **[RECORDED] The cooldown response (R2 in S2D5-24) carries NO `X-Cpa-Trace-Id` header** while the triggering 429 (R1) does. Recorded as-is; contract tests must tolerate the absence on this response.
 16. Error bodies forwarded verbatim (E1, E3, E4, S2D5-15/16/18/19) preserve the mock's `json.dumps` byte spacing (`{"error": {"message": …}}` with spaces). Byte-diff tooling must compare against the recorded bytes, not re-serialized JSON.
+17. **[RECORDED] Recording-vs-source lesson:** the pre-recording draft of §2.3 claimed `reasoning.effort` always reaches the upstream (translator default `"medium"`); the fixtures proved the capability-gated strip instead. The earlier `_cpa_edge_ref/probes/mocks/codex/upstream.jsonl` wire log already showed no `reasoning` key and should have been treated as decisive — recorded wire beats static reading (SPEC.md §0 precedence). Future S2 sections: derive request-body claims from recorded wire logs FIRST.

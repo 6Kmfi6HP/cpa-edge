@@ -42,3 +42,14 @@ literal (escaped):
 ```
 *2\r\n$4\r\nAUTH\r\n$17\r\noracle-mgmt-key-1\r\n*3\r\n$4\r\nLPOP\r\n$5\r\nusage\r\n$2\r\n10\r\n*2\r\n$4\r\nLPOP\r\n$5\r\nusage\r\n*3\r\n$4\r\nRPOP\r\n$5\r\nusage\r\n$1\r\n1\r\n*3\r\n$4\r\nLPOP\r\n$6\r\nerrors\r\n$1\r\n1\r\n*1\r\n$3\r\nFOO\r\n*1\r\n$4\r\nQUIT\r\n
 ```
+
+## conn 4 — follow-up (corrected $13 frame for wrong-key-123; spec-s6-state re-record) — 34 bytes sent
+```
+00000000  2a 32 0d 0a 24 34 0d 0a 41 55 54 48 0d 0a 24 31  |*2..$4..AUTH..$1|
+00000010  33 0d 0a 77 72 6f 6e 67 2d 6b 65 79 2d 31 32 33  |3..wrong-key-123|
+00000020  0d 0a                                            |..|
+```
+literal (escaped):
+```
+*2\r\n$4\r\nAUTH\r\n$13\r\nwrong-key-123\r\n
+```

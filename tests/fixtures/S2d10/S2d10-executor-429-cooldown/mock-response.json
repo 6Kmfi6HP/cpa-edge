@@ -1,0 +1,21 @@
+{
+ "mode": "error",
+ "status": 429,
+ "error_body": {
+  "error": {
+   "code": 429,
+   "message": "mock resource exhausted",
+   "status": "RESOURCE_EXHAUSTED",
+   "details": [
+    {
+     "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+     "reason": "RATE_LIMIT_EXCEEDED"
+    },
+    {
+     "@type": "type.googleapis.com/google.rpc.RetryInfo",
+     "retryDelay": "30s"
+    }
+   ]
+  }
+ }
+}

@@ -1,0 +1,8 @@
+{
+ "mode": "happy (SSE)",
+ "chunks": [
+  "non-terminal + usageMetadata",
+  "non-terminal + usageMetadata",
+  "terminal finishReason STOP + usageMetadata"
+ ]
+}
