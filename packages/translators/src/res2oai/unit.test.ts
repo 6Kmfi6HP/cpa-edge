@@ -544,3 +544,355 @@ describe('S2d6 EnsureResponsesUsageDetails (§2.4/§3.3/§3.5)', () => {
     expect(ensureResponsesUsageDetails('{"usage":"not an object"}')).toBe('{"usage":"not an object"}')
   })
 })
+
+
+// ---------------------------------------------------------------------------
+// R4: stream translation
+// ---------------------------------------------------------------------------
+
+describe('S2d6 stream state machine (§3.4/§4)', () => {
+  it('starts on the first choices-carrying chunk (empty choices accepted) and echoes the alias', async () => {
+    const out = await collectFrames([`data: ${usageChunk()}\n\n`, 'data: [DONE]\n\n'], streamContext())
+    expect(out).toContain(
+      '"response":{"id":"chatcmpl-x","object":"response","created_at":1770000000,"status":"in_progress","background":false,"error":null,"output":[],"model":"mock-model"}',
+    )
+    expect(out).toContain('"output":[],"model":"mock-model"}')
+  })
+
+  it('falls back to the resolved model when the alias is empty', async () => {
+    const out = await collectFrames([`data: ${chunk({ role: 'assistant' })}\n\n`, 'data: [DONE]\n\n'], streamContext({ requestedModel: '' }))
+    expect(out).toContain('"model":"mock-gpt-model"')
+  })
+
+  it('drops chunks without a choices array and foreign object types, but still captures usage', async () => {
+    const out = await collectFrames(
+      [
+        `data: ${chunk({ role: 'assistant' })}\n\n`,
+        'data: {"id":"x","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant"},"finish_reason":"stop"}]}\n\n',
+        'data: {"object":"other"}\n\n',
+        `data: ${usageChunk()}\n\n`,
+        'data: [DONE]\n\n',
+      ],
+      streamContext(),
+    )
+    expect(out).toContain('"sequence_number":5,"response"')
+    expect(out).toContain('"usage":{"input_tokens":9,"input_tokens_details":{"cached_tokens":0},"output_tokens":6,"total_tokens":15,"output_tokens_details":{"reasoning_tokens":0}}')
+  })
+
+  it('writes reasoning tokens before total when the upstream reports them (§3.5)', async () => {
+    const usage = JSON.stringify({
+      id: 'chatcmpl-x',
+      object: 'chat.completion.chunk',
+      created: 1770000000,
+      choices: [],
+      usage: { prompt_tokens: 9, completion_tokens: 6, total_tokens: 15, output_tokens_details: { reasoning_tokens: 4 } },
+    })
+    const out = await collectFrames([`data: ${chunk({ role: 'assistant' })}\n\n`, `data: ${chunk({}, 'stop')}\n\n`, `data: ${usage}\n\n`, 'data: [DONE]\n\n'], streamContext())
+    expect(out).toContain('"usage":{"input_tokens":9,"input_tokens_details":{"cached_tokens":0},"output_tokens":6,"output_tokens_details":{"reasoning_tokens":4},"total_tokens":15}')
+  })
+
+  it('derives total from input+output when the upstream total is 0', async () => {
+    const usage = JSON.stringify({
+      id: 'chatcmpl-x',
+      object: 'chat.completion.chunk',
+      created: 1770000000,
+      choices: [],
+      usage: { prompt_tokens: 9, completion_tokens: 6, total_tokens: 0 },
+    })
+    const out = await collectFrames([`data: ${chunk({ role: 'assistant' })}\n\n`, `data: ${chunk({}, 'stop')}\n\n`, `data: ${usage}\n\n`, 'data: [DONE]\n\n'], streamContext())
+    expect(out).toContain('"total_tokens":15')
+  })
+
+  it('emits the reasoning done-set with the pinned key order before the message item', async () => {
+    const out = await collectFrames(
+      [
+        `data: ${chunk({ role: 'assistant' })}\n\n`,
+        `data: ${chunk({ reasoning_content: 'P' })}\n\n`,
+        `data: ${chunk({ content: 'A' })}\n\n`,
+        `data: ${chunk({}, 'stop')}\n\n`,
+        'data: [DONE]\n\n',
+      ],
+      streamContext(),
+    )
+    expect(out).toContain('"event":"response.output_item.done"' + '\ndata: {"type":"response.output_item.done","item":{"id":"rs_chatcmpl-x_0","type":"reasoning","encrypted_content":"","summary":[{"type":"summary_text","text":"P"}]},"output_index":0,"sequence_number":7}')
+    expect(out).toContain('"output_index":1,"item":{"id":"msg_chatcmpl-x_0"')
+  })
+
+  it('buffers tool fragments, emits added before deltas, and closes at finish', async () => {
+    const out = await collectFrames(
+      [
+        `data: ${chunk({ tool_calls: [{ index: 0, id: 'c1', type: 'function', function: { name: 't', arguments: '' } }] })}\n\n`,
+        `data: ${chunk({ tool_calls: [{ index: 0, function: { arguments: '{"a"' } }] })}\n\n`,
+        `data: ${chunk({}, 'tool_calls')}\n\n`,
+        'data: [DONE]\n\n',
+      ],
+      streamContext({ tools: [{ chatName: 't', originalName: 't', custom: false }] }),
+    )
+    expect(out).toContain('"item":{"id":"fc_c1","type":"function_call","status":"in_progress","arguments":"","call_id":"c1","name":"t"}')
+    expect(out).toContain('"delta":"{\\"a\\""')
+    expect(out).toContain('"arguments":"{\\"a\\""')
+    expect(out).toContain('"item":{"id":"fc_c1","type":"function_call","status":"completed","arguments":"{\\"a\\"","call_id":"c1","name":"t"}')
+  })
+
+  it('gives custom tool calls no argument deltas and unwraps input at done', async () => {
+    const out = await collectFrames(
+      [
+        `data: ${chunk({ tool_calls: [{ index: 0, id: 'c1', type: 'function', function: { name: 'p', arguments: '{"inp' } }] })}\n\n`,
+        `data: ${chunk({ tool_calls: [{ index: 0, function: { arguments: 'ut":"v"}' } }] })}\n\n`,
+        `data: ${chunk({}, 'tool_calls')}\n\n`,
+        'data: [DONE]\n\n',
+      ],
+      streamContext({ tools: [{ chatName: 'p', originalName: 'p', custom: true }] }),
+    )
+    expect(out).not.toContain('function_call_arguments.delta')
+    expect(out).toContain('"input":"v"')
+    expect(out).toContain('"type":"response.custom_tool_call_input.done"')
+  })
+
+  it('drops an open tool with empty or invalid arguments at [DONE] when no finish_reason arrived', async () => {
+    const out = await collectFrames(
+      [
+        `data: ${chunk({ tool_calls: [{ index: 0, id: 'c1', type: 'function', function: { name: 't', arguments: '' } }] })}\n\n`,
+        'data: [DONE]\n\n',
+      ],
+      streamContext({ tools: [{ chatName: 't', originalName: 't', custom: false }] }),
+    )
+    expect(out).toContain('"event":"response.output_item.added"')
+    expect(out).not.toContain('function_call_arguments.done')
+    // No message and no completed function item -> terminal suppressed -> CloseError.
+    expect(out).toContain('upstream stream closed before a terminal event')
+  })
+
+  it('finalizes open items at clean EOF without [DONE] and fails in-stream', async () => {
+    const out = await collectFrames(
+      [`data: ${chunk({ content: 'A' })}\n\n`, 'data: [DONE_MISSING]\n\n'],
+      streamContext(),
+    )
+    expect(out).toContain('"event":"response.output_item.done"')
+    expect(out).toContain('upstream stream closed before [DONE]')
+    expect(out).not.toMatch(/\n\n\n$/)
+  })
+
+  it('drops [DONE] before any choices chunk: zero frames upstream of the empty-stream gate', async () => {
+    const translator = new ChatToResponsesStreamTranslator(streamContext())
+    // The pipeline drops the marker; the translator never starts.
+    const frames: string[] = []
+    let sawFrames = false
+    for await (const frame of translateChatSseToResponsesFrames([encoder.encode('data: [DONE]\n\n')], {
+      ctx: streamContext(),
+      failureEvent: 'error',
+    })) {
+      sawFrames = true
+      void frame
+    }
+    expect(sawFrames).toBe(false)
+    expect(frames).toEqual([])
+    expect(translator.isStarted).toBe(false)
+  })
+
+  it('keys items per choice index (multi-choice unit pin, §4.2)', async () => {
+    const dual = JSON.stringify({
+      id: 'chatcmpl-x',
+      object: 'chat.completion.chunk',
+      created: 1770000000,
+      model: 'mock-gpt-model',
+      choices: [
+        { index: 0, delta: { content: 'A' }, finish_reason: null },
+        { index: 1, delta: { content: 'B' }, finish_reason: null },
+      ],
+    })
+    const out = await collectFrames([`data: ${dual}\n\n`, 'data: [DONE]\n\n'], streamContext())
+    expect(out).toContain('"item":{"id":"msg_chatcmpl-x_0","type":"message"')
+    expect(out).toContain('"item":{"id":"msg_chatcmpl-x_1","type":"message"')
+  })
+
+  it('drops events after the terminal event', async () => {
+    const out = await collectFrames(
+      [
+        `data: ${chunk({ role: 'assistant' })}\n\n`,
+        `data: ${chunk({}, 'stop')}\n\n`,
+        'data: [DONE]\n\n',
+        `data: ${chunk({ content: 'LATE' })}\n\n`,
+      ],
+      streamContext(),
+    )
+    expect(out).toContain('response.completed')
+    expect(out).not.toContain('LATE')
+    expect(out.endsWith('\n\n\n')).toBe(true)
+  })
+
+  it('echoes original request fields in the terminal event, deep-sorted', async () => {
+    const out = await collectFrames(
+      [`data: ${chunk({ role: 'assistant' })}\n\n`, `data: ${chunk({}, 'stop')}\n\n`, 'data: [DONE]\n\n'],
+      streamContext({
+        originalBody:
+          '{"model":"mock-model","instructions":"sys","max_output_tokens":32,"reasoning":{"effort":"high"},"tools":[{"type":"function","name":"t","parameters":{"b":1,"a":2}}],"text":{"format":{"type":"text"}},"stream":true}',
+      }),
+    )
+    expect(out).toContain('"max_output_tokens":32,"model":"mock-model","reasoning":{"effort":"high"}')
+    expect(out).toContain('"text":{"format":{"type":"text"}},"tools":[{"description":"","name":"t","parameters":{"a":2,"b":1},"type":"function"}]')
+    expect(out).not.toContain('"instructions"')
+  })
+
+  it('suppresses the terminal event for reasoning-only streams and emits the CloseError frame', async () => {
+    const out = await collectFrames(
+      [
+        `data: ${chunk({ role: 'assistant' })}\n\n`,
+        `data: ${chunk({ reasoning_content: 'P' })}\n\n`,
+        'data: [DONE]\n\n',
+      ],
+      streamContext(),
+    )
+    expect(out).not.toContain('response.completed')
+    expect(out).toContain(
+      'upstream stream closed before a terminal event (last event: response.output_item.done)","param":null,"type":"server_error"},"sequence_number":8}',
+    )
+    expect(out).not.toMatch(/\n\n\n$/)
+  })
+})
+
+describe('S2d6 upstream stream-error classification (§5.2)', () => {
+  it('classifies error-family event names and embedded error objects', () => {
+    expect(classifyStreamError({ event: 'error', data: '{}' })).toBeDefined()
+    expect(classifyStreamError({ event: 'response.failed', data: '{}' })).toBeDefined()
+    expect(classifyStreamError({ event: undefined, data: '{"error":{"code":"x","message":"m"}}' })).toBeDefined()
+    expect(classifyStreamError({ event: undefined, data: '{"response":{"error":{"message":"m"}}}' })).toBeDefined()
+    expect(classifyStreamError({ event: undefined, data: '{"code":"c","message":"m"}' })).toBeDefined()
+    expect(classifyStreamError({ event: undefined, data: chunk({ role: 'assistant' }) })).toBeUndefined()
+  })
+
+  it('embeds the upstream error object with sorted keys', () => {
+    const failure = upstreamStreamFailure({ type: 'rate_limit_error', message: 'm', code: 429 })
+    expect(failure.detail).toBe('{"code":429,"message":"m","type":"rate_limit_error"}')
+  })
+
+  it('maps statuses onto the in-stream error vocabulary', () => {
+    expect(statusStreamFailure('m', 401).detail).toBe('{"code":"invalid_api_key","message":"m","param":null,"type":"invalid_request_error"}')
+    expect(statusStreamFailure('m', 403).detail).toContain('insufficient_quota')
+    expect(statusStreamFailure('m', 429).detail).toContain('rate_limit_exceeded')
+    expect(statusStreamFailure('m', 404).detail).toContain('model_not_found')
+    expect(statusStreamFailure('m', 408).detail).toContain('request_timeout')
+    expect(statusStreamFailure('m', 455).detail).toContain('"code":"invalid_request_error"')
+    expect(statusStreamFailure('m', 502).detail).toBe('{"code":"internal_server_error","message":"m","param":null,"type":"server_error"}')
+    expect(streamErrorTypeForStatus(401).code).toBe('invalid_api_key')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// R5: error catalog
+// ---------------------------------------------------------------------------
+
+describe('S2d6 error catalog (§5)', () => {
+  it('passes valid-JSON upstream error bodies verbatim and wraps the rest', () => {
+    expect(classifyUpstreamError(429, '{"error": {"a": 1}}')).toEqual({ kind: 'verbatim', status: 429, body: '{"error": {"a": 1}}' })
+    const wrapped = classifyUpstreamError(500, 'boom')
+    expect(wrapped.kind).toBe('wrapped')
+    if (wrapped.kind === 'wrapped') {
+      expect(renderUpstreamFailure(wrapped)).toEqual({
+        status: 500,
+        body: '{"error":{"message":"boom","type":"server_error","code":"internal_server_error"}}',
+      })
+    }
+    const empty = classifyUpstreamError(418, '')
+    if (empty.kind === 'wrapped') {
+      expect(renderUpstreamFailure(empty).body).toBe('{"error":{"message":"HTTP 418","type":"invalid_request_error"}}')
+    }
+  })
+
+  it('sanitizes pre-frame stream errors: sorted keys, redaction, truncation, status normalization', () => {
+    expect(sanitizeInitialStreamError('{"error": {"message": "mock rate limit", "type": "rate_limit_exceeded", "code": 429, "status": "RESOURCE_EXHAUSTED"}}')).toBe(
+      '{"error":{"code":429,"message":"mock rate limit","status":"RESOURCE_EXHAUSTED","type":"rate_limit_exceeded"}}',
+    )
+    expect(sanitizeInitialStreamError('{"response":{"error":{"api_key":"k","message":"m"}}}')).toBe('{"error":{"api_key":"[REDACTED]","message":"m"}}')
+    expect(sanitizeInitialStreamError('{"error":{"message":"' + 'x'.repeat(2100) + '"}}')).toBe(
+      `{"error":{"message":"${'x'.repeat(2048)}"}}`,
+    )
+    expect(sanitizeInitialStreamError('plain text')).toBe('{"error":{"message":"plain text"}}')
+    expect(normalizeErrorStatus(302)).toBe(500)
+    expect(normalizeErrorStatus(600)).toBe(500)
+    expect(normalizeErrorStatus(429)).toBe(429)
+  })
+
+  it('frames in-stream failures per client identity with the leading newline', () => {
+    const failure = statusStreamFailure('unexpected EOF', 500)
+    expect(formatTerminalErrorFrame('error', failure, 5)).toBe(
+      '\nevent: error\ndata: {"type":"error","error":{"code":"internal_server_error","message":"unexpected EOF","param":null,"type":"server_error"},"sequence_number":5}\n\n',
+    )
+    expect(formatTerminalErrorFrame('response.failed', failure, 5)).toBe(
+      '\nevent: response.failed\ndata: {"type":"response.failed","sequence_number":5,"response":{"status":"failed","error":{"code":"internal_server_error","message":"unexpected EOF","param":null,"type":"server_error"}}}\n\n',
+    )
+    expect(closeErrorText('response.output_item.done')).toBe(
+      'upstream stream closed before a terminal event (last event: response.output_item.done)',
+    )
+  })
+
+  it('detects codex clients via UA patterns and Originator prefixes', () => {
+    expect(isCodexClient({ 'User-Agent': 'codex-tui/0.154.0 (Mac OS 26.5.2; arm64) iTerm.app/3.6.11' })).toBe(true)
+    expect(isCodexClient({ 'User-Agent': 'curl/8.7.1', Originator: 'codex_cli_rs 1.0' })).toBe(true)
+    expect(isCodexClient({ 'user-agent': 'curl/8.7.1', originator: 'Codex Desktop' })).toBe(true)
+    expect(isCodexClient({ 'User-Agent': 'curl/8.7.1' })).toBe(false)
+    expect(isCodexClient({ Originator: 'vscode' })).toBe(false)
+  })
+
+  it('builds the gateway-local envelopes', () => {
+    expect(buildModelNotFoundEnvelope('no-such-model')).toBe(
+      '{"error":{"message":"unknown provider for model no-such-model","type":"invalid_request_error","code":"model_not_found","param":"model"}}',
+    )
+    expect(buildModelNotFoundEnvelope('')).toBe(
+      '{"error":{"message":"unknown provider for model ","type":"invalid_request_error","code":"model_not_found","param":"model"}}',
+    )
+    expect(buildCompactStreamRejectedEnvelope()).toBe(
+      '{"error":{"message":"Streaming not supported for compact responses","type":"invalid_request_error"}}',
+    )
+    expect(buildMalformedBodyEnvelope()).toBe(
+      '{"error":{"message":"Invalid request: malformed JSON body","type":"invalid_request_error"}}',
+    )
+  })
+
+  it('builds the cooldown 500 shape with the verbatim error and a sanitized summary', () => {
+    const long = 'x'.repeat(300)
+    const rendered = buildModelCooldownResponse({ model: 'mock-model', provider: 'mock-openai', lastUpstreamError: long })
+    expect(rendered.status).toBe(500)
+    expect(rendered.body).toBe(
+      '{"error":{"code":"model_cooldown","last_upstream_error":"' + long + '","message":"All credentials for model mock-model are cooling down via provider mock-openai (last error: ' +
+        'x'.repeat(253) + '...)"}}',
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// R2: upstream wire
+// ---------------------------------------------------------------------------
+
+describe('S2d6 upstream wire (§3.2)', () => {
+  it('pins the header set per mode and the emission order', () => {
+    const nonStream = orderUpstreamHeaders(buildUpstreamHeaders({ apiKey: 'k', stream: false }), 'http://h:1/v1', 'abc')
+    expect(nonStream).toEqual([
+      ['Host', 'h:1'],
+      ['User-Agent', 'cli-proxy-openai-compat'],
+      ['Content-Length', '3'],
+      ['Authorization', 'Bearer k'],
+      ['Content-Type', 'application/json'],
+      ['Accept-Encoding', 'gzip'],
+    ])
+    const stream = orderUpstreamHeaders(buildUpstreamHeaders({ apiKey: 'k', stream: true }), 'http://h:1/v1', 'abc')
+    expect(stream).toEqual([
+      ['Host', 'h:1'],
+      ['User-Agent', 'cli-proxy-openai-compat'],
+      ['Content-Length', '3'],
+      ['Accept', 'text/event-stream'],
+      ['Authorization', 'Bearer k'],
+      ['Cache-Control', 'no-cache'],
+      ['Content-Type', 'application/json'],
+      ['Accept-Encoding', 'gzip'],
+    ])
+  })
+
+  it('appends stream_options after the translated body', () => {
+    expect(withStreamOptions('{"model":"m","messages":[],"stream":true}')).toBe(
+      '{"model":"m","messages":[],"stream":true,"stream_options":{"include_usage":true}}',
+    )
+    expect(withStreamOptions('{}')).toBe('{"stream_options":{"include_usage":true}}')
+    expect(withStreamOptions('nope')).toBe('nope')
+  })
+})

@@ -38,7 +38,7 @@
 | I-tr-S2d6 | packages/translators: Responses→OpenAI chat | 2 | impl-i-tr-s2d6 | impl | 0 |  |
 | I-tr-S2d7 | packages/translators: Gemini→Claude | 2 | — | merged | 2 | MERGED: gem2cla complete (spec 2 rounds, impl gate 2 rounds incl. S2d7-31 recorded ruling). 108 module + 33 contract green. |
 | I-tr-S2d8 | packages/translators: Claude→Gemini | 2 | impl-i-tr-s2d8 | impl-adv | 0 | delivered: 54+20+21 green; impl-review running on adv-impl-3 |
-| I-tr-S2d9 | packages/translators: Codex passthrough | 2 | — | pending | 0 |  |
+| I-tr-S2d9 | packages/translators: Codex passthrough | 2 | impl-i-tr-s2d9 | impl | 0 |  |
 | I-tr-S2d10 | packages/translators: Antigravity redirect | 2 | — | pending | 0 |  |
 | I-exec-openai | packages/executors: openai executor | 2 | — | pending | 0 |  |
 | I-exec-claude | packages/executors: claude executor | 2 | — | pending | 0 |  |
@@ -57,4 +57,3 @@
 
 ## Verdict / escalation log
 (appended by orchestrator)
-- 2026-09-16 05:1x S2d9 GATE: PASS (round 2). Codex passthrough admitted: 17 goldens + 404->503 cooldown family pin. 14/16 spec admitted. I-tr-S2d9 dispatched.

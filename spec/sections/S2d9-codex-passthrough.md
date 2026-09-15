@@ -35,7 +35,7 @@ Out of scope (owned elsewhere or excluded):
 | B6 | `/v1/alpha/search` | POST | 200 | Out of scope (see §1). |
 
 Error status codes reachable through B1–B4 (all bodies JSON, exact shapes in §5):
-- 400 `invalid_request_error` — body read failure; `stream: true` on compact; model unknown to the registry: `{"error":{"message":"unknown provider for model <model>","type":"invalid_request_error","code":"model_not_found","param":"model"}}` (recorded: BOOTSTRAP §4).
+- 400 `invalid_request_error` — body read failure; `stream: true` on compact; model unknown to the registry: `{"error":{"message":"unknown provider for model <model>","type":"invalid_request_error","code":"model_not_found","param":"model"}}` (recorded: BOOTSTRAP §4 — chat-route probe on POST /v1/chat/completions; shape shared across client routes, S1 owns the family).
 - 401 — downstream API-key auth failures (S1: `{"error":"Missing API key"}` / `{"error":"Invalid API key"}`).
 - Upstream-mapped statuses: 401/404/408/429/5xx — see §5.1 (upstream status is preserved except the remaps listed there).
 - 502/503 — upstream transport failures, empty-incomplete, no credentials after selection errors (S4).
@@ -209,7 +209,7 @@ An upstream `data:` payload with `type == "error"` (with `error`/`code`/`message
 ### 5.4 Request-fault errors before any upstream call
 
 - `POST /v1/responses/compact` with `"stream": true`: 400 `{"error":{"message":"Streaming not supported for compact responses","type":"invalid_request_error"}}` — NO upstream request is emitted (`ref:sdk/api/handlers/openai/openai_responses_handlers.go` — `Compact`).
-- Unknown model: 400 `model_not_found` shape (recorded, BOOTSTRAP §4).
+- Unknown model: 400 `model_not_found` shape (recorded: BOOTSTRAP §4 — chat-route probe; shape shared; S1 owns the recorded family).
 - Body read failure: 400 `{"error":{"message":"Invalid request: <err>","type":"invalid_request_error"}}`.
 
 ## 6. `/responses/compact` passthrough

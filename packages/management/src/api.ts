@@ -372,8 +372,7 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
       const record = (typeof entry === 'object' && entry !== null && !Array.isArray(entry) ? entry : {}) as {
         [key: string]: JsonValue
       }
-      const rendered = renderEntryLines(record, 0)
-      lines.push(...rendered)
+      lines.push(...renderItemMapping(record, 0))
     }
     editor.setBlock([], key, lines)
     editor.ensureTrailingNewline()
@@ -381,31 +380,64 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
     reloadEffective()
   }
 
-  /** Renders one provider entry as yaml lines at `indent` spaces. */
-  const renderEntryLines = (record: { [key: string]: JsonValue }, indent: number): string[] => {
+  /** Renders a plain mapping (`key: value`, nested blocks indented +2). */
+  const renderMappingLines = (record: { [key: string]: JsonValue }, indent: number): string[] => {
     const pad = ' '.repeat(indent)
+    const lines: string[] = []
+    for (const [key, value] of Object.entries(record)) {
+      if (Array.isArray(value)) {
+        lines.push(`${pad}${key}:`)
+        for (const item of value) lines.push(...renderValueItem(item, indent + 2))
+        continue
+      }
+      if (typeof value === 'object' && value !== null) {
+        lines.push(`${pad}${key}:`)
+        lines.push(...renderMappingLines(value as { [key: string]: JsonValue }, indent + 2))
+        continue
+      }
+      lines.push(`${pad}${key}: ${renderScalar(value)}`)
+    }
+    return lines
+  }
+
+  /** Renders one sequence item: a scalar item or an inline-first-key mapping. */
+  const renderValueItem = (item: JsonValue, indent: number): string[] => {
+    if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
+      return renderItemMapping(item as { [key: string]: JsonValue }, indent)
+    }
+    return [`${' '.repeat(indent)}- ${renderScalar(item)}`]
+  }
+
+  /** Renders a sequence-item mapping: dash + first key inline, rest at +2. */
+  const renderItemMapping = (record: { [key: string]: JsonValue }, indent: number): string[] => {
+    const pad = ' '.repeat(indent)
+    const innerPad = ' '.repeat(indent + 2)
     const lines: string[] = []
     const keys = Object.keys(record)
     keys.forEach((key, index) => {
       const value = record[key] ?? null
-      const prefix = index === 0 ? '- ' : ''
-      if (Array.isArray(value)) {
-        lines.push(`${pad}${prefix}${key}:`)
-        for (const item of value) {
-          if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
-            lines.push(...renderEntryLines(item as { [key: string]: JsonValue }, indent + 4))
-          } else {
-            lines.push(`${pad}  - ${renderScalar(item)}`)
-          }
+      const linePad = index === 0 ? pad : innerPad
+      if (index === 0) {
+        if (Array.isArray(value)) {
+          lines.push(`${linePad}- ${key}:`)
+          for (const item of value) lines.push(...renderValueItem(item, indent + 4))
+        } else if (typeof value === 'object' && value !== null) {
+          lines.push(`${linePad}- ${key}:`)
+          lines.push(...renderMappingLines(value as { [key: string]: JsonValue }, indent + 4))
+        } else {
+          lines.push(`${linePad}- ${key}: ${renderScalar(value)}`)
         }
         return
       }
-      if (typeof value === 'object' && value !== null) {
-        lines.push(`${pad}${prefix}${key}:`)
-        lines.push(...renderEntryLines(value as { [key: string]: JsonValue }, indent + 2))
-        return
+      if (Array.isArray(value)) {
+        lines.push(`${linePad}${key}:`)
+        for (const item of value) lines.push(...renderValueItem(item, indent + 4))
+      } else if (typeof value === 'object' && value !== null) {
+        lines.push(`${linePad}${key}:`)
+        lines.push(...renderMappingLines(value as { [key: string]: JsonValue }, indent + 4))
+      } else {
+        lines.push(`${linePad}${key}: ${renderScalar(value)}`)
       }
-      lines.push(`${pad}${prefix}${key}: ${renderScalar(value)}`)
     })
     return lines
   }
@@ -1286,9 +1318,9 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
       const editor = new YamlFileEditor(configText)
       const lines: string[] = []
       for (const [mapKey, mapValue] of Object.entries(map).sort(([a], [b]) => (a < b ? -1 : 1))) {
-        lines.push(...renderEntryLines({ [mapKey]: mapValue }, 2))
+        lines.push(...renderMappingLines({ [mapKey]: mapValue }, 0))
       }
-      editor.setBlock([], key, lines.map((line) => line.slice(2)))
+      editor.setBlock([], key, lines)
       editor.ensureTrailingNewline()
       configText = editor.getText()
       reloadEffective()
