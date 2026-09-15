@@ -2057,14 +2057,12 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
     for (const entry of effective.xai) push('xai', entry.models.map((model) => model.alias))
     for (const entry of effective.meta) push('meta', entry.models.map((model) => model.alias))
     for (const entry of effective.openaiCompatibility) push(entry.name ?? '', entry.models.map((model) => model.alias))
-    const data = entries.map(([id, ownedBy]) =>
-      ordered([
-        ['id', id],
-        ['object', 'model'],
-        ['created', created],
-        ['owned_by', ownedBy],
-      ]),
-    )
+    const data = entries.map(([id, ownedBy]) => ({
+      created,
+      id,
+      object: 'model',
+      owned_by: ownedBy,
+    }))
     return goJson(ordered([['data', data], ['object', 'list']]))
   }
 

@@ -49,7 +49,7 @@
   ],
   "comparison_rules": {
     "downstream": "byte-exact after masking whitelisted dynamic fields (Date, X-CPA-TRACE-ID, ports, ts).",
-    "upstream_jsonl": "deep-equal JSON per line (arrays order-sensitive; object key order informative only) — the reference's emission order is documented in the section but not contract-pinned; assert headers semantically (presence/absence).",
+    "upstream_jsonl": "deep-equal JSON per line (arrays order-sensitive; object key order informative only) — the reference's emission order is documented in the section but not contract-pinned; assert headers semantically (presence/absence). The wire log redacts secret-bearing headers (Authorization, x-goog-api-key, x-api-key) to '<redacted>' — header comparison for those asserts PRESENCE only, never the value.",
     "deterministic_values": "message_start usage.input_tokens and count_tokens input_tokens are DETERMINISTIC (o200k_base over fixed segments) — do NOT mask them; the recorded reference values are the goldens even if my precomputed numbers differ."
   },
   "deferred": [],
