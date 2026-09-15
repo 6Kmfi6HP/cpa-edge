@@ -90,7 +90,7 @@ export function decodeJwtPayload(token: string): Record<string, unknown> | undef
   const parts = token.split('.')
   if (parts.length < 2) return undefined
   const payload = parts[1]
-  if (payload.length === 0) return undefined
+  if (payload === undefined || payload.length === 0) return undefined
   const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
   const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=')
   try {

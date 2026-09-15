@@ -17,7 +17,7 @@
 | S2d2 | spec: Gemini client → OpenAI upstream | 1 | spec-s2d2-gem2oai | merged | 2 | ADMITTED round 2. 26 goldens; countTokens formula independently reproduced by reviewer. Unlocks I-tr-S2d2. |
 | S2d3 | spec: OpenAI client → Claude upstream | 1 | spec-s2d3-oai2cla | merged | 2 | ADMITTED round 2. 26 goldens. Unlocks I-tr-S2d3. |
 | S2d4 | spec: Claude client → OpenAI upstream | 1 | spec-s2d4-cla2oai | spec | 0 |  |
-| S2d5 | spec: OpenAI client → Codex/Responses upstream | 1 | spec-s2d5-oai2codex | spec-adv-r2 | 1 | fix cycle complete (26/26); round-2 running on adv-spec-5 |
+| S2d5 | spec: OpenAI client → Codex/Responses upstream | 1 | spec-s2d5-oai2codex | merged | 2 | ADMITTED round 2 (R1-R7 text rider to writer). 26 goldens; union->enum MUST + type-selection pinned. Unlocks I-tr-S2d5. |
 | S2d6 | spec: Responses client → OpenAI chat upstream | 1 | spec-s2d6-res2oai | spec | 0 |  |
 | S2d7 | spec: Gemini client → Claude upstream | 1 | spec-s2d7-gem2cla | merged | 2 | ADMITTED round 2. 31 goldens; validator families byte-pinned; empty-stream conductor gate recorded-deviation integrated. Unlocks I-tr-S2d7. |
 | S2d8 | spec: Claude client → Gemini upstream | 1 | spec-s2d8-cla2gem | spec | 0 | section+18 cases done; rulings sent; recording queued w5 |
@@ -28,7 +28,7 @@
 | S5 | spec: management API | 1 | spec-s5-mgmt | merged | 2 | ADMITTED round 2. 22 goldens / 168 steps. Unlocks I-mgmt (after I-auth interfaces land) + S5 contract tests. |
 | S6 | spec: state & storage schemas | 1 | spec-s6-state | merged | 2 | ADMITTED round 2. 17 goldens; 3 catalogs; per-path re-serialization; vertex type; RESP node-contract. Residual editorial: N2 schema omitempty marks, N7 store-auth shape, citation tag split |
 | S7 | spec: platform degradation matrix | 1 | spec-s7-platform | merged | 3 | ADMITTED after 3 rounds. NE registry feeds SPEC §5. RuntimeCapabilities -> I-core; T2/T3/D1 bindings recorded. |
-| I-core | packages/core: scheduling algorithms | 2 | — | pending | 0 |  |
+| I-core | packages/core: scheduling algorithms | 2 | impl-i-core | impl | 0 |  |
 | I-auth | packages/auth: OAuth/device/refresh | 2 | impl-i-auth | impl | 0 |  |
 | I-tr-S2d1 | packages/translators: OpenAI→Gemini | 2 | — | pending | 0 |  |
 | I-tr-S2d2 | packages/translators: Gemini→OpenAI | 2 | impl-i-tr-s2d2 | impl | 0 |  |
@@ -57,4 +57,4 @@
 
 ## Verdict / escalation log
 (appended by orchestrator)
-- 2026-09-16 03:2x S4 GATE: PASS (round 2). Scheduling admitted: 23 goldens, identity contracts reproducible. 10/16 spec steps admitted. I-core dispatched.
+- 2026-09-16 03:3x S2d5 GATE: PASS (round 2). oai2codex admitted: 26 goldens. 11/16 spec steps admitted. I-tr-S2d5 dispatched (slot 5/5).

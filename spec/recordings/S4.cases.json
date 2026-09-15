@@ -37,7 +37,8 @@
     "Multi-step cases: number requests/responses inside request.http / downstream.md (### 1, ### 2, ...) in execution order; upstream.jsonl keeps the full wire log for the case (mark the per-request split with comments or per-request files upstream-1.jsonl, upstream-2.jsonl if easier).",
     "meta.yaml must list: config fragment used (exact YAML), control file contents at each step, mock mode at each step, sleeps applied, and the auth-ID -> api-key mapping for the recorded config (see determinism notes).",
     "Wire-log 'ts' fields and inter-request gaps are dynamic; the ORDER and content of wire lines are the contract.",
-    "Mask ONLY listed dynamic_fields; cooldown durations appear as concrete numbers in fixtures (they are the contract under the pinned config)."
+    "Mask ONLY listed dynamic_fields; cooldown durations appear as concrete numbers in fixtures (they are the contract under the pinned config).",
+    "meta.yaml conventions for future recordings (orchestrator round-2 residual notes): (a) every fixture's meta.yaml carries the auth-ID->api-key mapping block (formula + ids + ascending_order) per §6 of the section — including new-style cases (S4-21/22/23 currently lack it); (b) when a recording deviates from the case's pre-recording prediction, the meta purpose text notes the deviation (like the S4-18/S4-20 rename_note) instead of carrying the disproved prediction (S4-21 currently does)."
   ],
   "determinism_notes": [
     "Credential order is defined by auth ID = '<kind>:<sha256[:12]>' where kind = 'openai-compatibility:mock-openai' and the hash covers NUL-joined [kind, api-key, base-url, proxy-url(''), ...]. Compute once per key to predict which key is 'first' (smallest ID): sha256(('openai-compatibility:mock-openai' + chr(0) + key + chr(0) + 'http://host.docker.internal:18999/v1' + chr(0)).encode()).hexdigest()[:12] — record the mapping in meta.yaml. The fixtures pin the observed order; CPA-Edge must reproduce the same order from the same config.",
@@ -989,7 +990,7 @@
           }
         }
       ],
-      "record": "status+headers+body (single downstream response, ~2-2.5s after request start); upstream.jsonl (4 hits)",
+      "record": "status+headers+body (single downstream response, ~2-2.5s after request start); upstream.jsonl (6 hits: 3-key round-0 sweep + 3-key round-1 sweep)",
       "expected": "Round 0 hits all 3 keys in ascending auth-ID order (key-1, key-3, key-2), each 500; then a ~2.0-2.5s cooldown wait; round 1 repeats the same 3-key sweep (6 upstream hits total). Downstream = a single HTTP 500 response with the mock error body VERBATIM (relay of the last upstream attempt of round 1). No round 2 (request-retry is 1). Matches the recorded fixture (6 wire hits).",
       "dynamic_fields": [
         "Date",

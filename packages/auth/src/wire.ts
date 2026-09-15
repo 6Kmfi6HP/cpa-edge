@@ -16,7 +16,7 @@ function encodeGoString(value: string): string {
   let out = '"'
   for (let i = 0; i < value.length; i += 1) {
     const code = value.charCodeAt(i)
-    const ch = value[i]
+    const ch = String.fromCharCode(code)
     if (ch === '"') {
       out += '\\"'
     } else if (ch === '\\') {
@@ -49,19 +49,15 @@ function encodeGoString(value: string): string {
   return `${out}"`
 }
 
-function encodeScalar(value: JsonValue): string {
-  if (value === null) return 'null'
-  if (typeof value === 'boolean') return value ? 'true' : 'false'
-  if (typeof value === 'number') return JSON.stringify(value)
-  return encodeGoString(value)
-}
-
 function encodeValue(
   value: JsonValue,
   sortKeys: boolean,
   seen: Set<JsonValue>,
 ): string {
-  if (value === null || typeof value !== 'object') return encodeScalar(value)
+  if (value === null) return 'null'
+  if (typeof value === 'boolean') return value ? 'true' : 'false'
+  if (typeof value === 'number') return JSON.stringify(value)
+  if (typeof value === 'string') return encodeGoString(value)
   if (seen.has(value)) throw new Error('cyclic value passed to JSON serializer')
   seen.add(value)
   try {

@@ -995,6 +995,11 @@ const CASES: ReadonlyArray<Readonly<{ id: string; group: string; summary: string
     group: 'mgmt-callback',
     summary: 'codex session + provider anthropic -> 400 provider does not match state',
   },
+  {
+    id: 's3-mgmt-oauth-callback-persist-fail',
+    group: 'mgmt-callback',
+    summary: 'pending session + failing callback publish -> 500 failed to persist oauth callback',
+  },
   // login-URL endpoints (§2.5)
   { id: 's3-auth-url-anthropic', group: 'auth-url', summary: 'Claude authorize URL (query set + order)' },
   { id: 's3-auth-url-codex', group: 'auth-url', summary: 'Codex authorize URL (extra params)' },

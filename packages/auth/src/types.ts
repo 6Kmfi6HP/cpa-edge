@@ -13,6 +13,8 @@ export interface FetchInit {
   readonly method?: string
   readonly headers?: Readonly<Record<string, string>>
   readonly body?: string
+  /** Aborts the call (refresh attempts enforce a 30 s timeout). */
+  readonly signal?: AbortSignal
 }
 
 /** Epoch-milliseconds clock; tests inject a steppable fake. */

@@ -244,11 +244,12 @@ function deviceSessionMetadata(started: DeviceLoginStart): JsonValue {
     device_code: started.deviceCode,
     user_code: started.userCode,
     interval: started.intervalMs,
-    expires_in: started.expiresInSeconds,
     token_endpoint: started.tokenEndpoint,
     verification_uri_complete: started.verificationUriComplete,
+    ...(started.expiresInSeconds === undefined
+      ? {}
+      : { expires_in: started.expiresInSeconds }),
     ...(started.deviceAuthId === undefined ? {} : { device_auth_id: started.deviceAuthId }),
-    ...(started.codeVerifier === undefined ? {} : { code_verifier: started.codeVerifier }),
   }
 }
 
