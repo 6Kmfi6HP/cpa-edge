@@ -28,9 +28,11 @@ import {
   readMockResponse,
   readRecordedDownstream,
   readRecordedRequest,
+  readRecordedSteps,
   readRecordedUpstreams,
+  readStepMockResponse,
 } from './fixture-reader'
-import type { RecordedUpstream } from './fixture-reader'
+import type { RecordedDownstream, RecordedUpstream } from './fixture-reader'
 
 const GATEWAY_VERSION = 'v7.3.4'
 const GATEWAY_API_KEYS: readonly string[] = ['oracle-local-key-1']
@@ -184,8 +186,11 @@ function decodeSseFrames(body: string): SseFrame[] {
   return frames
 }
 
-async function assertDownstream(response: Gem2ClaResponse, caseId: string): Promise<void> {
-  const expected = readRecordedDownstream(caseId)
+async function assertDownstream(
+  response: Gem2ClaResponse,
+  expected: RecordedDownstream,
+  caseId: string,
+): Promise<void> {
   const body = await readResponseBody(response.body)
   expect(response.status, `${caseId}: status`).toBe(expected.status)
   expect(headerValue(response.headers, 'content-type'), `${caseId}: Content-Type`).toBe(
@@ -309,7 +314,7 @@ async function replaySteps(stepCaseIds: readonly string[]): Promise<void> {
       body: recorded.body,
     }
     const response = await service.handleV1beta(request, send)
-    await assertDownstream(response, stepCaseId)
+    await assertDownstream(response, readRecordedDownstream(stepCaseId), stepCaseId)
   }
   const expectedCalls = stepCaseIds.flatMap((stepCaseId) => readRecordedUpstreams(stepCaseId))
   expect(captured.length, `${stepCaseIds.join(' + ')}: upstream call count`).toBe(expectedCalls.length)
@@ -338,5 +343,48 @@ describe('S2d7 golden replay — service-level', () => {
 
   it('S2d7-19-cooldown-after-429: composed with the S2d7-10 429 (shared service + Store)', async () => {
     await replaySteps(['S2d7-10-upstream-429', 'S2d7-19-cooldown-after-429'])
+  })
+
+  it('S2d7-31-counttokens-cooldown: 429 setup, then a countTokens gated by the live window', async () => {
+    const caseId = 'S2d7-31-counttokens-cooldown'
+    const service = createGem2ClaService({
+      apiKeys: GATEWAY_API_KEYS,
+      credentials: CREDENTIALS,
+      gatewayVersion: GATEWAY_VERSION,
+      store: new MemoryStore(),
+      now: () => FROZEN_NOW_MS,
+      requestRetry: 0,
+      transientErrorCooldownSeconds: -1,
+    })
+    const steps = readRecordedSteps(caseId)
+    expect(steps.length, `${caseId}: recorded step count`).toBe(2)
+    const mock = readStepMockResponse(caseId, 1)
+    const captured: Gem2ClaUpstreamRequest[] = []
+    const send: Gem2ClaUpstreamSender = async (call) => {
+      captured.push(call)
+      return buildMockResponse(mock.control, mock.reply, mock.script, call)
+    }
+    for (let step = 0; step < steps.length; step++) {
+      const recorded = steps[step]
+      if (recorded === undefined) throw new Error('harness bug: missing recorded step')
+      const request: Gem2ClaRequest = {
+        method: recorded.request.method,
+        path: recorded.request.path,
+        headers: Object.entries(recorded.request.headers).map(([name, value]) => [name, value] as [string, string]),
+        body: recorded.request.body,
+      }
+      const response = await service.handleV1beta(request, send)
+      await assertDownstream(response, recorded.downstream, `${caseId} step ${step + 1}`)
+    }
+    const expectedCalls = readRecordedUpstreams(caseId)
+    expect(captured.length, `${caseId}: upstream calls (the gated count must add none)`).toBe(expectedCalls.length)
+    for (let i = 0; i < expectedCalls.length; i++) {
+      const expected = expectedCalls[i]
+      const actual = captured[i]
+      expect(expected).toBeDefined()
+      expect(actual).toBeDefined()
+      if (expected === undefined || actual === undefined) continue
+      assertUpstreamWire(expected, actual, caseId)
+    }
   })
 })

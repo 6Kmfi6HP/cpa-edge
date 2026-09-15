@@ -127,28 +127,68 @@ export interface MockFile {
 }
 
 export function readMockResponse(caseId: string): MockFile {
-  const parsed = JSON.parse(readText(`${FIXTURE_ROOT}/${caseId}/mock-response.json`)) as {
-    control_file?: unknown
-    script_sse?: unknown
-    reply?: unknown
-  }
+  return readMockFile(`${FIXTURE_ROOT}/${caseId}/mock-response.json`, 'control_file')
+}
+
+/** Mock control of one step of a multi-step case (`control_file_stepN`). */
+export function readStepMockResponse(caseId: string, step: number): MockFile {
+  return readMockFile(`${FIXTURE_ROOT}/${caseId}/mock-response.json`, `control_file_step${step}`)
+}
+
+function readMockFile(path: string, controlKey: string): MockFile {
+  const parsed = JSON.parse(readText(path)) as Readonly<Record<string, unknown>>
+  const controlSource = parsed[controlKey]
   const control: Record<string, unknown> = {}
-  if (typeof parsed.control_file === 'object' && parsed.control_file !== null) {
-    Object.assign(control, parsed.control_file as Record<string, unknown>)
+  if (typeof controlSource === 'object' && controlSource !== null) {
+    Object.assign(control, controlSource as Record<string, unknown>)
   }
   const script: Array<readonly [string, unknown]> = []
-  if (Array.isArray(parsed.script_sse)) {
-    for (const entry of parsed.script_sse) {
+  const scriptSource = parsed['script_sse']
+  if (Array.isArray(scriptSource)) {
+    for (const entry of scriptSource) {
       if (Array.isArray(entry) && entry.length === 2) {
         script.push([String(entry[0]), entry[1]])
       }
     }
   }
+  const replySource = parsed['reply']
   const reply =
-    typeof parsed.reply === 'object' && parsed.reply !== null
-      ? (parsed.reply as { status?: unknown; body?: unknown })
+    typeof replySource === 'object' && replySource !== null
+      ? (replySource as { status?: unknown; body?: unknown })
       : undefined
   return { control, script, reply }
+}
+
+/** One step of a multi-step recorded case: its request and downstream pair. */
+export interface RecordedStep {
+  readonly request: RecordedRequest
+  readonly downstream: RecordedDownstream
+}
+
+/**
+ * Reads a multi-step recorded case: request.http carries one `### step N …`
+ * divider per step, each followed by one request block, and the step's
+ * downstream surface lives in downstream-N.md (recorded: S2d7-31).
+ */
+export function readRecordedSteps(caseId: string): readonly RecordedStep[] {
+  const lines = readText(`${FIXTURE_ROOT}/${caseId}/request.http`).split('
+')
+  const blocks: string[][] = []
+  for (const line of lines) {
+    if (line.startsWith('### step ')) {
+      blocks.push([])
+      continue
+    }
+    if (blocks.length === 0) continue
+    const block = blocks[blocks.length - 1]
+    if (block === undefined) continue
+    block.push(line)
+  }
+  return blocks.map((block, index) => ({
+    request: parseRequestFile(block.join('
+')),
+    downstream: readDownstreamFile(`${FIXTURE_ROOT}/${caseId}/downstream-${index + 1}.md`),
+  }))
 }
 
 function readText(path: string): string {
