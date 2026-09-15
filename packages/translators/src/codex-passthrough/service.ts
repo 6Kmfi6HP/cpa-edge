@@ -79,8 +79,12 @@ export interface CodexPassthroughCredential {
 }
 
 export interface CodexPassthroughServiceOptions {
-  /** Gateway keys accepted downstream (`Authorization: Bearer` / `X-Api-Key`). */
-  readonly apiKeys: readonly string[]
+  /**
+   * Gateway keys accepted downstream (`Authorization: Bearer` /
+   * `X-Api-Key`). OPTIONAL: client authn is route middleware territory
+   * (S1); when absent the facade enforces no key of its own.
+   */
+  readonly apiKeys?: readonly string[]
   /** codex-api-key entries, config order. */
   readonly credentials: readonly CodexPassthroughCredential[]
   /** All persistent state (cooldown windows) flows through the Store. */
@@ -100,6 +104,8 @@ export interface CodexPassthroughServiceOptions {
   readonly gatewayVersion?: string
   /** `disable-image-generation` mode; `off` is the default. */
   readonly disableImageGeneration?: ImageGenerationMode
+  /** `codex.disable-cloaking: true` keeps the caller UA/Originator (service level). */
+  readonly disableCodexCloaking?: boolean
 }
 
 /** Downstream (client-facing) request as received by the route. */
@@ -251,7 +257,7 @@ export function createCodexPassthroughService(options: CodexPassthroughServiceOp
       if (request.method === 'OPTIONS') return { status: 204, headers: [...CORS_BLOCK], body: '' }
       if (request.method !== 'POST') return { status: 404, headers: [], body: '' }
 
-      const gate = checkGatewayKey(request, options.apiKeys)
+      const gate = checkGatewayKey(request, options.apiKeys ?? [])
       if (gate !== undefined) return gate
 
       // Strict request boundary (NE-LENIENT): malformed JSON rejects with
@@ -364,7 +370,7 @@ export function createCodexPassthroughService(options: CodexPassthroughServiceOp
         apiKey: candidate.credential.apiKey,
         sessionId: translated.sessionHeaderValue,
         accept: 'text/event-stream',
-        disableCodexCloaking: candidate.credential.disableCodexCloaking,
+        disableCodexCloaking: candidate.credential.disableCodexCloaking ?? options.disableCodexCloaking,
         gatewayVersion: options.gatewayVersion,
         credentialHeaders: candidate.credential.headers,
       }),
@@ -422,7 +428,7 @@ export function createCodexPassthroughService(options: CodexPassthroughServiceOp
         apiKey: candidate.credential.apiKey,
         sessionId: translated.sessionHeaderValue,
         accept: 'application/json',
-        disableCodexCloaking: candidate.credential.disableCodexCloaking,
+        disableCodexCloaking: candidate.credential.disableCodexCloaking ?? options.disableCodexCloaking,
         gatewayVersion: options.gatewayVersion,
         credentialHeaders: candidate.credential.headers,
       }),
@@ -601,6 +607,7 @@ function checkGatewayKey(
   request: CodexPassthroughRequest,
   apiKeys: readonly string[],
 ): CodexPassthroughResponse | undefined {
+  if (apiKeys.length === 0) return undefined
   const headers = headerListToRecord(request.headers)
   const authorization = readHeaderValue(headers, 'authorization')
   const xApiKey = readHeaderValue(headers, 'x-api-key')

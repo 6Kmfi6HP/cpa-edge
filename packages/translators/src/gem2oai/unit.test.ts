@@ -6,6 +6,7 @@
  * escalation, the auth-transport surface, model discovery asymmetries and
  * the upstream header policy.
  */
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { CpaError, MemoryStore } from '@cpa-edge/core'
 import type { Store } from '@cpa-edge/core'
@@ -857,6 +858,15 @@ describe('stream — chunk mapping', () => {
   })
 })
 
+/** Body fence of one S1-17 downstream recording (fixture-anchored expectations). */
+function recordedS1Body(name: string): string {
+  const text = readFileSync(`tests/fixtures/S1/S1-17/${name}.downstream.md`, 'utf8').replace(/\r\n/g, '\n')
+  const marker = text.indexOf('## Body')
+  const open = text.indexOf('\n```', marker)
+  const close = text.indexOf('```', open + 4)
+  return text.slice(open + 4, close).replace(/^\n/, '').replace(/\n$/, '')
+}
+
 describe('stream — error payloads and framing modes', () => {
   const ctx = { streamModel: 'mock-gpt-model' }
 
@@ -928,6 +938,52 @@ describe('stream — error payloads and framing modes', () => {
     )
     expect(frameDownstreamEvent('raw', { kind: 'chunk', body: '{"a":1}' })).toBe('{"a":1}')
     expect(frameDownstreamEvent('raw', { kind: 'terminal-error', body: '{"e":1}', status: 502 })).toBe('{"e":1}')
+  })
+
+  it('translates upstream chunks whose payload carries trailing garbage after the JSON value (S1-17 recorded pin)', async () => {
+    const mockFile = JSON.parse(
+      readFileSync('tests/fixtures/S1/S1-17/mock-response.json', 'utf8'),
+    ) as { readonly canned_sse_frames: readonly string[] }
+    // Each recorded frame ends with a stray '}' after the balanced JSON
+    // value; the reference still translates every chunk (S1-17 golden).
+    for (const frame of mockFile.canned_sse_frames) {
+      if (frame === 'data: [DONE]') continue
+      expect(frame.endsWith('}}'), 'S1-17 chunks carry the recorded trailing brace').toBe(true)
+    }
+
+    const events: Array<{ kind: string; body: string }> = []
+    for await (const event of translateOpenAIStreamToGemini(sse(mockFile.canned_sse_frames), ctx)) {
+      events.push(event)
+    }
+    // Role chunk dropped, content + finish translated, [DONE] ends cleanly.
+    expect(events).toEqual([
+      {
+        kind: 'chunk',
+        body: '{"candidates":[{"content":{"parts":[{"text":"Hello from mock openai upstream"}],"role":"model"},"index":0}],"model":"mock-gpt-model"}',
+      },
+      {
+        kind: 'chunk',
+        body: '{"candidates":[{"content":{"parts":[],"role":"model"},"index":0,"finishReason":"STOP"}],"model":"mock-gpt-model"}',
+      },
+    ])
+
+    const producedSse = events.map((event) => frameDownstreamEvent('sse', event as never)).join('')
+    const recordedSse = recordedS1Body('stream-alt-sse')
+    expect(producedSse).toBe(recordedSse.replace(/\n$/, '') + '\n')
+    expect(events.map((event) => frameDownstreamEvent('raw', event as never)).join('')).toBe(
+      recordedS1Body('stream-alt-json'),
+    )
+  })
+
+  it('completely non-JSON payloads still take the terminal-error path', async () => {
+    const events = await collect(sse(['data: not-json-at-all\n\n']))
+    expect(events).toEqual([
+      {
+        kind: 'terminal-error',
+        body: '{"error":{"message":"not-json-at-all","type":"server_error","code":"internal_server_error"}}',
+        status: 502,
+      },
+    ])
   })
 
   it('alt normalization: sse/empty/absent select SSE; anything else selects raw', () => {

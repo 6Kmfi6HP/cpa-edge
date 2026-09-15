@@ -90,7 +90,8 @@ function isStringEnum(value: unknown): value is readonly string[] {
 /** The string-enum values of an `enum` member, or of a string `const`. */
 function enumValuesOf(key: string, value: unknown): readonly string[] | undefined {
   if (key === 'enum') return isStringEnum(value) ? value : undefined
-  return typeof value === 'string' ? [value] : undefined
+  if (key === 'const') return typeof value === 'string' ? [value] : undefined
+  return undefined
 }
 
 /** One edit the object rebuild applies to a member. */
@@ -455,7 +456,7 @@ export const DEFAULT_PARAMETERS_JSON_SCHEMA = '{"type":"object","properties":{}}
  * name/description/parametersJsonSchema do).
  */
 export function buildGeminiTools(tools: readonly unknown[], rawBody: string): WireValue[] | undefined {
-  const declarations: WireObject[] = []
+  const declarations: WireValue[] = []
   const extras: Array<'googleSearch' | 'codeExecution' | 'urlContext'> = []
   for (let index = 0; index < tools.length; index++) {
     const entry = tools[index]
@@ -481,7 +482,7 @@ export function buildGeminiTools(tools: readonly unknown[], rawBody: string): Wi
     if (declaration !== undefined) declarations.push(declaration)
   }
   const nodes: WireValue[] = []
-  if (declarations.length > 0) nodes.push({ functionDeclarations: declarations })
+  if (declarations.length > 0) nodes.push({ functionDeclarations: declarations as WireValue })
   for (const kind of extras) {
     if (kind === 'googleSearch') nodes.push({ googleSearch: {} })
     else if (kind === 'codeExecution') nodes.push({ codeExecution: {} })
@@ -490,21 +491,59 @@ export function buildGeminiTools(tools: readonly unknown[], rawBody: string): Wi
   return nodes.length > 0 ? nodes : undefined
 }
 
-/** Builds one function declaration: name, description, parametersJsonSchema. */
+/**
+ * Builds one function declaration from the client's `tools[i].function`
+ * raw object: kept members keep their ORIGINAL bytes (key spellings,
+ * spacing, value formatting - the name VALUE is replaced by the sanitized
+ * name, written compactly), the `parameters`/`strict` members are dropped,
+ * and `"parametersJsonSchema":<cleaned schema>` appends compactly at the
+ * end (fixtures C03/C04/C12 pin the shape). A function object without a
+ * raw span falls back to the compact ordered build.
+ */
 function buildDeclaration(
   fn: Record<string, unknown>,
   path: readonly string[],
   rawBody: string,
-): WireObject | undefined {
+): WireValue | undefined {
   const name = sanitizedOrEmpty(readString(fn, 'name') ?? '')
   if (name.length === 0) return undefined
-  const declaration: WireObject = { name }
-  const description = readString(fn, 'description')
-  if (description !== undefined) declaration['description'] = description
   const parameters = fn['parameters']
   const rawParameters = isPlainObject(parameters) ? rawValueAt(rawBody, [...path, 'parameters']) : undefined
-  declaration['parametersJsonSchema'] = new RawJson(
-    rawParameters !== undefined ? cleanGeminiSchema(rawParameters) : DEFAULT_PARAMETERS_JSON_SCHEMA,
-  ) as unknown as WireValue
-  return declaration
+  const schemaText = rawParameters !== undefined ? cleanGeminiSchema(rawParameters) : DEFAULT_PARAMETERS_JSON_SCHEMA
+
+  const rawFunction = rawValueAt(rawBody, path)
+  const scan = rawFunction !== undefined ? scanRawObject(rawFunction, 0) : undefined
+  if (scan === undefined || rawFunction === undefined) {
+    // Compact fallback: name, description?, parametersJsonSchema.
+    const declaration: WireObject = { name }
+    const description = readString(fn, 'description')
+    if (description !== undefined) declaration['description'] = description
+    declaration['parametersJsonSchema'] = new RawJson(schemaText) as unknown as WireValue
+    return declaration
+  }
+
+  let out = '{'
+  let first = true
+  let nameSeen = false
+  for (const member of scan.members) {
+    if (member.key === 'parameters' || member.key === 'strict' || member.key === 'parametersJsonSchema') continue
+    if (member.key === 'name') {
+      nameSeen = true
+      if (!first) out += rawFunction.slice(member.sepStart, member.keyStart)
+      out += rawFunction.slice(member.keyStart, member.valueStart) + serializeOrdered(name)
+      first = false
+      continue
+    }
+    if (!first) out += rawFunction.slice(member.sepStart, member.keyStart)
+    out += rawFunction.slice(member.keyStart, member.valueEnd)
+    first = false
+  }
+  if (!nameSeen) {
+    if (!first) out += ','
+    out += serializeOrdered('name') + ':' + serializeOrdered(name)
+    first = false
+  }
+  out += (first ? '' : ',') + serializeOrdered('parametersJsonSchema') + ':' + schemaText
+  out += '}'
+  return new RawJson(out)
 }

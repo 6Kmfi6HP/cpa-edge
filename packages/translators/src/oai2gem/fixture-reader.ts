@@ -3,7 +3,7 @@
  * (tests/fixtures/S2d1, RECIPES layout). Runtime code never imports this
  * module; the vitest suites use it to replay the recorded cases.
  */
-import { readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 
 export const FIXTURE_ROOT = 'tests/fixtures/S2d1'
 
@@ -161,11 +161,10 @@ export function readMockResponse(caseId: string): MockFile {
   return { control, scripted: parsed['scripted_mock_response'] }
 }
 
-/** Lists the recorded case directories, sorted. */
+/** Lists the recorded case directories, sorted (a case dir carries meta.yaml). */
 export function listCaseIds(): readonly string[] {
   return readdirSync(FIXTURE_ROOT)
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
+    .filter((name) => existsSync(`${FIXTURE_ROOT}/${name}/meta.yaml`))
     .sort()
 }
 

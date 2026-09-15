@@ -27,7 +27,7 @@ import {
   synthesizedDetailForStatus,
   terminalFailureDetail,
 } from './errors'
-import { rawSpanAt } from './json'
+import { isPlainObject, rawSpanAt, tryParseJson } from './json'
 import { formatDataLine, scanSseLines } from './sse'
 import { transformFramePayload } from './response'
 import type { FrameTransformState } from './response'
@@ -131,6 +131,12 @@ export async function* translatePassthroughStream(
         yield failureAfterCommit(detail, sequenceNumberOf(outcome.parsed, emittedFrames))
         return
       }
+      // The completion normalization renames a `response.done` frame on
+      // BOTH lines: the payload type (transformed above) and the event
+      // name of the enclosing block.
+      if (item.data !== undefined && item.data !== '[DONE]' && isResponseDonePayload(item.data)) {
+        renamePendingDoneEvent(pending)
+      }
       pending.push(`${formatDataLine(outcome.payload)}${item.ending}`)
       pendingHasData = true
       if (outcome.kind === 'terminal-success') {
@@ -156,6 +162,25 @@ export async function* translatePassthroughStream(
   }
   const detail = synthesizedDetailForStatus(408, STREAM_DISCONNECTED_MESSAGE)
   yield failureAfterCommit(detail, emittedFrames)
+}
+
+/** True when a data payload carries the response.done alias type. */
+function isResponseDonePayload(data: string): boolean {
+  const parsed = tryParseJson(data)
+  return isPlainObject(parsed) && parsed['type'] === 'response.done'
+}
+
+/** Rewrites a pending `event: response.done` line to the normalized name. */
+function renamePendingDoneEvent(pending: string[]): void {
+  for (let i = pending.length - 1; i >= 0; i--) {
+    const line = pending[i]
+    if (line === undefined) continue
+    if (line.startsWith('event: response.done')) {
+      pending[i] = line.replace('event: response.done', 'event: response.completed')
+      return
+    }
+    if (line.startsWith('data:')) return
+  }
 }
 
 function sequenceNumberOf(payload: Record<string, unknown>, emittedFrames: number): number {

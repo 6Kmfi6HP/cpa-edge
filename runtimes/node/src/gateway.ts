@@ -492,6 +492,20 @@ export function createNodeGateway(options: NodeGatewayOptions): NodeGateway {
   })
 
   const registry = new ModelRegistry(config.providers)
+  /**
+   * The /v1 model lists stamp `created`/`created_at` when the registry is
+   * built, not per request: every list served by one gateway instance
+   * shares a single stamp (S1-09/S1-10 share one stamp while their
+   * request clocks differ by 12s; hot reload rebuilds the gateway and
+   * re-stamps). The stamp is captured once, at the registry's first
+   * use - identical to config-load time in production, and correct for
+   * contract harnesses that only freeze their clock per request.
+   */
+  let listStampMs: number | undefined
+  const modelListStamp = (): number => {
+    if (listStampMs === undefined) listStampMs = now()
+    return listStampMs
+  }
 
   const claudeChatService = oai2cla.createOai2ClaChatService({
     credentials: claudeCredentialsForChat(config),
@@ -564,7 +578,9 @@ export function createNodeGateway(options: NodeGatewayOptions): NodeGateway {
 
   /** Chat-family model resolution -> facade dispatch (S1 §3.2). */
   const dispatchChat = async (context: RequestContext): Promise<Handled> => {
-    const decoded = decodeOrFail(context, (message) => plainJson(400, invalidRequestBody(message)))
+    // Recorded (S1-25 zstd-garbage): the chat handler renders request-
+    // decode failures with the charset content type.
+    const decoded = decodeOrFail(context, (message) => charsetJson(400, invalidRequestBody(message)))
     if ('handled' in decoded) return decoded.handled
     const parsed = parseJsonGuarded(decoded.text)
     if (parsed === undefined) return { response: plainJson(400, depthFailureBody()) }
@@ -822,7 +838,6 @@ export function createNodeGateway(options: NodeGatewayOptions): NodeGateway {
   /** Handler table; each returns the pre-CORS/trace response. */
   const handleById = async (context: RequestContext): Promise<Handled> => {
     const id = context.match.entry.id
-    const nowMs = now()
     switch (id) {
       case 'root': {
         const safePage = plane.serveSafeModePage(toWebRequest(context))
@@ -923,10 +938,13 @@ export function createNodeGateway(options: NodeGatewayOptions): NodeGateway {
           userAgent.startsWith('claude-cli')
         ) {
           return {
-            response: charsetJson(200, claudeModelsListBody(registry, nowMs, !config.disableCloakingModelList)),
+            response: charsetJson(
+              200,
+              claudeModelsListBody(registry, modelListStamp(), !config.disableCloakingModelList),
+            ),
           }
         }
-        return { response: charsetJson(200, openAiModelsListBody(registry, nowMs)) }
+        return { response: charsetJson(200, openAiModelsListBody(registry, modelListStamp())) }
       }
       case 'chat-completions':
       case 'completions': {

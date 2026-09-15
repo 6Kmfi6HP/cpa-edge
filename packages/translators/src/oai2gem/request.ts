@@ -274,18 +274,19 @@ function collectToolResults(messages: readonly unknown[]): Map<string, ToolResul
 }
 
 /**
- * Tool message content -> raw `response.result` text: a string content
- * becomes a JSON string; object/array content embeds the CLIENT's raw
- * bytes; anything else (or a missing tool message) falls back to the
- * recorded `{}` default (spec 3.1.1).
+ * Tool message content -> raw `response.result` text: a string content is
+ * embedded as a JSON string built from the member's RAW bytes (quotes
+ * and escapes included - fixture C03 pins the resulting double encoding);
+ * object/array content splices the CLIENT's raw member bytes; anything
+ * else (or a missing tool message) falls back to the recorded `{}`
+ * default (spec 3.1.1).
  */
 function toolResultText(result: ToolResult | undefined, rawBody: string): string {
   if (result === undefined) return '{}'
-  if (typeof result.content === 'string') return serializeOrdered(result.content)
-  if (isPlainObject(result.content) || Array.isArray(result.content)) {
-    const raw = rawValueAt(rawBody, ['messages', String(result.messageIndex), 'content'])
-    if (raw !== undefined) return raw
-  }
+  const raw = rawValueAt(rawBody, ['messages', String(result.messageIndex), 'content'])
+  if (raw === undefined) return '{}'
+  if (typeof result.content === 'string') return serializeOrdered(raw)
+  if (isPlainObject(result.content) || Array.isArray(result.content)) return raw
   return '{}'
 }
 

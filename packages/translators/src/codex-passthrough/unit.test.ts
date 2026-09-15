@@ -648,12 +648,12 @@ describe('stream pipeline', () => {
     ])
   })
 
-  test('response.done is renamed in the payload, the event name stays, the stream still closes', async () => {
+  test('response.done is renamed on BOTH the event line and the payload; the stream still closes', async () => {
     const frames = await collectStream([
       'event: response.done\ndata: {"type":"response.done","response":{"id":"r"}}\n',
     ])
     expect(frames).toEqual([
-      'event: response.done\ndata: {"type":"response.completed","response":{"id":"r"}}\n\n',
+      'event: response.completed\ndata: {"type":"response.completed","response":{"id":"r"}}\n\n',
       '\n',
     ])
   })

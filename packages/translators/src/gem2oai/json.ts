@@ -164,6 +164,25 @@ export function wireObject(value: unknown): WireObject {
 }
 
 /**
+ * Parses the LEADING JSON value of a text leniently: bytes after the value
+ * ends are ignored. The reference's upstream chunk reader tolerates a data
+ * payload with trailing garbage after the JSON value (the recorded mock
+ * appends a stray closing brace to every SSE chunk); a text that does not
+ * START with a complete JSON value returns `undefined` and takes the
+ * terminal-error path.
+ */
+export function parseLeadingJson(text: string): unknown {
+  const start = skipWs(text, 0)
+  const end = scanValue(text, start)
+  if (end <= start) return undefined
+  try {
+    return JSON.parse(text.slice(start, end))
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * Locates the RAW text of the value at a path inside a JSON document that
  * `JSON.parse` already accepted. Path segments are object keys or array
  * indices; the scan returns the original bytes of the target, spacing

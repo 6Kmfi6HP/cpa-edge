@@ -15,7 +15,7 @@
  * `data:` blocks or raw byte-adjacent JSON - the chunks themselves are
  * identical either way.
  */
-import { readArray, readObject, readString, serializeOrdered } from './json'
+import { parseLeadingJson, readArray, readObject, readString, serializeOrdered } from './json'
 import { renderGatewayError } from './errors'
 import { extractReasoningTexts, mapFinishReason, parseToolArguments, usageMetadata } from './response'
 import type { DownstreamFraming, DownstreamStreamEvent, OpenAIToGeminiContext, SseFrame, WireObject } from './types'
@@ -313,10 +313,11 @@ export async function* translateOpenAIStreamToGemini(
       return
     }
     if (frame.data === '[DONE]') return
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(frame.data)
-    } catch {
+    // Leading-value parse (S1-17 pin): trailing bytes after the JSON value
+    // are ignored; a payload without a complete leading value is the
+    // terminal non-JSON case.
+    const parsed = parseLeadingJson(frame.data)
+    if (parsed === undefined) {
       yield { kind: 'terminal-error', body: renderGatewayError(frame.data, 502), status: 502 }
       return
     }
