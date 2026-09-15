@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest'
 import { AUTH_FILES_NAMESPACE, formatRfc3339, type FetchLike } from '@cpa-edge/auth'
 import { DurableObjectRuntime } from './runtime'
+import { IDLE_HEARTBEAT_MS } from './alarm'
 import { SimulatedAlarm, SimulatedDoStorage, SimulatedWebSocketHost, makeFakeKv, makeFakeSocket } from './harness'
 import { CONFIG_NAMESPACE, CONFIG_TEXT_KEY } from './config'
 
@@ -246,5 +247,28 @@ describe('durable object runtime: alarm pass', () => {
     >
     expect(refreshed['access_token']).toBe('new-access')
     expect(alarm.armedAt.length).toBeGreaterThan(0)
+  })
+
+  it('a failing pass re-arms the heartbeat instead of killing the loop', async () => {
+    const { runtime, storage, alarm } = newRuntime({
+      configKv: makeFakeKv({ 'config.yaml': CONFIG_YAML_TEXT }),
+    })
+    await runtime.fetch(webRequest('GET', '/healthz'))
+    const armedBefore = alarm.armedAt.length
+    storage.failListOnce = true
+    // Model the platform: the alarm handler runs because the pending
+    // alarm fired - the slot is consumed (getAlarm() reads null).
+    await alarm.deleteAlarm()
+    // The pass swallows the storage failure, logs, and re-arms the
+    // heartbeat instead of leaving the object unscheduled.
+    await runtime.alarm()
+    expect(storage.failListOnce).toBe(false)
+    expect(alarm.armedAt.length).toBe(armedBefore + 1)
+    expect(alarm.lastArmed()).toBeLessThanOrEqual(Date.now() + IDLE_HEARTBEAT_MS)
+    expect(await alarm.getAlarm()).not.toBeNull()
+    // The next pass runs clean (self-healing cadence).
+    await alarm.deleteAlarm()
+    await runtime.alarm()
+    expect(alarm.armedAt.length).toBe(armedBefore + 2)
   })
 })

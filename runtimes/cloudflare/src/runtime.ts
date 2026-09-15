@@ -117,13 +117,24 @@ export class DurableObjectRuntime {
   async alarm(): Promise<void> {
     await this.ensureBoot()
     const gateway = this.currentGateway()
-    await runAlarmPass({
-      store: this.store,
-      now: this.now,
-      fetch: this.fetchLike,
-      config: () => gateway.config,
-      alarm: this.alarmSurface,
-    })
+    try {
+      await runAlarmPass({
+        store: this.store,
+        now: this.now,
+        fetch: this.fetchLike,
+        config: () => gateway.config,
+        alarm: this.alarmSurface,
+      })
+    } catch (error) {
+      // Durability across passes: a failed pass must never kill the
+      // loop (a fresh alarm is only set at the END of a pass, so
+      // re-throwing here would leave the object unscheduled until some
+      // request happens to poke it - possibly never, since the DO can
+      // hibernate indefinitely). Log, re-arm the heartbeat, and let the
+      // next pass retry the work.
+      console.error('[cloudflare-runtime] alarm pass failed; re-arming heartbeat', error)
+      await ensureAlarmBefore(this.alarmSurface, this.now() + IDLE_HEARTBEAT_MS)
+    }
   }
 
   // ---- boot ---------------------------------------------------------------

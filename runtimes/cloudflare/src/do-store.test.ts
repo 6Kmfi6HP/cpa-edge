@@ -172,6 +172,30 @@ describe('durable object store: documents', () => {
     expect(calls).toBe(2)
   })
 
+  it('a stale writer cannot commit over a delete-and-recreate sequence (no ABA)', async () => {
+    const store = newStore(new SimulatedDoStorage())
+    await store.put('ns', 'k', 'first')
+    let releaseGate!: () => void
+    const gate = new Promise<void>((resolve) => {
+      releaseGate = resolve
+    })
+    let calls = 0
+    const slow = store.update('ns', 'k', async (current) => {
+      calls += 1
+      if (calls === 1) await gate
+      return `writer-saw-${String(current)}`
+    })
+    // While the slow writer holds its v1 snapshot: delete, then
+    // recreate the key. Versions never repeat, so the stale commit must
+    // fail and re-run against the recreated value.
+    await store.delete('ns', 'k')
+    await store.put('ns', 'k', 'recreated')
+    releaseGate()
+    await expect(slow).resolves.toBe('writer-saw-recreated')
+    expect(calls).toBe(2)
+    await expect(store.get('ns', 'k')).resolves.toBe('writer-saw-recreated')
+  })
+
   it('concurrent puts both land: last writer wins, versions stay monotonic', async () => {
     const storage = new SimulatedDoStorage()
     const store = newStore(storage)

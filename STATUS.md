@@ -28,7 +28,7 @@
 | S5 | spec: management API | 1 | spec-s5-mgmt | merged | 2 | ADMITTED round 2. 22 goldens / 168 steps. Unlocks I-mgmt (after I-auth interfaces land) + S5 contract tests. |
 | S6 | spec: state & storage schemas | 1 | spec-s6-state | merged | 2 | ADMITTED round 2. 17 goldens; 3 catalogs; per-path re-serialization; vertex type; RESP node-contract. Residual editorial: N2 schema omitempty marks, N7 store-auth shape, citation tag split |
 | S7 | spec: platform degradation matrix | 1 | spec-s7-platform | merged | 3 | ADMITTED after 3 rounds. NE registry feeds SPEC §5. RuntimeCapabilities -> I-core; T2/T3/D1 bindings recorded. |
-| I-core | packages/core: scheduling algorithms | 2 | impl-i-core | fix | 1 | adv-impl-2 R1: FAIL (B1 tier collapse; B2 LCP wiring; B3 fault-code literal); fixer dispatched + N1 test strengthening |
+| I-core | packages/core: scheduling algorithms | 2 | impl-i-core | impl-adv-r2 | 1 | fix round done (3/3 decisive); round-2 running on adv-impl-2 |
 | I-auth | packages/auth: OAuth/device/refresh | 2 | — | merged | 2 | MERGED: auth complete (spec 3 rounds + impl gate 2 rounds). 168 unit + 44 contract live. Ledger: reset-preserves-ban + blocked_until-field hardening -> T1; N4/N5/N6/N8-N16 residuals -> D2. |
 | I-tr-S2d1 | packages/translators: OpenAI→Gemini | 2 | — | merged | 1 | MERGED: oai2gem PASS-WITH-NONBLOCKING round 1. 106/106. Rulings: N2 trace two-layer resolution (facade presence per its contract + runtime override per R-TRACE); N1 $alt micro-fix dispatched; N4 depth-bar PASS (family reference). |
 | I-tr-S2d2 | packages/translators: Gemini→OpenAI | 2 | — | merged | 1 | MERGED: gem2oai PASS-WITH-NONBLOCKING round 1. 123 module + 26 contract live green. Ledger: N1 depth-cap->400 (T1 hardening), N2 countTokens time-box (T2), N3 failureCount atomicity (S4-impl note), N4 alt-empty spec sentence, N5 model-stamp parity, N6 leniency notes (D2). |
@@ -51,10 +51,9 @@
 | T1 | runtimes/node integration + full contract tests | 3 | — | merged | 0 | CLOSED: node runtime complete (route layer + 11 facades + management + auth plane; s1-routes 150/150; full suite 2053/2053; mgmt-gate parity fix landed). Seam inventory = ruled v1 boundary. |
 | T2 | runtimes/cloudflare (DO store, alarms, WS hibernation) | 3 | integrator-t2 | impl | 0 |  |
 | T3 | runtimes/vercel (degraded per S7) | 3 | integrator-t3 | impl | 0 |  |
-| T4 | end-to-end smoke: fixture replay vs upstream diff | 3 | — | pending | 0 |  |
+| T4 | end-to-end smoke: fixture replay vs upstream diff | 3 | t4-smoke | impl | 0 |  |
 | D1 | README/deploy guide, SPEC version anchor publication | 4 | impl-d1-docs | impl | 0 |  |
-| D2 | global final audit vs upstream README | 4 | — | pending | 0 |  |
+| D2 | global final audit vs upstream README | 4 | adv-d2-final | impl | 0 |  |
 
 ## Verdict / escalation log
 (appended by orchestrator)
-- 2026-09-16 08:2x T1 CLOSED. Node runtime complete: S1 inventory full coverage, 10+1 facades wired, security gate parity fixed. Full suite 2053/2053, 0 skipped.

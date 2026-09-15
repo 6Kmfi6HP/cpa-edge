@@ -7,11 +7,12 @@
  * recorded re-framing rule), and comments, `id:`/`retry:` fields and
  * complete non-data lines carry no payload. Downstream: each forwarded
  * payload is framed as `data: <payload>\n\n`, and the stream ends with
- * the `[DONE]` terminator. The terminator is emitted WITHOUT a trailing
- * blank line - the S1-15 golden pins the stream's final bytes at
- * `data: [DONE]` - while a mid-stream terminal error keeps the full
- * frame terminator (the same-surface S2d1 disconnect golden pins its
- * final chunk as `data: {"error":...}\n\n`).
+ * the `[DONE]` terminator, itself a full SSE frame: the raw-chunked
+ * cross-golden capture of this surface records the closing chunk as
+ * `data: [DONE]\n\n` (14 bytes), so the terminator carries its trailing
+ * blank line like every other frame. The S1-15 markdown fixture lost
+ * that tail to the recorder's display stripping (a capture artifact,
+ * ruled so); the wire truth is asserted here.
  */
 import type { SseFrame } from './types'
 
@@ -93,10 +94,10 @@ export function dataFrame(payload: string): string {
 }
 
 /**
- * The `[DONE]` terminator. Emitted verbatim - forwarded when the
- * upstream stream carries its own marker, synthesized at a clean close
- * that never sent one (the same chat surface synthesizes it over
- * non-OpenAI upstreams) - and pinned WITHOUT a trailing blank line by
- * the S1-15 golden's final bytes.
+ * The `[DONE]` terminator, a full SSE frame. Emitted verbatim -
+ * forwarded when the upstream stream carries its own marker, synthesized
+ * at a clean close that never sent one (the same chat surface
+ * synthesizes it over non-OpenAI upstreams) - with the trailing blank
+ * line the raw-chunked cross-golden capture records.
  */
-export const DONE_TERMINATOR = 'data: [DONE]'
+export const DONE_TERMINATOR = 'data: [DONE]\n\n'

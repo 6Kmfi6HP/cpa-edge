@@ -11,7 +11,13 @@
  * captured upstream exchange (method, url, ordered headers with
  * Content-Length consistency, body bytes) against upstream.jsonl, and
  * the downstream surface (status, direction-owned headers, body bytes -
- * the full SSE byte stream included) against downstream.md.
+ * the full SSE byte stream included) against downstream.md. One
+ * recorder artifact is normalized on the expected side: the S1-15
+ * markdown body lost the terminator's trailing blank line to the
+ * display stripping, so the stream comparison restores it - the
+ * raw-chunked cross-golden capture pins the closing chunk as
+ * `data: [DONE]\n\n`, and the produced stream must end with those
+ * exact bytes.
  *
  * S1-16 recorded the SAME executor wire from the Claude client surface
  * (the messages:openai-compatibility seam - the cla2oai direction owns
@@ -142,6 +148,7 @@ async function assertDownstream(
   expect(headerValue(response.headers, 'content-type'), `${caseId}: Content-Type`).toBe(
     headerValue(golden.headers, 'content-type'),
   )
+  let expectedBody = golden.body
   if (headerValue(golden.headers, 'content-type') === 'text/event-stream') {
     expect(headerValue(response.headers, 'cache-control'), `${caseId}: Cache-Control`).toBe(
       headerValue(golden.headers, 'cache-control'),
@@ -149,8 +156,12 @@ async function assertDownstream(
     expect(headerValue(response.headers, 'connection'), `${caseId}: Connection`).toBe(
       headerValue(golden.headers, 'connection'),
     )
+    // Capture artifact, ruled so: the recorder's markdown stripping cut
+    // the terminator's trailing blank line; the wire truth carries it
+    // (the raw-chunked cross-golden capture pins `data: [DONE]\n\n`).
+    if (expectedBody.endsWith('data: [DONE]')) expectedBody += '\n\n'
   }
-  expect(body, `${caseId}: body bytes (full stream bytes for SSE)`).toBe(golden.body)
+  expect(body, `${caseId}: body bytes (full stream bytes for SSE)`).toBe(expectedBody)
 }
 
 /** Upstream-wire assertion: the s2d2 order discipline at the facade seam. */

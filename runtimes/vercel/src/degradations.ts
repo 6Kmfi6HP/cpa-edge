@@ -491,9 +491,6 @@ export function createRequestOverlay(options: RequestOverlayOptions) {
     // Fail-closed proxy gate (NE-S7-01): runs only on registered
     // completion routes, after the same client auth gate, and only when
     // the model resolves (unknown models keep their family 400s).
-    // Fail-closed proxy gate (NE-S7-01): runs only on registered
-    // completion routes, after the same client auth gate, and only when
-    // the model resolves (unknown models keep their family 400s).
     if (!MODEL_ROUTES.has(id)) return undefined
     if (match.entry.group !== 'client') return undefined
     const model = modelOf(options, id, request, url)

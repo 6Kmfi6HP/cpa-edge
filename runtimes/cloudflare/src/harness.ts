@@ -16,6 +16,9 @@ export class SimulatedDoStorage {
   private readonly map = new Map<string, unknown>()
   readonly puts: string[] = []
 
+  /** When set, the next `list` call rejects once (fault-injection tests). */
+  failListOnce: boolean = false
+
   async get(key: string): Promise<unknown> {
     return this.map.get(key)
   }
@@ -30,6 +33,10 @@ export class SimulatedDoStorage {
   }
 
   async list(options?: { readonly prefix?: string }): Promise<Map<string, unknown>> {
+    if (this.failListOnce) {
+      this.failListOnce = false
+      throw new Error('simulated storage failure')
+    }
     const out = new Map<string, unknown>()
     const prefix = options?.prefix
     for (const [key, value] of [...this.map.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {

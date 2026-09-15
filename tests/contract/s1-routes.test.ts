@@ -868,9 +868,13 @@ async function materialize(response: GatewayResponse): Promise<MaterializedRespo
 /**
  * How a golden body compares: byte-exact unless the fixture demands
  * otherwise. `trim` covers bodies whose trailing CR/LF did not survive
- * the markdown rendering (the OQ-1 redirect HTML and the gorilla
- * handshake text): both sides trim trailing CR/LF and the golden
- * Content-Length is not cross-checked for them.
+ * the fixture rendering: the OQ-1 redirect HTML and the gorilla
+ * handshake text lost theirs in the markdown, and S1-15's stdout
+ * capture stripped the trailing `\n\n` after `data: [DONE]` (its own
+ * mid-frames keep theirs, and the raw-chunked goldens S2d1-C11/S2d3-C2
+ * pin `data: [DONE]\n\n` as the wire truth elsewhere). Both sides trim
+ * trailing CR/LF before the byte compare and the golden Content-Length
+ * is not cross-checked for them.
  */
 type BodyMode = 'exact' | 'sse' | 'trim' | 'skip-body'
 
@@ -1087,6 +1091,7 @@ const UPSTREAM_CALLS_BY_REQUEST: Readonly<Record<string, number>> = {
 /** Golden bodies that compare under a mode other than byte-exact. */
 const BODY_MODE_BY_REQUEST: Readonly<Record<string, BodyMode>> = {
   'S1-18/responses-stream': 'sse',
+  'S1-15/chat-stream': 'trim',
   'S1-08/get-trailing': 'trim',
   'S1-19/responses-get-nows': 'trim',
   'S1-17/stream-alt-sse': 'sse',

@@ -410,10 +410,10 @@ describe('R3 - stream re-framing', () => {
     expect(headerOf(response.headers, 'content-type')).toBe('text/event-stream')
     expect(headerOf(response.headers, 'cache-control')).toBe('no-cache')
     expect(headerOf(response.headers, 'connection')).toBe('keep-alive')
-    // Full byte pin: frames separated by blank lines, terminator WITHOUT a
-    // trailing blank line, nothing forwarded after [DONE].
+    // Full byte pin: every frame - the terminator included - ends with
+    // its blank line, and nothing is forwarded after [DONE].
     expect(await readBody(response.body)).toBe(
-      'data: {"delta": {"role": "assistant"}}\n\ndata: {"delta": {"content": "hi"}}\n\ndata: [DONE]',
+      'data: {"delta": {"role": "assistant"}}\n\ndata: {"delta": {"content": "hi"}}\n\ndata: [DONE]\n\n',
     )
     expect(calls[0]?.body).toContain('"stream_options":{"include_usage":true}')
   })
@@ -423,18 +423,19 @@ describe('R3 - stream re-framing', () => {
     const { send } = senderWith(() => upstreamSse(cannedSseFrames))
     const response = await handle.handleChatCompletions(request(streamRequest), send)
     const body = await readBody(response.body)
-    const frames = body.split('\n\n')
+    const frames = body.split('\n\n').filter((frame) => frame !== '')
     expect(frames[0]).toBe(
       'data: {"id": "chatcmpl-mock-0001", "object": "chat.completion.chunk", "created": 1770000000, "model": "mock-gpt-model", "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": null}]}',
     )
     expect(frames[frames.length - 1]).toBe('data: [DONE]')
+    expect(body.endsWith('data: [DONE]\n\n'), 'terminator keeps its trailing blank line').toBe(true)
   })
 
   it('synthesizes the terminator on a clean close that never sent [DONE]', async () => {
     const { service: handle } = facade()
     const { send } = senderWith(() => upstreamSse(['data: {"delta": {}}']))
     const response = await handle.handleChatCompletions(request(streamRequest), send)
-    expect(await readBody(response.body)).toBe('data: {"delta": {}}\n\ndata: [DONE]')
+    expect(await readBody(response.body)).toBe('data: {"delta": {}}\n\ndata: [DONE]\n\n')
   })
 
   it('commits headers and the terminator alone when the upstream stream is empty', async () => {
@@ -507,7 +508,7 @@ describe('R3 - stream re-framing', () => {
     ]
     const { send } = senderWith(() => upstreamSse(frames))
     const response = await handle.handleChatCompletions(request(streamRequest), send)
-    expect(await readBody(response.body)).toBe('data: {"model": "mock-model", "choices": []}\n\ndata: [DONE]')
+    expect(await readBody(response.body)).toBe('data: {"model": "mock-model", "choices": []}\n\ndata: [DONE]\n\n')
   })
 
   it('answers an upstream error before the first frame with a plain HTTP error, never SSE (the C18 pin)', async () => {
