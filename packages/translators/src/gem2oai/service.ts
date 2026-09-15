@@ -428,14 +428,19 @@ export function createGem2OaiService(options: Gem2OaiServiceOptions): Gem2OaiSer
     } catch (error) {
       return transportFailure(alias, error)
     }
-    const headers = framing === 'sse'
-      ? ([
-          ['Content-Type', 'text/event-stream'],
-          ['Cache-Control', 'no-cache'],
-          ['Connection', 'keep-alive'],
-          ['Access-Control-Allow-Origin', '*'],
-        ] as HeaderList)
-      : ([['Content-Type', 'text/plain; charset=utf-8']] as HeaderList)
+    const headers: HeaderList =
+      framing === 'sse'
+        ? [
+            ['Content-Type', 'text/event-stream'],
+            ['Cache-Control', 'no-cache'],
+            ['Connection', 'keep-alive'],
+            ['Access-Control-Allow-Origin', '*'],
+            ['X-Cpa-Trace-Id', newTraceId()],
+          ]
+        : [
+            ['Content-Type', 'text/plain; charset=utf-8'],
+            ['X-Cpa-Trace-Id', newTraceId()],
+          ]
     if (first.done === true) {
       await resetCooldownBestEffort(alias)
       return { retryable: false, response: { status: 200, headers, body: '' } }

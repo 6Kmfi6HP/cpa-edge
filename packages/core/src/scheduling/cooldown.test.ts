@@ -40,7 +40,7 @@ function mark(
 }
 
 describe('quota ladder', () => {
-  it('starts at 1s and doubles at most once per still-open window', () => {
+  it('starts at 1s and doubles per post-window failure, once per open window', () => {
     const first = nextQuotaCooldown(undefined, undefined, T0)
     expect(first.backoffLevel).toBe(0)
     expect(first.nextRecoverAt - T0).toBe(1_000)
@@ -48,23 +48,36 @@ describe('quota ladder', () => {
     const second = nextQuotaCooldown(first, undefined, T0 + 100)
     expect(second.backoffLevel).toBe(1)
     expect(second.nextRecoverAt - (T0 + 100)).toBe(2_000)
-    // Further failures inside the still-open window do not step again.
+    // Further failures inside the still-open window do not step again, and
+    // the re-armed window never shortens a live one (it may extend).
     const third = nextQuotaCooldown(second, undefined, T0 + 200)
     expect(third.backoffLevel).toBe(1)
-    // The window never shortens.
-    expect(third.nextRecoverAt).toBe(second.nextRecoverAt)
-    // After the window lapses the level resets.
-    const fresh = nextQuotaCooldown(second, undefined, second.nextRecoverAt + 1)
-    expect(fresh.backoffLevel).toBe(0)
+    expect(third.nextRecoverAt).toBe(T0 + 200 + 2_000)
+    const shorter = nextQuotaCooldown(
+      { ...second, nextRecoverAt: T0 + 60_000 },
+      undefined,
+      T0 + 200,
+    )
+    expect(shorter.nextRecoverAt).toBe(T0 + 60_000)
+    // A post-window failure doubles the window again (recorded: the third
+    // consecutive 429 cools for 4 s).
+    const postWindow = nextQuotaCooldown(third, undefined, third.nextRecoverAt + 1)
+    expect(postWindow.backoffLevel).toBe(2)
+    expect(postWindow.nextRecoverAt - (third.nextRecoverAt + 1)).toBe(4_000)
   })
 
   it('caps the ladder at 30 minutes', () => {
     let block = nextQuotaCooldown(undefined, undefined, T0)
-    for (let i = 0; i < 40; i += 1) {
-      block = nextQuotaCooldown(block, undefined, block.nextRecoverAt - 1)
-      expect(block.nextRecoverAt - (block.nextRecoverAt - 1)).toBeLessThanOrEqual(QUOTA_BACKOFF_MAX_MS)
+    let failures = 1
+    while (block.nextRecoverAt - block.observedAt < QUOTA_BACKOFF_MAX_MS) {
+      // Post-window failures double the window until the cap.
+      const now = block.nextRecoverAt + 1
+      block = nextQuotaCooldown(block, undefined, now)
+      failures += 1
+      expect(failures).toBeLessThan(40)
     }
-    expect(block.nextRecoverAt - (block.observedAt + 1)).toBe(QUOTA_BACKOFF_MAX_MS)
+    expect(block.backoffLevel).toBe(11)
+    expect(block.nextRecoverAt - block.observedAt).toBe(QUOTA_BACKOFF_MAX_MS)
   })
 
   it('floors a Retry-After at 10 seconds and keeps the window monotone', () => {

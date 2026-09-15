@@ -192,9 +192,17 @@ export function nextQuotaCooldown(
   now: number,
   reason: 'quota' | 'credential_quota' | 'cloudflare challenge' = 'quota',
 ): QuotaBlock {
+  // The ladder escalates across consecutive failures: the first 429 opens a
+  // ~1 s window and the window doubles per post-window failure. Inside a
+  // still-open window the level steps up at most ONCE, so a burst of
+  // failures inside one window never multiplies the backoff.
   const live = existing !== undefined && existing.nextRecoverAt > now
   const level =
-    existing !== undefined && live ? (existing.steppedInWindow ? existing.backoffLevel : existing.backoffLevel + 1) : 0
+    existing === undefined
+      ? 0
+      : live && existing.steppedInWindow
+        ? existing.backoffLevel
+        : existing.backoffLevel + 1
   const ladderMs = Math.min(QUOTA_BACKOFF_BASE_MS * 2 ** level, QUOTA_BACKOFF_MAX_MS)
   const duration = retryAfterMs !== undefined ? Math.max(retryAfterMs, QUOTA_RETRY_AFTER_FLOOR_MS) : ladderMs
   const candidate = now + duration

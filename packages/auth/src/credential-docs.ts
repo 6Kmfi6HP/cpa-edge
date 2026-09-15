@@ -193,7 +193,8 @@ export function parseAuthFileDocument(name: string, value: JsonValue | undefined
   const disabled = document['disabled'] === true
   const proxyUrl = typeof document['proxy_url'] === 'string' ? document['proxy_url'] : ''
   const rawPrefix = typeof document['prefix'] === 'string' ? document['prefix'] : ''
-  const prefix = rawPrefix.includes('/') ? '' : rawPrefix.replace(/^\/+|\/+$/g, '')
+  const trimmedPrefix = rawPrefix.replace(/^\/+|\/+$/g, '')
+  const prefix = trimmedPrefix.includes('/') ? '' : trimmedPrefix
   const email = typeof document['email'] === 'string' ? document['email'] : ''
   const projectId = typeof document['project_id'] === 'string' ? document['project_id'] : ''
   const explicitLabel = typeof document['label'] === 'string' ? document['label'] : ''

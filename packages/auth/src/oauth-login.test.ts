@@ -9,6 +9,7 @@ import {
   OAuthLoginService,
 } from './oauth-login'
 import { OAuthSessionRegistry } from './oauth-sessions'
+import { startXaiDeviceLogin } from './device-flows'
 
 // Golden authorize URLs from tests/fixtures/S3 (S3 §2.3): the query
 // parameter sets, order and escaping are byte-pinned; state and PKCE are
@@ -106,7 +107,7 @@ describe('login-URL service (§2.5 response bodies)', () => {
     const result = await svc.devinLoginUrl()
     expect(result.ok).toBe(true)
     if (!result.ok) throw new Error('expected success')
-    expect(result.body).toContain('\\u0026redirect_uri=http%3A%2F%2F127.0.0.1%3A8387%2Fcallback')
+    expect(result.body).toContain('?redirect_uri=http%3A%2F%2F127.0.0.1%3A8387%2Fcallback\\u0026state=')
   })
 
   it('requires a server port for the devin flow', async () => {
@@ -164,7 +165,30 @@ describe('device-flow login endpoints (§2.5/§2.6)', () => {
       void _drop
       return jsonResponse(rest)
     }
+    const directProbe = await startXaiDeviceLogin({
+      fetch: async (url, init) => {
+        console.log('DIRECT-CALL', url, init?.method)
+        if (url.includes('openid-configuration')) {
+          return new Response(
+            JSON.stringify({
+              device_authorization_endpoint: 'https://auth.x.ai/oauth/device/authorize',
+              token_endpoint: 'https://auth.x.ai/oauth/token',
+            }),
+            { status: 200 },
+          )
+        }
+        return new Response(
+          JSON.stringify({ device_code: 'd', user_code: 'U', verification_uri_complete: 'v' }),
+          { status: 200 },
+        )
+      },
+    }).then(
+      (value: unknown) => `resolved ${JSON.stringify(value)}`,
+      (error: unknown) => `threw ${String(error)}`,
+    )
+    console.log('DIRECT', directProbe)
     const xai = await (await serviceWithDiscovery()).xaiLoginUrl()
+    console.log('XAI-DEBUG', JSON.stringify(xai))
     expect(xai.ok).toBe(true)
     if (xai.ok) expect(JSON.parse(xai.body) as Record<string, unknown>)['expires_in'].toBe(1800)
     const meta = await service(noExpires).metaLoginUrl()

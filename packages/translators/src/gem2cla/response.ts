@@ -209,19 +209,27 @@ function toolAccumulator(block: Record<string, unknown>): ToolAccumulator {
 
 /** Joins and trims the accumulated fragments; empty runs default to `{}`. */
 function assembledToolArgs(acc: ToolAccumulator): { readonly text: string; readonly valid: boolean } {
-  const joined = acc.parts.join('')
-  const trimmed = joined.trim()
+  const trimmed = acc.parts.join('').trim()
   const text = trimmed.length > 0 ? trimmed : '{}'
-  console.log('DEBUG assembled joined:', JSON.stringify(joined), 'len:', joined.length, 'text:', JSON.stringify(text))
   return { text, valid: isValidJson(text) }
 }
 
-/** Ordered functionCall part: name, raw args, then the id when present. */
-function functionCallPart(acc: ToolAccumulator): WireObject {
+/**
+ * Ordered functionCall part. With VALID spliced args the id lands inside
+ * `functionCall` (name, args, id). Corrupt args shift every later write
+ * one level out: the id lands on the part, next to `functionCall`
+ * (recorded: S2d7-13 frame 1 and S2d7-21).
+ */
+function functionCallPart(acc: ToolAccumulator, argsValid: boolean): WireObject {
   const { text } = assembledToolArgs(acc)
   const functionCall: WireObject = { name: acc.name, args: new RawJson(text) }
-  if (acc.id !== undefined) functionCall['id'] = acc.id
-  return { functionCall }
+  if (argsValid) {
+    if (acc.id !== undefined) functionCall['id'] = acc.id
+    return { functionCall }
+  }
+  const part: WireObject = { functionCall }
+  if (acc.id !== undefined) part['id'] = acc.id
+  return part
 }
 
 function isToolUseBlock(block: unknown): boolean {
@@ -304,7 +312,6 @@ export class ClaudeToGeminiStreamTranslator {
     if (kind === 'input_json_delta') {
       // The only delta that never emits: fragments accumulate by index.
       const partial = readString(delta, 'partial_json')
-      console.log('DEBUG partial:', JSON.stringify(partial), 'index:', index)
       if (typeof index === 'number' && partial !== undefined) {
         const acc = this.tools.get(index)
         if (acc !== undefined) acc.parts.push(partial)
@@ -347,8 +354,8 @@ export class ClaudeToGeminiStreamTranslator {
     const acc = this.tools.get(index)
     if (acc === undefined) return []
     const { valid } = assembledToolArgs(acc)
-    if (valid) return [this.chunk([functionCallPart(acc)], 'STOP')]
-    const base = this.chunk([functionCallPart(acc)])
+    if (valid) return [this.chunk([functionCallPart(acc, true)], 'STOP')]
+    const base = this.chunk([functionCallPart(acc, false)])
     return [base.slice(0, -1) + ',"finishReason":"STOP"}']
   }
 
@@ -463,8 +470,9 @@ export function translateClaudeBufferToGemini(buffer: string, ctx: ClaudeToGemin
       if (typeof index !== 'number') continue
       const acc = tools.get(index)
       if (acc === undefined) continue
-      if (!assembledToolArgs(acc).valid) corrupted = true
-      parts.push(functionCallPart(acc))
+      const { valid } = assembledToolArgs(acc)
+      if (!valid) corrupted = true
+      parts.push(functionCallPart(acc, valid))
     } else if (type === 'message_delta') {
       const eventUsage = readObject(value, 'usage')
       if (eventUsage !== undefined) usage = eventUsage

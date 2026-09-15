@@ -173,29 +173,54 @@ export function rawValueAt(text: string, path: readonly (string | number)[]): st
   let cursor = skipWs(text, 0)
   let end = scanValue(text, cursor)
   for (const key of path) {
-    if (text[cursor] !== '{') return undefined
-    let member = cursor + 1
-    for (;;) {
-      member = skipWs(text, member)
-      if (text[member] !== '"') return undefined
-      const nameEnd = scanString(text, member)
-      const name = text.slice(member + 1, nameEnd - 1)
-      const colon = skipWs(text, nameEnd)
-      if (text[colon] !== ':') return undefined
-      const valueStart = skipWs(text, colon + 1)
-      const valueEnd = scanValue(text, valueStart)
-      if (name === String(key)) {
-        cursor = valueStart
-        end = valueEnd
-        break
-      }
-      member = skipWs(text, valueEnd)
-      if (text[member] === '}') return undefined
-      if (text[member] !== ',') return undefined
-      member++
-    }
+    const stepped = text[cursor] === '{'
+      ? stepObjectMember(text, key, cursor)
+      : text[cursor] === '['
+        ? stepArrayElement(text, key, cursor)
+        : undefined
+    if (stepped === undefined) return undefined
+    cursor = stepped[0]
+    end = stepped[1]
   }
   return text.slice(cursor, end)
+}
+
+/** Advances to the raw span of one object member; undefined when absent. */
+function stepObjectMember(text: string, key: string | number, cursor: number): [number, number] | undefined {
+  let member = cursor + 1
+  for (;;) {
+    member = skipWs(text, member)
+    if (text[member] !== '"') return undefined
+    const nameEnd = scanString(text, member)
+    const name = text.slice(member + 1, nameEnd - 1)
+    const colon = skipWs(text, nameEnd)
+    if (text[colon] !== ':') return undefined
+    const valueStart = skipWs(text, colon + 1)
+    const valueEnd = scanValue(text, valueStart)
+    if (name === String(key)) return [valueStart, valueEnd]
+    member = skipWs(text, valueEnd)
+    if (text[member] === '}') return undefined
+    if (text[member] !== ',') return undefined
+    member++
+  }
+}
+
+/** Advances to the raw span of one array element; undefined when out of range. */
+function stepArrayElement(text: string, key: string | number, cursor: number): [number, number] | undefined {
+  if (typeof key !== 'number' || !Number.isInteger(key) || key < 0) return undefined
+  let element = skipWs(text, cursor + 1)
+  let index = 0
+  for (;;) {
+    if (text[element] === ']') return undefined
+    const valueStart = element
+    const valueEnd = scanValue(text, valueStart)
+    if (index === key) return [valueStart, valueEnd]
+    index++
+    element = skipWs(text, valueEnd)
+    if (text[element] === ']') return undefined
+    if (text[element] !== ',') return undefined
+    element = skipWs(text, element + 1)
+  }
 }
 
 function skipWs(text: string, index: number): number {

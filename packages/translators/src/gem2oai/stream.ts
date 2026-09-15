@@ -248,8 +248,9 @@ export class OpenAIChunkTranslator {
     for (const index of [...this.tools.keys()].sort((left, right) => left - right)) {
       const call = this.tools.get(index)
       if (call === undefined) continue
-      const functionCall: WireObject = { name: call.name, args: parseToolArguments(call.arguments) }
-      if (call.id.length > 0) functionCall['id'] = call.id
+      const args = parseToolArguments(call.arguments)
+      const functionCall: WireObject =
+        call.id.length > 0 ? { id: call.id, name: call.name, args } : { name: call.name, args }
       parts.push({ functionCall })
     }
     this.tools.clear()

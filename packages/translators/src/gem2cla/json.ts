@@ -89,10 +89,10 @@ function serializeString(text: string): string {
     const code = text.charCodeAt(i)
     switch (code) {
       case 0x22:
-        out += '\"'
+        out += '\\"'
         break
       case 0x5c:
-        out += '\\'
+        out += '\\\\'
         break
       case 0x08:
         out += '\b'
@@ -134,10 +134,7 @@ function serializeString(text: string): string {
  * verbatim. Rejects values that cannot appear on a JSON wire.
  */
 export function serializeOrdered(value: WireValue): string {
-  if (value instanceof RawJson) {
-    console.log('DEBUG rawjson emit len:', value.text.length, JSON.stringify(value.text))
-    return value.text
-  }
+  if (value instanceof RawJson) return value.text
   if (value === null) return 'null'
   if (typeof value === 'string') return serializeString(value)
   if (typeof value === 'boolean') return value ? 'true' : 'false'
@@ -224,8 +221,9 @@ interface ValueSpan {
 }
 
 function locateObjectMember(text: string, start: number, key: string): ValueSpan | undefined {
-  let member = skipWs(text, start + 1)
+  let member = start + 1
   for (;;) {
+    member = skipWs(text, member)
     if (text[member] !== '"') return undefined
     const nameEnd = scanString(text, member)
     const name = text.slice(member + 1, nameEnd - 1)
@@ -234,18 +232,18 @@ function locateObjectMember(text: string, start: number, key: string): ValueSpan
     const valueStart = skipWs(text, colon + 1)
     const valueEnd = scanValue(text, valueStart)
     if (name === key) return { valueStart, valueEnd }
-    member = skipWs(text, valueEnd)
-    if (text[member] === '}') return undefined
-    if (text[member] !== ',') return undefined
-    member++
+    const next = skipWs(text, valueEnd)
+    if (text[next] === '}') return undefined
+    if (text[next] !== ',') return undefined
+    member = next + 1
   }
 }
 
 function locateArrayElement(text: string, start: number, index: string): ValueSpan | undefined {
   const wanted = Number(index)
   if (!Number.isInteger(wanted) || wanted < 0) return undefined
-  let element = skipWs(text, start + 1)
-  if (text[element] === ']') return undefined
+  let element = start + 1
+  if (text[skipWs(text, element)] === ']') return undefined
   for (let at = 0; ; at++) {
     const valueStart = skipWs(text, element)
     const valueEnd = scanValue(text, valueStart)

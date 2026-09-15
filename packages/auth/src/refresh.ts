@@ -103,7 +103,7 @@ export function isUnauthorizedUpstreamError(error: {
   readonly message?: string
 }): boolean {
   if (error.status === 401) return true
-  const text = error.message ?? ''
+  const text = (error.message ?? '').toLowerCase()
   return text.includes('status 401') || text.includes('401 unauthorized')
 }
 
@@ -648,7 +648,7 @@ export class UnauthorizedRefresher {
   private readonly store: Store
   private readonly registry: RefreshRegistry
   private readonly now: Clock
-  private readonly inFlight = new Map<string, Promise<void>>()
+  private readonly inFlight = new Map<string, Promise<RefreshOutcome>>()
 
   constructor(store: Store, options: { registry?: RefreshRegistry; now?: Clock } = {}) {
     this.store = store
@@ -660,7 +660,8 @@ export class UnauthorizedRefresher {
    * Attempts one refresh for the credential after an upstream 401.
    * `failedAccessToken` is the token the failed request used; when the
    * stored token has already moved on, the newer one is reused and no
-   * refresh runs. Returns the refreshed document, or the failure.
+   * refresh runs. A concurrent caller joins the in-flight refresh and
+   * reports its outcome. Returns the refreshed document, or the failure.
    */
   async refreshAfterUnauthorized(input: {
     readonly fileName: string
@@ -682,37 +683,43 @@ export class UnauthorizedRefresher {
     if (!isRefreshCredential(input.provider, input.document)) {
       return { refreshed: false, outcome: undefined }
     }
-    const flight = this.inFlight.get(input.fileName)
-    if (flight !== undefined) {
-      await flight
-      const updated = await this.loadDocument(input.fileName)
-      return updated === undefined
-        ? { refreshed: false, outcome: undefined }
-        : { refreshed: true, document: updated }
-    }
-    const run = async (): Promise<void> => {
+    const existing = this.inFlight.get(input.fileName)
+    const outcome = await (existing ?? this.startRefresh(input))
+    if (!outcome.ok) return { refreshed: false, outcome }
+    const updated = await this.loadDocument(input.fileName)
+    return updated === undefined
+      ? { refreshed: false, outcome }
+      : { refreshed: true, document: updated }
+  }
+
+  private startRefresh(input: {
+    readonly fileName: string
+    readonly provider: string
+    readonly document: Record<string, JsonValue>
+    readonly deps?: RefreshDeps
+  }): Promise<RefreshOutcome> {
+    const run = async (): Promise<RefreshOutcome> => {
       const outcome = await refreshCredential(input.provider, input.document, input.deps ?? {})
       if (outcome.ok) {
         const next: Record<string, JsonValue> = { ...input.document, ...outcome.documentPatch }
         await this.store.put('auth', input.fileName, next)
         await this.registry.recordSuccess(input.fileName, outcome.effective)
-        return
+        return outcome
       }
       if (outcome.unauthorized) {
+        // 401 refresh failure: credential marked unavailable, status
+        // error, status message "unauthorized", no next-refresh backoff.
         await this.registry.recordUnauthorized(input.fileName, 'unauthorized')
-        return
+        return outcome
       }
       await this.registry.recordFailure(input.fileName, outcome.message)
+      return outcome
     }
     const promise = run().finally(() => {
       this.inFlight.delete(input.fileName)
     })
     this.inFlight.set(input.fileName, promise)
-    await promise
-    const updated = await this.loadDocument(input.fileName)
-    return updated === undefined
-      ? { refreshed: false, outcome: undefined }
-      : { refreshed: true, document: updated }
+    return promise
   }
 
   private async loadDocument(fileName: string): Promise<Record<string, JsonValue> | undefined> {

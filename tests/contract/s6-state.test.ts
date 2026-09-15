@@ -617,6 +617,18 @@ async function readFixtureText(caseId: string, name: string): Promise<string> {
   return readFile(caseFile(caseId, name), 'utf8')
 }
 
+/**
+ * Disk captures: S6-16's meta lists auth-dir captures without the `disk/` prefix
+ * while the files live under disk/ (the other cases state disk/-prefixed paths).
+ */
+async function readDiskCapture(caseId: string, statedPath: string): Promise<string> {
+  try {
+    return await readFile(caseFile(caseId, statedPath), 'utf8')
+  } catch {
+    return readFile(caseFile(caseId, `disk/${statedPath}`), 'utf8')
+  }
+}
+
 async function readFixtureJson<T>(caseId: string, name: string): Promise<T> {
   return JSON.parse(await readFixtureText(caseId, name)) as T
 }
@@ -698,7 +710,7 @@ function parseDownstreamFile(text: string, context: string): DownstreamSection {
   const statusMatch = /HTTP\/1\.1 (\d+) /.exec(text)
   if (statusMatch === null) throw new Error(`${context}: no status line`)
   const headers: Array<[string, string]> = []
-  const headerMatch = /## Response headers \(raw, received order\)\n(.*?)\n\n/.exec(text)
+  const headerMatch = /## Response headers \(raw, received order\)\n(.*?)\n\n/s.exec(text)
   if (headerMatch === null || headerMatch[1] === undefined) {
     throw new Error(`${context}: no response-header block`)
   }
@@ -1132,7 +1144,7 @@ class FrozenClock {
 async function loadSeedConfig(caseId: string): Promise<string> {
   if (caseId === 'S6-02-secret-bcrypt-mutation') {
     // The plaintext secret-key file the oracle mounted BEFORE the container started.
-    return readFixtureText(caseId, 'disk/CLIProxyAPI/config.yaml.before-boot')
+    return readDiskCapture(caseId, 'disk/CLIProxyAPI/config.yaml.before-boot')
   }
   const meta = await readFixtureJson<CaseMeta>(caseId, 'meta.yaml')
   return meta.config_fragment
@@ -1162,22 +1174,14 @@ async function createCaseHarness(caseId: CaseId, options: HarnessOptions): Promi
     buildInfo: BUILD_INFO,
     clientIp: CLIENT_IP,
     now: () => options.clock.now(),
+    ...(options.initialLogLines === undefined ? {} : { initialLogLines: options.initialLogLines }),
+    ...(options.deriveAuthIndex === undefined ? {} : { deriveAuthIndex: options.deriveAuthIndex }),
   }
-  if (options.initialLogLines !== undefined) deps.initialLogLines = options.initialLogLines
-  if (options.deriveAuthIndex !== undefined) deps.deriveAuthIndex = options.deriveAuthIndex
   const api = adapterFactory(deps)
   if (typeof api.handle !== 'function') {
     throw new Error(`${ADAPTER_EXPORT}() must return an object with a handle(request) method`)
   }
   return { api, store, clock: options.clock, missing: missingStateOps(api) }
-}
-
-function requireOps(harness: CaseHarness, context: { skip: () => void }): StateApi {
-  if (harness.missing.length > 0) {
-    context.skip()
-    throw new Error(`the adapter lacks the S6 state operations: ${harness.missing.join(', ')}`)
-  }
-  return harness.api
 }
 
 function readRecordField<T>(record: Record<string, unknown>, key: string, context: string): T {
@@ -1226,6 +1230,9 @@ function usageCompletionFromRecord(record: Record<string, unknown>, context: str
   headerPairs.reverse()
   const alias = record['alias']
   const failBody = fail['body']
+  const parent = record['parent_session_id']
+  const sha = record['access_token_sha256']
+  const tier = record['service_tier']
   const completion: UsageCompletion = {
     source: readString(record, 'source', context),
     authIndex: readString(record, 'auth_index', context),
@@ -1274,15 +1281,14 @@ function usageCompletionFromRecord(record: Record<string, unknown>, context: str
     apiKey: readString(record, 'api_key', context),
     reasoningEffort: readString(record, 'reasoning_effort', context),
   }
-  if (typeof alias === 'string') completion.alias = alias
-  if (typeof failBody === 'string' && failBody !== '') completion.failBody = failBody
-  const parent = record['parent_session_id']
-  if (typeof parent === 'string' && parent !== '') completion.parentSessionId = parent
-  const sha = record['access_token_sha256']
-  if (typeof sha === 'string' && sha !== '') completion.accessTokenSha256 = sha
-  const tier = record['service_tier']
-  if (typeof tier === 'string') completion.serviceTier = tier
-  return completion
+  return {
+    ...completion,
+    ...(typeof alias === 'string' ? { alias } : {}),
+    ...(typeof failBody === 'string' && failBody !== '' ? { failBody } : {}),
+    ...(typeof parent === 'string' && parent !== '' ? { parentSessionId: parent } : {}),
+    ...(typeof sha === 'string' && sha !== '' ? { accessTokenSha256: sha } : {}),
+    ...(typeof tier === 'string' ? { serviceTier: tier } : {}),
+  }
 }
 
 /** Inverts a recorded error event (§3.5.2) into the adapter input. */
@@ -1297,9 +1303,7 @@ function errorEventFromGolden(event: Record<string, unknown>, context: string): 
     body: readString(event, 'body', context),
   }
   const code = event['code']
-  if (typeof code === 'string' && code !== '') result.code = code
   const retryable = event['retryable']
-  if (typeof retryable === 'boolean') result.retryable = retryable
   const modelRecord = readObject(authStatus, 'model', context)
   const modelStatus: ErrorEventAuthStatusModel = {
     name: readString(modelRecord, 'name', context),
@@ -1307,14 +1311,18 @@ function errorEventFromGolden(event: Record<string, unknown>, context: string): 
     statusMessage: readString(modelRecord, 'status_message', context),
     unavailable: modelRecord['unavailable'] === true,
   }
-  result.authStatus = {
-    status: readString(authStatus, 'status', context),
-    statusMessage: readString(authStatus, 'status_message', context),
-    disabled: authStatus['disabled'] === true,
-    unavailable: authStatus['unavailable'] === true,
-    model: modelStatus,
+  return {
+    ...result,
+    ...(typeof code === 'string' && code !== '' ? { code } : {}),
+    ...(typeof retryable === 'boolean' ? { retryable } : {}),
+    authStatus: {
+      status: readString(authStatus, 'status', context),
+      statusMessage: readString(authStatus, 'status_message', context),
+      disabled: authStatus['disabled'] === true,
+      unavailable: authStatus['unavailable'] === true,
+      model: modelStatus,
+    },
   }
-  return result
 }
 
 /** Inverts the recorded .cds sidecar into cooldown-record inputs (§3.4.4). */
@@ -1329,7 +1337,7 @@ function cooldownInputsFromSidecar(
     const record = entry as Record<string, unknown>
     const lastError = readObject(record, 'last_error', context)
     const model = record['model']
-    const input: CooldownRecord = {
+    const base: CooldownRecord = {
       authId: readString(record, 'auth_id', context),
       provider: readString(record, 'provider', context),
       status: readString(record, 'status', context),
@@ -1344,8 +1352,7 @@ function cooldownInputsFromSidecar(
         httpStatus: readNumber(lastError, 'http_status', context),
       },
     }
-    if (typeof model === 'string') input.model = model
-    return input
+    return { ...base, ...(typeof model === 'string' ? { model } : {}) }
   })
   // Reverse golden order: the sidecar must come back sorted by model (§3.4.4).
   inputs.reverse()
@@ -1401,12 +1408,11 @@ async function replayStep(
   requestFile: string,
   goldenFile: string,
   mask: MaskProfile,
-): Promise<string> {
+): Promise<void> {
   const request = await stepRequest(caseId, requestFile)
   const expected = await stepGolden(caseId, goldenFile)
   const response = await api.handle(buildRequest(request))
   await assertResponseStep(caseId, requestFile, response, expected, mask)
-  return response.status === 0 ? '' : await response.clone().text()
 }
 
 async function assertResponseStep(
@@ -1415,7 +1421,7 @@ async function assertResponseStep(
   response: Response,
   expected: DownstreamSection,
   mask: MaskProfile,
-): Promise<void> {
+): Promise<string> {
   const context = `S6[${caseId}] ${stepFile}`
   expect(response.status, `${context}: status`).toBe(expected.status)
 
@@ -1459,6 +1465,7 @@ async function assertResponseStep(
   }
   assertTimestampShapes(body, mask, context)
   expect(normalizeBody(body, mask), `${context}: body bytes`).toBe(normalizeBody(expected.body, mask))
+  return body
 }
 
 /** Error-shape pin for the 400/422 config.yaml ladders: code byte-pinned, message masked. */
@@ -1470,8 +1477,8 @@ async function assertConfigErrorStep(
   mask: MaskProfile,
   expectedCode: string,
 ): Promise<void> {
-  await assertResponseStep(caseId, stepFile, response, expected, mask)
-  const produced = JSON.parse(await response.clone().text()) as Record<string, unknown>
+  const body = await assertResponseStep(caseId, stepFile, response, expected, mask)
+  const produced = JSON.parse(body) as Record<string, unknown>
   expect(produced['error'], `S6[${caseId}] ${stepFile}: error code`).toBe(expectedCode)
 }
 
@@ -1529,7 +1536,7 @@ async function assertLogsStep(
   expect(response.status, `${context}: status`).toBe(expected.status)
   const body = await response.text()
   expect(LOGS_RESPONSE_SHAPE_RE.test(body), `${context}: alphabetical response keys {latest-timestamp, line-count, lines, next-cursor}`).toBe(true)
-  const produced = JSON.parse(body) as { latest-timestamp: unknown; 'line-count': unknown; lines: unknown; 'next-cursor': unknown }
+  const produced = JSON.parse(body) as { 'latest-timestamp': unknown; 'line-count': unknown; lines: unknown; 'next-cursor': unknown }
   const cursorValue = produced['next-cursor']
   expect(typeof cursorValue, `${context}: next-cursor is a string`).toBe('string')
   const cursor = decodeCursor(cursorValue as string, context)
@@ -1551,9 +1558,8 @@ async function assertLogsStep(
     expect(typeof produced['latest-timestamp'], `${context}: latest-timestamp is a number`).toBe('number')
     return
   }
-  expect(produced['line-count'], `${context}: line-count`).toBe(
-    expectation.lineCount ?? (expected.body === '' ? 0 : undefined),
-  )
+  if (expectation.lineCount === undefined) throw new Error(`${context}: harness must state lineCount`)
+  expect(produced['line-count'], `${context}: line-count`).toBe(expectation.lineCount)
   if (expectation.lines !== undefined) {
     expect(produced.lines, `${context}: lines (tail read of the seeded window)`).toEqual([...expectation.lines])
   }
@@ -1587,7 +1593,7 @@ async function assertModelList(
   expect([...producedEntries].sort(), `${context}: model entries as a sorted multiset (map order is not pinned)`).toEqual(
     [...expectedEntries].sort(),
   )
-  expect(produced.data, `${context}: data array length`).toEqual(expected.data)
+  expect((produced.data as unknown[]).length, `${context}: data array length`).toBe((expected.data as unknown[]).length)
   for (const entry of produced.data as unknown[]) {
     const record = entry as Record<string, unknown>
     expect(
@@ -1626,10 +1632,14 @@ function assertRespFrames(
 function expectRespFrame(produced: RespFrame, expected: RespFrame, mask: MaskProfile, context: string): void {
   expect(produced.kind, `${context}: frame kind`).toBe(expected.kind)
   if (expected.kind === 'simple' || expected.kind === 'error') {
+    if (produced.kind !== 'simple' && produced.kind !== 'error') {
+      throw new Error(`${context}: expected a ${expected.kind} frame`)
+    }
     expect(produced.value, `${context}: ${expected.kind} value`).toBe(expected.value)
     return
   }
   if (expected.kind === 'integer') {
+    if (produced.kind !== 'integer') throw new Error(`${context}: expected an integer frame`)
     expect(produced.value, `${context}: integer value`).toBe(expected.value)
     return
   }
@@ -1671,24 +1681,6 @@ function concatBytes(chunks: readonly Uint8Array[]): Uint8Array {
   return out
 }
 
-/** Drives one recorded connection: sends each client command, drains after each. */
-async function driveRespConnection(
-  api: StateApi,
-  clientBytes: Uint8Array,
-  commands: number,
-  context: string,
-): Promise<{ readonly output: readonly Uint8Array[]; readonly conn: UsageWireConnection }> {
-  const conn = api.openUsageWire()
-  const spans = splitRespCommands(clientBytes, context)
-  expect(spans.length, `${context}: client command count`).toBe(commands)
-  const output: Uint8Array[] = []
-  for (const span of spans) {
-    await conn.send(span)
-    output.push(conn.takeOutput())
-  }
-  return { output, conn }
-}
-
 
 // ─── Fixture inventory (harness self-check, adapter-independent) ─────────────────────
 
@@ -1710,7 +1702,7 @@ describe('S6 fixture inventory (harness self-check, adapter-independent)', () =>
       expect(typeof meta.config_fragment, `${caseId}: config fragment recorded`).toBe('string')
       maskProfile(caseId, meta.dynamic_fields) // fails loudly on unknown dynamic fields
       for (const capture of meta.disk_captures ?? []) {
-        await expect(readFixtureText(caseId, capture.file), `${caseId}: disk capture ${capture.file} exists`).resolves.toBeTypeOf('string')
+        await expect(readDiskCapture(caseId, capture.file), `${caseId}: disk capture ${capture.file} exists`).resolves.toBeTypeOf('string')
       }
       if (RESP_CASES.has(caseId)) {
         const clientConns = parseRespTranscript(await readFixtureText(caseId, 'request.http'), `${caseId} request.http`)
@@ -1807,7 +1799,7 @@ describe('S6 fixture inventory (harness self-check, adapter-independent)', () =>
         expect(bucket['failed']).toBe(0)
       }
       const download = await stepGolden('S6-10-authfile-upload-list-delete', 'downstream-4.md')
-      const diskBytes = await readFixtureText('S6-10-authfile-upload-list-delete', 'disk/root/.cli-proxy-api/s6-test-claude.json')
+      const diskBytes = await readDiskCapture('S6-10-authfile-upload-list-delete', 'disk/root/.cli-proxy-api/s6-test-claude.json')
       expect(download.body, 'S6-10: download returns the re-serialized on-disk bytes').toBe(diskBytes)
       expect(entry['size'], 'S6-10: entry size == re-serialized byte count').toBe(byteLength(diskBytes))
     }
@@ -1985,7 +1977,7 @@ baseSuite(suiteTitle, () => {
     const api = requireOps(harness, ctx, ['handle', 'readConfigFile'])
     // Steps 1-3 of the recording are the disk before/after captures.
     const persisted = await api.readConfigFile()
-    const goldenAfter = await readFixtureText('S6-02-secret-bcrypt-mutation', 'disk/CLIProxyAPI/config.yaml.after-boot')
+    const goldenAfter = await readDiskCapture('S6-02-secret-bcrypt-mutation', 'disk/CLIProxyAPI/config.yaml.after-boot')
     expect(persisted.match(SECRET_KEY_BCRYPT_RE), 'the write-back produces a $2a$10$ + 53-char bcrypt hash').not.toBeNull()
     expect(normalizeBody(persisted, mask), 'config.yaml after boot (surgical write-back: only the secret-key line and one blank line differ)').toBe(
       normalizeBody(goldenAfter, mask),
@@ -2031,7 +2023,7 @@ baseSuite(suiteTitle, () => {
     await replayStep('S6-04-field-toggle-persist', api, 'request-7.http', 'downstream-7.md', mask)
     await replayStep('S6-04-field-toggle-persist', api, 'request-8.http', 'downstream-8.md', mask)
     const persisted = await api.readConfigFile()
-    const afterCleanup = await readFixtureText('S6-04-field-toggle-persist', 'disk/CLIProxyAPI/config.yaml.after-cleanup')
+    const afterCleanup = await readDiskCapture('S6-04-field-toggle-persist', 'disk/CLIProxyAPI/config.yaml.after-cleanup')
     expect(
       normalizeBody(persisted, mask),
       'config.yaml after the toggle ladder (key order preserved; logs-max-total-size-mb: 0 appended)',
@@ -2192,9 +2184,9 @@ baseSuite(suiteTitle, () => {
     await replayStep('S6-10-authfile-upload-list-delete', api, 'request-9.http', 'downstream-9.md', mask)
     // The re-serialized bytes on disk are the download bytes (upload_body_equals_disk: false).
     const download = await stepGolden('S6-10-authfile-upload-list-delete', 'downstream-4.md')
-    const diskBytes = await readFixtureText('S6-10-authfile-upload-list-delete', 'disk/root/.cli-proxy-api/s6-test-claude.json')
+    const diskBytes = await readDiskCapture('S6-10-authfile-upload-list-delete', 'disk/root/.cli-proxy-api/s6-test-claude.json')
     expect(download.body).toBe(diskBytes)
-    const listing = await readFixtureText('S6-10-authfile-upload-list-delete', 'disk/root/.cli-proxy-api/.listing-after-delete.txt')
+    const listing = await readDiskCapture('S6-10-authfile-upload-list-delete', 'disk/root/.cli-proxy-api/.listing-after-delete.txt')
     expect(listing.trim(), 'the auth dir is empty after delete').toBe('(empty)')
   })
 
@@ -2225,11 +2217,11 @@ baseSuite(suiteTitle, () => {
     }
     const afterMerge = await stepGolden('S6-11-authfile-patch-fields', 'downstream-3.md')
     expect(afterMerge.body, 'merged file bytes on disk (step 3 download)').toBe(
-      await readFixtureText('S6-11-authfile-patch-fields', 'disk/root/.cli-proxy-api/s6-test-claude.json.after-merge'),
+      await readDiskCapture('S6-11-authfile-patch-fields', 'disk/root/.cli-proxy-api/s6-test-claude.json.after-merge'),
     )
     const afterRetry = await stepGolden('S6-11-authfile-patch-fields', 'downstream-11.md')
     expect(afterRetry.body, 'request_retry-persisted bytes (step 11 download)').toBe(
-      await readFixtureText('S6-11-authfile-patch-fields', 'disk/root/.cli-proxy-api/s6-test-claude.json.after-retry'),
+      await readDiskCapture('S6-11-authfile-patch-fields', 'disk/root/.cli-proxy-api/s6-test-claude.json.after-retry'),
     )
   })
 
@@ -2313,7 +2305,7 @@ baseSuite(suiteTitle, () => {
     const firstGolden = await stepGolden('S6-15-hot-reload-provider', 'downstream.md')
     await assertModelList('S6-15-hot-reload-provider', 'step 1 model list', await api.buildModelList(), firstGolden.body, mask, Math.floor(clock.now() / 1000))
     // Step 2: the operator's file edit (docker cp in the recording) = the watcher input.
-    const afterEdit = await readFixtureText('S6-15-hot-reload-provider', 'disk/CLIProxyAPI/config.yaml.after-edit')
+    const afterEdit = await readDiskCapture('S6-15-hot-reload-provider', 'disk/CLIProxyAPI/config.yaml.after-edit')
     await api.replaceConfigFile(afterEdit)
     // §3.3.4: the reload emits its log line (ring `logs`); format §3.6.3, message pinned.
     const ring = await api.readLogRing()
@@ -2340,9 +2332,9 @@ baseSuite(suiteTitle, () => {
     const harness = await createCaseHarness('S6-16-cds-cooldown', { clock })
     const api = requireOps(harness, ctx, ['handle', 'recordCooldown', 'listCooldownSidecars', 'isCooling'])
     const sidecarName = 'openai-compatibility_mock-openai_484455246a84.cds'
-    const goldenSidecarText = await readFixtureText(
+    const goldenSidecarText = await readDiskCapture(
       'S6-16-cds-cooldown',
-      `disk/root/.cli-proxy-api/${sidecarName}`,
+      `root/.cli-proxy-api/${sidecarName}`,
     )
     const goldenSidecar = JSON.parse(goldenSidecarText) as Record<string, unknown>
     const authId = readString(goldenSidecar, 'auth_id', 'S6-16 golden sidecar')
@@ -2365,7 +2357,7 @@ baseSuite(suiteTitle, () => {
     for (let index = 0; index < inputs.length; index += 1) {
       const input = inputs[index]
       const record = producedRecords[inputs.length - 1 - index]
-      if (record === undefined) throw new Error('S6-16: sidecar record missing')
+      if (input === undefined || record === undefined) throw new Error('S6-16: sidecar record missing')
       expect(record['next_retry_after'], 'the scheduler value persists verbatim').toBe(input.nextRetryAfter)
       expect(record['model'] ?? undefined).toBe(input.model)
     }
@@ -2383,7 +2375,7 @@ baseSuite(suiteTitle, () => {
       normalizeBody(goldenSidecarText, maskWithObservedAt),
     )
     expect(await restartedApi.isCooling(authId, 'mock-model'), 'the cooldown is restored after restart (recorded: still 503)').toBe(true)
-    const listing = await readFixtureText('S6-16-cds-cooldown', 'disk/root/.cli-proxy-api/.listing-after-restart.txt')
+    const listing = await readDiskCapture('S6-16-cds-cooldown', 'root/.cli-proxy-api/.listing-after-restart.txt')
     expect(listing.split('\n').map((line) => line.trim()).filter((line) => line !== '')).toContain(sidecarName)
   })
 

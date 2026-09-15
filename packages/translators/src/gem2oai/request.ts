@@ -145,9 +145,11 @@ async function buildBody(
     model: ctx.upstreamModel,
     messages,
     ...generationConfigKeys(request),
-    stream: ctx.stream,
   }
+  // reasoning_effort is the last generation-config-derived key; `stream`
+  // follows it, then service_tier / tools / tool_choice (recorded order).
   applyThinkingStage1(body, request)
+  body['stream'] = ctx.stream
 
   const serviceTier = request['service_tier']
   if (typeof serviceTier === 'string') body['service_tier'] = serviceTier

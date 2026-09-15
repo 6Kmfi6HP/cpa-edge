@@ -23,7 +23,8 @@ function b64urlJson(payload: Record<string, unknown>): string {
 }
 
 function jwt(payload: Record<string, unknown>): string {
-  return `header.${b64urlJson(payload)}.signature`
+  const header = b64urlJson({ alg: 'HS256', typ: 'JWT' })
+  return `${header}.${b64urlJson(payload)}.signature`
 }
 
 function jsonResponse(payload: unknown, status = 200): Response {
@@ -39,9 +40,9 @@ describe('splitCodeState', () => {
 
 describe('claude code exchange (§2.3.1 wire format)', () => {
   it('posts the fixed-order JSON body with the recorded headers', async () => {
-    let wire = ''
+    const wires: string[] = []
     const fetchFn: FetchLike = async (_url, init) => {
-      wire = `${init?.method}|${JSON.stringify(init?.headers)}|${init?.body}`
+      wires.push(`${init?.method}|${JSON.stringify(init?.headers)}|${init?.body}`)
       return jsonResponse({
         access_token: 'at',
         refresh_token: 'rt',
@@ -55,7 +56,7 @@ describe('claude code exchange (§2.3.1 wire format)', () => {
       { code: 'c#over', codeVerifier: 'v', state: 'orig' },
       { fetch: fetchFn, now: () => 0 },
     )
-    const [method, headers, body] = wire.split('|')
+    const [method, headers, body] = (wires[0] ?? '').split('|')
     expect(method).toBe('POST')
     const headerRecord = JSON.parse(headers ?? '{}') as Record<string, string>
     expect(headerRecord['Content-Type']).toBe('application/json')
@@ -299,7 +300,10 @@ describe('code login waiter (§2.5)', () => {
       jsonResponse({
         access_token: 'at',
         refresh_token: 'rt',
-        id_token: jwt({ email: 'dev@x.com' }),
+        id_token: jwt({
+          email: 'dev@x.com',
+          'https://api.openai.com/auth.chatgpt_account_id': 'acct-1',
+        }),
         token_type: 'Bearer',
         expires_in: 3600,
       })

@@ -30,7 +30,8 @@ describe('effective retry limits', () => {
     expect(credentialAdmitsRound(0, 0)).toBe(true)
     expect(credentialAdmitsRound(0, 1)).toBe(false)
     expect(credentialAdmitsRound(1, 1)).toBe(true)
-    expect(credentialAdmitsRound(2, 1)).toBe(false)
+    expect(credentialAdmitsRound(1, 2)).toBe(false)
+    expect(credentialAdmitsRound(3, 2)).toBe(true)
   })
 
   it('caps only retry rounds; round 0 sweeps the whole pool', () => {
@@ -70,23 +71,24 @@ describe('retry round planning', () => {
       config: CONFIG,
       candidates: [candidate({ readyAt: T0 + 2_000 })],
       now: T0,
-      random: () => 0.999,
+      random: () => 0.5,
     })
     expect(jittered.action).toBe('retry')
     if (jittered.action === 'retry') {
-      expect(jittered.waitMs).toBe(2_500 - 1)
+      // floor(0.5 * min(2000/4, 2000)) = 250 ms of jitter.
+      expect(jittered.waitMs).toBe(2_250)
     }
-    // Jitter never exceeds 2 seconds.
+    // Jitter never exceeds 2 seconds: a 30 s wait jitters by at most 2 s.
     const bigWait = planRetryRound({
       finishedRound: 0,
       classification: classifyFailure({ httpStatus: 500, bodyText: 'x' }),
       config: { ...CONFIG, maxRetryIntervalMs: 60_000 },
       candidates: [candidate({ readyAt: T0 + 30_000 })],
       now: T0,
-      random: () => 0.999,
+      random: () => 0.5,
     })
     if (bigWait.action === 'retry') {
-      expect(bigWait.waitMs).toBe(30_000 + 2_000 - 1)
+      expect(bigWait.waitMs).toBe(30_000 + 1_000)
     }
   })
 

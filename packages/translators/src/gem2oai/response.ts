@@ -80,9 +80,11 @@ export function functionCallPart(call: Record<string, unknown>): WireObject {
   const fn = readObject(call, 'function')
   const name = fn !== undefined ? readString(fn, 'name') ?? '' : ''
   const argumentsText = fn !== undefined ? readString(fn, 'arguments') : undefined
-  const functionCall: WireObject = { name, args: parseToolArguments(argumentsText) }
   const id = readString(call, 'id')
-  if (id !== undefined && id.length > 0) functionCall['id'] = id
+  const functionCall: WireObject =
+    id !== undefined && id.length > 0
+      ? { id: id, name, args: parseToolArguments(argumentsText) }
+      : { name, args: parseToolArguments(argumentsText) }
   return { functionCall }
 }
 

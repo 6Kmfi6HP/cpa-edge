@@ -63,13 +63,22 @@ describe('refresh scheduling rule (§2.7)', () => {
     expect(
       shouldRefresh({ kind: 'oauth', provider: 'claude', expiresAtMs: now + claudeLead + 1 }, {}, now),
     ).toBe(false)
+    const futureBackoff = new Date(now + 60_000).toISOString().slice(0, 19) + 'Z'
     expect(
       shouldRefresh(
         { kind: 'oauth', provider: 'claude', expiresAtMs: now + 1 },
-        { next_refresh_after: '1970-01-01T00:00:00Z' },
+        { next_refresh_after: futureBackoff },
         now,
       ),
     ).toBe(false)
+    const expiredBackoff = new Date(now - 1).toISOString().slice(0, 19) + 'Z'
+    expect(
+      shouldRefresh(
+        { kind: 'oauth', provider: 'claude', expiresAtMs: now + 1 },
+        { next_refresh_after: expiredBackoff },
+        now,
+      ),
+    ).toBe(true)
     // Without a lead (meta), a preferred interval takes over.
     expect(
       shouldRefresh({ kind: 'oauth', provider: 'meta', preferredIntervalMs: 60_000, expiresAtMs: now + 59_000 }, {}, now),

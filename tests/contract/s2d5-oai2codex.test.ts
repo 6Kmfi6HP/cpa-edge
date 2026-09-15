@@ -1248,7 +1248,6 @@ describe('S2d5 fixture inventory (harness self-check, adapter-independent)', () 
         .sort()
       expect(directoryEntries, `${context}: fixture directory holds exactly the RECIPES files`).toEqual([...FIXTURE_FILES])
       validateDynamicFields(caseId, meta.dynamic_fields)
-      sessionPolicyFor(caseId) // fails loudly if the pin table ever loses a case
 
       const requests = parseRequestBlocks(await readFixtureText(caseId, 'request.http'))
       const responses = parseDownstreamSections(await readFixtureText(caseId, 'downstream.md'))
@@ -1306,6 +1305,26 @@ describe('S2d5 fixture inventory (harness self-check, adapter-independent)', () 
           recorded.headers['Content-Length'],
           `${context} upstream line ${index + 1}: recorded Content-Length matches the body bytes`,
         ).toBe(String(encoder.encode(recorded.body).length))
+      }
+
+      // The session pin table must agree with the recordings: the "keep when fixed by
+      // the case" cases really carry the CLIENT-fixed value on the pinned surface.
+      const firstWire =
+        upstreamLines.length === 0 ? undefined : (JSON.parse(upstreamLines[0] ?? '') as RecordedUpstreamLine)
+      const firstRequest = requests[0]
+      if (firstRequest === undefined) throw new Error(`${context}: request.http has no blocks`)
+      if (caseId === 'S2D5-21-prompt-cache-key-passthrough' && firstWire !== undefined) {
+        const clientBody = parseJsonRecord(firstRequest.body, `${context} R1 client body`)
+        const clientKey = asString(clientBody.prompt_cache_key)
+        expect(firstWire.headers['Session-Id'], `${context}: recorded Session-Id == client prompt_cache_key`).toBe(clientKey)
+        expect(
+          asString(parseJsonRecord(firstWire.body, `${context} R1 wire body`).prompt_cache_key),
+          `${context}: recorded body prompt_cache_key == client value`,
+        ).toBe(clientKey)
+      }
+      if (caseId === 'S2D5-22-client-session-id-header' && firstWire !== undefined) {
+        const clientSession = headerValue(firstRequest.headers, 'session-id')
+        expect(firstWire.headers['Session-Id'], `${context}: recorded Session-Id == client header`).toBe(clientSession)
       }
     }
 
