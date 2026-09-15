@@ -35,7 +35,7 @@
 | I-tr-S2d3 | packages/translators: OpenAI→Claude | 2 | — | merged | 2 | MERGED: oai2cla complete (spec 2 rounds, impl-review 2 rounds). 141 unit + 28 contract green. Residual: Store-get-throw hardening -> T2; N6 UA default blessed; N9 js-tiktoken kept (R-TOK) |
 | I-tr-S2d4 | packages/translators: Claude→OpenAI | 2 | — | pending | 0 |  |
 | I-tr-S2d5 | packages/translators: OpenAI→Codex/Responses | 2 | impl-i-tr-s2d5 | impl | 0 |  |
-| I-tr-S2d6 | packages/translators: Responses→OpenAI chat | 2 | — | pending | 0 |  |
+| I-tr-S2d6 | packages/translators: Responses→OpenAI chat | 2 | impl-i-tr-s2d6 | impl | 0 |  |
 | I-tr-S2d7 | packages/translators: Gemini→Claude | 2 | impl-i-tr-s2d7 | impl-adv | 0 | delivered: 101 unit + S2d7 contract 32/32; impl-review running on adv-impl-1 |
 | I-tr-S2d8 | packages/translators: Claude→Gemini | 2 | impl-i-tr-s2d8 | impl | 0 |  |
 | I-tr-S2d9 | packages/translators: Codex passthrough | 2 | — | pending | 0 |  |
@@ -57,4 +57,3 @@
 
 ## Verdict / escalation log
 (appended by orchestrator)
-- 2026-09-16 04:0x S2d6 GATE: PASS (round 3). res2oai admitted: 27 goldens. 13/16 spec steps admitted. I-tr-S2d6 dispatched (slot 5/5).
