@@ -337,6 +337,7 @@ function parseConfigFragment(text: string): ConfigRecord {
   while (i < lines.length) {
     const line = lines[i]
     i += 1
+    if (line === undefined) break
     if (line.trim() === '' || line.trimStart().startsWith('#')) continue
     if (line.startsWith('  ')) throw new Error(`config fragment: unexpected indent: ${JSON.stringify(line)}`)
     const s = line.trim()
@@ -352,6 +353,7 @@ function parseConfigFragment(text: string): ConfigRecord {
     const items: string[] = []
     while (i < lines.length) {
       const next = lines[i]
+      if (next === undefined) break
       if (next.trim() === '' || next.trimStart().startsWith('#')) {
         i += 1
         continue
@@ -464,7 +466,6 @@ const CORS_BLOCK: ReadonlyArray<readonly [string, string]> = [
 ]
 
 const JSON_CONTENT_TYPE = 'application/json; charset=utf-8'
-const HTML_CONTENT_TYPE = 'text/html; charset=utf-8'
 
 /** A fully composed downstream response, in reference emission order. */
 interface ComposedResponse {
@@ -487,7 +488,7 @@ async function composeDownstream(
   const sorted = [...byName.entries()]
     .map(([name, value]) => [name, value] as [string, string])
     .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
-  const headers: Array<[string, string]> = [
+  const headers: Array<readonly [string, string]> = [
     ...CORS_BLOCK,
     ...sorted,
     ['Date', new Date().toUTCString()],
@@ -662,7 +663,7 @@ function callPlane<MethodName extends keyof AuthPlane>(
     : Result
   : never
 {
-  const candidate: unknown = (plane as Record<string, unknown>)[method]
+  const candidate: unknown = (plane as unknown as Record<string, unknown>)[method]
   if (typeof candidate !== 'function') {
     throw new Error(
       `@cpa-edge/auth auth plane method '${String(method)}' is missing (S3 contract requires it); ` +
@@ -681,7 +682,7 @@ let loadFailure: string | null = null
 
 beforeAll(async () => {
   try {
-    const moduleNamespace = (await import('@cpa-edge/auth')) as Record<string, unknown>
+    const moduleNamespace = (await import('@cpa-edge/auth')) as unknown as Partial<AuthModule>
     const candidate = moduleNamespace['createAuthPlane']
     if (typeof candidate !== 'function') {
       loadFailure =

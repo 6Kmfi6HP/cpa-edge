@@ -690,7 +690,6 @@ export class UnauthorizedRefresher {
         ? { refreshed: false, outcome: undefined }
         : { refreshed: true, document: updated }
     }
-    let promise: Promise<void>
     const run = async (): Promise<void> => {
       const outcome = await refreshCredential(input.provider, input.document, input.deps ?? {})
       if (outcome.ok) {
@@ -705,7 +704,7 @@ export class UnauthorizedRefresher {
       }
       await this.registry.recordFailure(input.fileName, outcome.message)
     }
-    promise = run().finally(() => {
+    const promise = run().finally(() => {
       this.inFlight.delete(input.fileName)
     })
     this.inFlight.set(input.fileName, promise)

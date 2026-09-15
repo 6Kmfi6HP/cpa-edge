@@ -332,8 +332,6 @@ export async function exchangeDevinCode(
   deps: ExchangeDeps = {},
 ): Promise<ExchangeResult> {
   const fetchLike = deps.fetch ?? defaultFetch()
-  const now = deps.now ?? (() => Date.now())
-  const nowMs = now()
   const response = await fetchLike(DEVIN.tokenEndpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
