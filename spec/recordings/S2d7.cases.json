@@ -1192,7 +1192,7 @@
       ],
       "record": "downstream verbose + body; mock wire log line count UNCHANGED (no upstream request)",
       "expect_downstream": {
-        "status": "expected",
+        "status": "recorded",
         "http_status": 400,
         "body": "{\"error\":{\"message\":\"Claude token count request messages must be a non-empty array\",\"type\":\"invalid_request_error\"}}"
       },
@@ -1232,7 +1232,7 @@
       ],
       "record": "downstream verbose + body; upstream wire request (should be present, delta 1); mock-response.json = the empty-variant script",
       "expect_downstream": {
-        "status": "expected",
+        "status": "recorded",
         "http_status": 502,
         "body": "{\"error\":{\"message\":\"claude executor: upstream returned empty stream response\",\"type\":\"server_error\",\"code\":\"internal_server_error\"}}"
       },
@@ -1321,7 +1321,7 @@
       ],
       "record": "downstream verbose + body; upstream wire request; mock-response.json = variant script",
       "expect_downstream": {
-        "status": "expected",
+        "status": "recorded",
         "http_status": 502,
         "body": "{\"error\":{\"message\":\"claude executor: upstream stream response is missing message_start\",\"type\":\"server_error\",\"code\":\"internal_server_error\"}}"
       },
@@ -1410,7 +1410,7 @@
       ],
       "record": "downstream verbose + body; upstream wire request; mock-response.json = variant script",
       "expect_downstream": {
-        "status": "expected",
+        "status": "recorded",
         "http_status": 502,
         "body": "{\"error\":{\"message\":\"claude executor: upstream stream response ended before message completion\",\"type\":\"server_error\",\"code\":\"internal_server_error\"}}"
       },
@@ -1475,7 +1475,7 @@
       ],
       "record": "downstream verbose + body; upstream wire request; mock-response.json = variant script",
       "expect_downstream": {
-        "status": "expected",
+        "status": "recorded",
         "http_status": 502,
         "body": "{\"error\":{\"message\":\"claude executor: upstream returned malformed stream data\",\"type\":\"server_error\",\"code\":\"internal_server_error\"}}"
       },
@@ -1488,7 +1488,7 @@
     },
     {
       "id": "S2d7-30-stream-empty-200",
-      "purpose": "Contrast pin: on the STREAM client path the same empty upstream does NOT 502 — handler commits SSE headers on the closed-without-data branch: HTTP 200, SSE headers, ZERO frames, stream ends cleanly.",
+      "purpose": "Contrast pin (recorded): on the STREAM client path an empty upstream does NOT 502 and does NOT yield a 200 with zero frames — an earlier generic conductor guard fires BEFORE SSE headers commit: HTTP 500 empty_stream. Case id kept from the pre-recording request.",
       "client_protocol": "gemini",
       "upstream_provider_type": "claude-api-key",
       "stream": true,
@@ -1515,14 +1515,10 @@
       ],
       "record": "downstream verbose + full body bytes (expect zero frames)",
       "expect_downstream": {
-        "status": "expected",
-        "http_status": 200,
-        "headers_hint": [
-          "Content-Type: text/event-stream",
-          "Cache-Control: no-cache",
-          "Connection: keep-alive"
-        ],
-        "body": "(empty — zero data frames, stream ends cleanly)"
+        "status": "recorded",
+        "http_status": 500,
+        "content_type": "application/json",
+        "body": "{\"error\":{\"message\":\"empty_stream: upstream stream closed before first payload\",\"type\":\"server_error\",\"code\":\"internal_server_error\"}}"
       },
       "dynamic_fields": [
         "Date",

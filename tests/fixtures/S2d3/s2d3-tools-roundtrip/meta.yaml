@@ -2,7 +2,7 @@
   "case": "s2d3-tools-roundtrip",
   "purpose": "Pin the tools round-trip in one upstream body: tools[function] -> {name, description, input_schema} with normalized+key-sorted schema; tool_choice 'auto' -> {type:auto}; assistant message with tool_calls -> tool_use block appended after its text block; tool role message -> user tool_result message; consecutive user/tool-result + next user message MERGE into one user turn [tool_result, text]; default cache_control: last tool + last block of the last message (system absent).",
   "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image eceasy/cli-proxy-api:v7.3.4 (digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266)",
-  "recorded_at": "2026-09-15T17:54:01.386312+00:00",
+  "recorded_at": "2026-09-15T17:56:59.722421+00:00",
   "client_protocol": "raw HTTP/1.1 over TCP socket; User-Agent: oracle-s3-probe/1.0 (unless omitted by the case); Connection: close",
   "upstream_provider": "claude mock (run2 mock_claude.py on 127.0.0.1:20002, wire /v1/messages; cases file 19002 -> 20002)",
   "stream": false,
@@ -21,7 +21,7 @@
       "file": "downstream.md",
       "step": 1,
       "repeat": 1,
-      "status": 401
+      "status": 200
     }
   ],
   "dynamic_fields": [

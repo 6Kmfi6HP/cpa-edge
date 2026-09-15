@@ -1,0 +1,32 @@
+{
+  "control_file": {
+    "mode": "happy",
+    "variant": "malformed"
+  },
+  "script_sse": [
+    [
+      "message_start",
+      {
+        "type": "message_start",
+        "message": {
+          "id": "msg_mock_06",
+          "type": "message",
+          "role": "assistant",
+          "model": "claude-mock-model",
+          "content": [],
+          "stop_reason": null,
+          "stop_sequence": null,
+          "usage": {
+            "input_tokens": 9,
+            "output_tokens": 1
+          }
+        }
+      }
+    ],
+    [
+      "RAW",
+      "data: {\"type\":\"content_block_delta\""
+    ]
+  ],
+  "variant": "malformed"
+}

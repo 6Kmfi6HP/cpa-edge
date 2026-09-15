@@ -2,7 +2,7 @@
   "case": "s2d3-params-system",
   "purpose": "Pin parameter handling with a system message: system role -> top-level system array [{type:text,text:'You are helpful.'}] with default cache_control ephemeral on the LAST system block; temperature 0.7 and top_p 0.9 DELETED upstream (never on the wire); max_tokens 777 overrides the 32000 default; stop array -> stop_sequences ['END']. Step 2 pins stop as a plain string -> stop_sequences ['STOP'].",
   "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image eceasy/cli-proxy-api:v7.3.4 (digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266)",
-  "recorded_at": "2026-09-15T17:54:01.379107+00:00",
+  "recorded_at": "2026-09-15T17:56:59.710038+00:00",
   "client_protocol": "raw HTTP/1.1 over TCP socket; User-Agent: oracle-s3-probe/1.0 (unless omitted by the case); Connection: close",
   "upstream_provider": "claude mock (run2 mock_claude.py on 127.0.0.1:20002, wire /v1/messages; cases file 19002 -> 20002)",
   "stream": false,
@@ -25,13 +25,13 @@
       "file": "downstream.md",
       "step": 1,
       "repeat": 1,
-      "status": 401
+      "status": 200
     },
     {
       "file": "downstream-2.md",
       "step": 2,
       "repeat": 1,
-      "status": 401
+      "status": 200
     }
   ],
   "dynamic_fields": [

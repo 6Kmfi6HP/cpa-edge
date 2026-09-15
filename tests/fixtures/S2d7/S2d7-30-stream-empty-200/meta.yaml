@@ -1,0 +1,37 @@
+{
+  "case": "S2d7-30-stream-empty-200",
+  "title": "S2d7-30-stream-empty-200",
+  "recorded_at": "2026-09-15T17:55:45Z",
+  "recorder": "oracle-runner-3",
+  "version": {
+    "image": "eceasy/cli-proxy-api:v7.3.4",
+    "digest": "sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+    "commit": "8335eac731946bd4eff18f500653f93736df53d6",
+    "binary_self_report": "CLIProxyAPI Version: v7.3.4, Commit: 8335eac, BuiltAt: 2026-09-15T14:07:06Z"
+  },
+  "client_protocol": "gemini (/v1beta generateContent|streamGenerateContent|countTokens, x-goog-api-key)",
+  "upstream_provider_type": "claude-api-key (mock_claude.py, worker-3 port 21002)",
+  "stream": true,
+  "base_url": "http://127.0.0.1:8397",
+  "port_adaptation": "cases file 18317->8397 (reference); upstream mock 19002->21002 (worker-3)",
+  "gateway_key": "oracle-local-key-1 via x-goog-api-key",
+  "purpose": "Contrast pin: on the STREAM client path the same empty upstream does NOT 502 — handler commits SSE headers on the closed-without-data branch: HTTP 200, SSE headers, ZERO frames, stream ends cleanly.",
+  "dynamic_fields": [
+    "Date",
+    "X-Cpa-Trace-Id",
+    "upstream Host header port (21002)",
+    "mock wire log ts field"
+  ],
+  "upstream_wire_delta_lines": 1,
+  "notes": [
+    "upstream wire entries emitted during this case: 1",
+    "DEVIATION: the stream client path does NOT return 200 + SSE headers + zero frames. Instead a lower-level guard fires BEFORE SSE headers are committed: HTTP 500, Content-Type application/json, body {\"error\":{\"message\":\"empty_stream: upstream stream closed before first payload\",\"type\":\"server_error\",\"code\":\"internal_server_error\"}}. The case purpose's core claim still holds in part: the stream path does not run the claude-executor 502 validators (no \"claude executor: ...\" wrap) — it hits an earlier, generic empty_stream guard instead."
+  ],
+  "files": [
+    "meta.yaml",
+    "request.http",
+    "downstream.md",
+    "upstream.jsonl",
+    "mock-response.json"
+  ]
+}

@@ -226,11 +226,11 @@ feature F8 with its own matrix row and §2.3-F8 block.
    `proxyTransport: false` runtimes refresh attempts are NOT made through the configured proxy — the
    credential is treated as excluded (§2.3-F1-3) and its refresh is skipped rather than silently sent
    direct. Node behavior is unchanged (refresh through the configured transport).
-6. `POST /v0/management/api-call`: request `proxy_url` invalid → `400 {"error":"invalid proxy_url"}` (upstream);
+7. `POST /v0/management/api-call`: request `proxy_url` invalid → `400 {"error":"invalid proxy_url"}` (upstream);
    request/credential/global resolved mode `proxy` on a runtime without `proxyTransport` → 501 with the
    F1-501 management body (§5). On `proxyTransport: true` runtimes the upstream behavior applies
    (through-proxy attempt; transport failure → `502 {"error":"request failed"}`, S7-06 golden).
-7. `direct` and `inherit` modes are trivially equivalent on every runtime (Web `fetch` is direct by
+8. `direct` and `inherit` modes are trivially equivalent on every runtime (Web `fetch` is direct by
    default). Registered difference: upstream `inherit` honors `HTTP(S)_PROXY`-style environment proxies
    (Go default transport); CPA-Edge ignores environment proxies on every runtime (§7, NE-S7-04).
 
@@ -295,9 +295,10 @@ feature F8 with its own matrix row and §2.3-F8 block.
 2. On `localCallbackServer: true` runtimes (node), behavior is upstream: 200 envelope with `url` + `state`,
    and with `?is_webui=1` a forwarder binds 54545/1455/51121 and answers 302 →
    `http(s)://127.0.0.1:<port>/<provider>/callback?...` with `Cache-Control: no-store` (S7-13 golden).
-3. F5b (device flows) and F5c (callback routes + session registry) are EQUIVALENT on every runtime;
-   their error ladders are the S7-11/S7-12 goldens. On serverless the device flows are the documented
-   substitute for redirect flows (§7, NE-S7-05).
+3. On serverless, the substitute for redirect flows is the device flows — but their platform
+   applicability is NOT "equivalent everywhere": see the amended F5b and F5c matrix rows and the
+   substrate requirements in §2.3-F5b/§2.3-F5c (cloudflare EQUIVALENT conditional on those MUSTs;
+   vercel DEGRADED per §2.3-F5b-3 and §2.3-F5c-3).
 
 **F5b — device-flow auth-URLs (substrate requirements).**
 Upstream runs each device flow with in-process state: the session registry is in memory and the
@@ -311,7 +312,7 @@ S7-16 source spec, deferred). A serverless invocation cannot keep either alive, 
    DO alarms drive the device-code polling loop (the observable ladder is unchanged: sessions complete
    with the same recorded transitions). `runtimes/vercel` — DEGRADED, pinned observables below.
 3. `runtimes/vercel` (DEGRADED) exact observable semantics: `GET /v0/management/{xai,meta,kimi}-auth-url`
-   returns the recorded 200 envelope (`status/url/state/flow:user_code/expires_in`) — the vendor
+   returns the source-specified 200 envelope (`status/url/state/flow:user_code/expires_in`) — the vendor
    device-authorization request runs synchronously inside that invocation and the session is persisted
    to the Store; the polling loop CANNOT run afterwards, so `GET /v0/management/get-auth-status?state=`
    returns `{"status":"wait"}` for the session's remaining lifetime; at the 30-minute TTL the session
@@ -392,8 +393,9 @@ recorded in S6 §4 with goldens S6-07/08/09; evidence: `internal/api/mux_listene
   Confirms §2.2 rows F5a/F5d. Redirect-based login (anthropic 54545, codex 1455, antigravity 51121,
   devin `127.0.0.1:<port>/callback`) is viable only where the process can bind those loopback ports:
   `runtimes/node` EQUIVALENT; cloudflare/vercel DEGRADED — the four redirect-flow auth-URL endpoints
-  return the F5-501 body (§3.2), and the CLI login UX is ABSENT. Device flows (xai/meta/kimi) remain
-  the supported serverless path (NE-S7-05).
+  return the F5-501 body (§3.2), and the CLI login UX is ABSENT. Device flows (xai/meta/kimi) are the
+  substitute serverless path: supported on cloudflare conditional on the §2.3-F5b substrate MUSTs,
+  DEGRADED on vercel (NE-S7-11).
 - **Ruling R-S7-C (S3 O-3: anthropic/codex callback routes 200-HTML-always; devin strict 400s).**
   MIRRORED on every runtime. These are ordinary HTTP routes on the main port; no runtime lacks the
   capability to serve them. Recorded in S7-11 (fixed 200 HTML body byte-for-byte; devin 400 ladder
@@ -405,6 +407,10 @@ recorded in S6 §4 with goldens S6-07/08/09; evidence: `internal/api/mux_listene
   client (F4), and the localhost redirect URIs (F5a). Platform applicability is explicit and follows
   the corresponding rows: node — all reachable as configured; cloudflare — the WebSocket bridge yes
   (public URL), localhost-redirect flows no (F5a DEGRADED); vercel — none beyond plain HTTP clients.
+  Same style for the management gate: upstream `remote-management.allow-remote: false` admits only
+  loopback clients, but on serverless EVERY management client is remote, so the loopback gate can
+  never succeed — deployments MUST set `allow-remote: true` (with a strong `secret-key`) for the
+  Management API to function at all; D1 states this.
   This is a deployment-topology statement, not a new behavior; D1 must state which client interactions
   survive on each runtime.
 
@@ -592,7 +598,8 @@ Intentional non-equivalences (to be appended to SPEC §5 registry by the orchest
 - **NE-S7-05 (F5a, cloudflare+vercel).** Redirect-based OAuth flows fundamentally require the browser
   to reach `localhost:<54545|1455|51121>` on the CPA host; serverless hosts cannot bind those ports and
   the fixed redirect URIs cannot point at them. Substitute: 501 on the four redirect-flow auth-URL
-  endpoints (§3.2); device flows (xai/meta/kimi) remain the supported path on serverless.
+  endpoints (§3.2); device flows (xai/meta/kimi) are the substitute path — supported on cloudflare
+  conditional on the §2.3-F5b substrate MUSTs, DEGRADED on vercel (NE-S7-11).
   Confirmed by S3's recorded O-4 finding; see Ruling R-S7-B.
 - **NE-S7-06 (F6, cloudflare+vercel).** External-file watching does not exist (no filesystem); the
   management API and Store writes are the only mutation paths and apply immediately. On node, external
@@ -616,6 +623,15 @@ Intentional non-equivalences (to be appended to SPEC §5 registry by the orchest
   queue behind `/v0/management/usage-queue` keeps S6 semantics. S6 §4 is the node-runtime contract
   for this feature (rescoped by the S6 writer per the B2 ruling).
 
+- **NE-S7-11 (F5b/F5c, vercel).** Device flows on vercel degrade: `{xai,meta,kimi}-auth-url` returns
+  the source-specified 200 envelope only (vendor device-auth request runs in-invocation; session
+  persisted to the Store); background poll execution does not exist, so sessions NEVER complete —
+  `get-auth-status` reads `{"status":"wait"}` until the 30-minute TTL, then
+  `{"status":"error","error":"unknown or expired state"}`; token exchange/persistence never occur.
+  F5c session-registry endpoints keep the upstream error ladder (S7-12 golden) but no session can
+  reach a completion transition. Cloudflare is unaffected (F5b/F5c EQUIVALENT conditional on the
+  §2.3-F5b/F5c substrate MUSTs). Feeds SPEC §5.
+
 Open questions:
 - **OQ-S7-01 — DECIDED (orchestrator 2026-09-16).** T3 ships with vercel `inboundWebSocket: false`;
   the 501 body is the compatibility seam. A future Fluid-WS flip is a non-breaking capability change.
@@ -630,7 +646,9 @@ Open questions:
   (TCP sockets API) stays OFF for T2 v1. The 501 contract is designed so flipping the capability later
   is non-breaking.
 - **OQ-S7-04.** Device flows from serverless egress IPs may be rate-limited or blocked by vendors
-  (operational, not behavioral); the contract stays EQUIVALENT regardless.
+  (operational, not behavioral). Platform applicability follows the matrix rows: EQUIVALENT on
+  cloudflare (substrate-conditional), DEGRADED on vercel per NE-S7-11 — vendor-side blocking would
+  only narrow what vercel can still deliver, not widen it.
 - **OQ-S7-05.** Upstream's `ws-auth` reload terminates live sessions mid-flight (S7-02 logs). For the
   cloudflare DO hibernation implementation, session termination on `ws-auth` enable must be observable
   as an abnormal-close of the client socket; T2 owns the close-code choice.

@@ -1,6 +1,6 @@
 POST /v1/chat/completions HTTP/1.1
 Host: 127.0.0.1:8387
-Authorization: Bearer <api-key>
+Authorization: Bearer oracle-local-key-1
 Content-Type: application/json
 Accept: */*
 Connection: close

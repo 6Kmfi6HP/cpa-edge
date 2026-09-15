@@ -229,7 +229,7 @@ Downstream framing is decided by the handler (`sdk/api/handlers/gemini/gemini_ha
 
 - Status 200. Headers (set before the first data chunk): `Content-Type: text/event-stream`, `Cache-Control: no-cache`, `Connection: keep-alive`, `Access-Control-Allow-Origin: *`, plus the gateway CORS/expose block and `X-Cpa-Trace-Id` (dynamic). With default config (header passthrough disabled) NO upstream response header reaches the client at all — `downstreamHeadersAfterInterceptors` reduces to an empty diff (`sdk/api/handlers/handlers_interceptors.go`); every header the client sees is gateway-set. Recorded: S2d7-02/S2d7-13.
 - Each translated chunk C is emitted as the frame: `data: ` + C + `\n\n`. No `event:` lines. No `[DONE]` marker. No trailing bytes after the last chunk. No keep-alive comments by default (interval 0; `StreamingKeepAliveInterval`).
-- Header commit happens only when the FIRST chunk is ready: if the upstream fails before any chunk would be produced, the response is a normal error status (§5.1), not a 200 stream.
+- Header commit happens only when the FIRST chunk is ready: if the upstream fails before any chunk would be produced, the response is a normal error status (§5.1), not a 200 stream. Recorded instance: an empty upstream yields HTTP 500 `empty_stream` (S2d7-30), never a 200 with zero frames.
 
 ### 4.2 `streamGenerateContent?alt=json` (or any alt value other than sse/empty)
 
@@ -293,7 +293,7 @@ The 400/INVALID_ARGUMENT values are fixed regardless of the upstream error type.
   4. `claude executor: upstream returned malformed stream data` (a `data:` payload that is not valid JSON)
   5. `claude executor: upstream returned error event: <msg>` — where `<msg>` falls back through `error.message` → `error.type` → `unknown upstream error` (checked per line, before the completeness flags)
   6. `claude executor: upstream stream message_start is missing id or model`
-  Pins: golden S2d7-20 (string 5, with error.message present); goldens S2d7-26/27/28/29 pin strings 1/2/3/4. On the STREAM client path the same upstreams do NOT 502: an empty upstream yields HTTP 200 with zero frames (golden S2d7-30), and malformed/unknown events are silently dropped by the per-line translator (gjson is lenient; unknown event types emit nothing).
+  Pins: golden S2d7-20 (string 5, with error.message present); goldens S2d7-26/27/28/29 pin strings 1/2/3/4. On the STREAM client path the same upstreams do NOT 502: an empty upstream trips an earlier, generic conductor guard BEFORE SSE headers are committed — HTTP 500 `{"error":{"message":"empty_stream: upstream stream closed before first payload","type":"server_error","code":"internal_server_error"}}` (evidence: `sdk/cliproxy/auth/conductor_stream.go` `empty_stream` error; recorded: S2d7-30) — and malformed/unknown events are silently dropped by the per-line translator (gjson is lenient; unknown event types emit nothing).
 
 ### 5.3 Translation-produced errors
 
@@ -306,7 +306,7 @@ The 400/INVALID_ARGUMENT values are fixed regardless of the upstream error type.
 
 Recorded by @oracle-runner against CLIProxyAPI v7.3.4 (image digest per BOOTSTRAP §2), claude mock upstream (worker copy `run3/mock/mock_claude.py`; recording stack: reference on port 8397, mock on 21002 — port adaptation noted in every `meta.yaml`; config `claude-api-key`, model `claude-mock-model`, alias `cm`). Fixture layout per BOOTSTRAP §7 RECIPES under `tests/fixtures/S2d7/<case-id>/` (`meta.yaml`, `request.http`, `downstream.md`, `upstream.jsonl`, `mock-response.json`).
 
-**Recording status: S2d7-00 … S2d7-24 recorded (25 fixtures; raw transcripts in `_cpa_edge_ref/run3/probes/S2d7/`). The valid-args companions S2d7-23/24 confirm the non-degraded shapes: finishReason nested inside `candidates[0]` (stream) and a single in-place `usageMetadata` with the S2d7-01 key order (non-stream). Round-2 batch S2d7-25 … S2d7-30 (validator error paths) requested from @oracle-runner.**
+**Recording status: ALL 31 cases recorded (S2d7-00 … S2d7-30; raw transcripts in `_cpa_edge_ref/run3/probes/S2d7/`). The valid-args companions S2d7-23/24 confirm the non-degraded shapes (finishReason nested inside `candidates[0]`; single in-place `usageMetadata`). The round-2 validator batch S2d7-25 … S2d7-30 pins the countTokens 400 wrap and all four stream-validator 502 strings, plus the stream-path contrast: an empty upstream on a STREAM request yields the pre-commit HTTP 500 `empty_stream` guard (S2d7-30), not a 200.**
 
 Requests below use gateway auth `x-goog-api-key: oracle-local-key-1` and the alias model `cm` unless noted. Wire-log secrets are redacted by the mock. Dynamic fields masked: `Date`, `X-Cpa-Trace-Id`, `createTime`, `User-Agent` (caller-controlled, fixed per case by the curl used).
 
@@ -342,7 +342,7 @@ Requests below use gateway auth `x-goog-api-key: oracle-local-key-1` and the ali
 | S2d7-27-missing-message-start | upstream data lines but no message_start → 502 `claude executor: upstream stream response is missing message_start` | no | variant `nostart` |
 | S2d7-28-missing-message-delta | message_start present, no message_delta → 502 `claude executor: upstream stream response ended before message completion` | no | variant `truncated` |
 | S2d7-29-malformed-stream | invalid-JSON `data:` payload → 502 `claude executor: upstream returned malformed stream data` | no | variant `malformed` |
-| S2d7-30-stream-empty-200 | STREAM client + empty upstream → HTTP 200, SSE headers, ZERO frames (no 502 on the stream path) | alt=sse | variant `empty` |
+| S2d7-30-stream-empty-200 | STREAM client + empty upstream → pre-commit guard HTTP 500 `empty_stream: upstream stream closed before first payload` (NOT 200, NOT the 502 validator wrap; case id kept from the pre-recording request) | alt=sse | variant `empty` |
 
 Mock variants used (claude mock, control key `variant`, deterministic canned SSE; implemented by @oracle-runner in `run3/mock/mock_claude.py`): `tool` (tool_use block + input_json_delta×2 with INVALID-args fragments; S2d7-13/21), `tool-valid` (same shape, VALID fragments, ids `toolu_mock04`/`msg_mock_04`; S2d7-23/24), `errstream` (message_start + text delta + `type:"error"` event; S2d7-14/20), `maxtokens` (happy events with stop_reason "max_tokens"; S2d7-15), and the round-2 validator batch: `empty` (200 + zero events, clean close), `nostart` (data lines but no `message_start`), `truncated` (no `message_delta`), `malformed` (one invalid-JSON `data:` payload) — S2d7-26..30. Exact event lists are in `spec/recordings/S2d7.cases.json`; each fixture's `mock-response.json` embeds the scripted events that drove it.
 
