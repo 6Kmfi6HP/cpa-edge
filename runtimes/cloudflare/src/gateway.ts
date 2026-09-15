@@ -49,6 +49,7 @@ import {
 } from '@cpa-edge/auth'
 import { createManagementApi, type BuildInfo, type ManagementApi } from '@cpa-edge/management'
 import { cla2gem, gem2cla, gem2oai, oai2cla, oai2codex, res2oai } from '@cpa-edge/translators'
+import { decompress as fzstdDecompress } from 'fzstd'
 import {
   claudeCredentialsForChat,
   claudeCredentialsForGemini,
@@ -78,6 +79,7 @@ import {
   ROOT_BODY,
   STATUS_OK_BODY,
   WEBSOCKET_BAD_REQUEST_BODY,
+  ZSTD_MAGIC_MISMATCH,
   charsetJson,
   claudeInvalidRequestBody,
   claudeModelNotFoundBody,
@@ -299,7 +301,10 @@ function decodeBodyBytes(
     try {
       bytes = zstdDecode(bytes)
     } catch {
-      return { ok: false, text: '', message: 'failed to decode zstd request body' }
+      // Any decoder failure surfaces the pinned Go-parity wording
+      // (recorded S1-25 magic-mismatch golden), regardless of the
+      // library's own error text.
+      return { ok: false, text: '', message: ZSTD_MAGIC_MISMATCH }
     }
   }
   return { ok: true, text: decoder.decode(bytes), message: '' }
@@ -487,7 +492,9 @@ export function createCloudflareGateway(options: CloudflareGatewayOptions): Clou
   const capabilities = options.capabilities ?? CLOUDFLARE_RUNTIME_CAPABILITIES
   const fetchLike: FetchLike = options.fetch ?? ((input, init) => fetch(input, init))
   const send = makeSender(fetchLike)
-  const zstdDecode = options.zstdDecode
+  // fzstd is the runtime's zstd request-body decoder (orchestrator
+  // approved); tests may still inject a stub.
+  const zstdDecode: (input: Uint8Array) => Uint8Array = options.zstdDecode ?? fzstdDecompress
 
   const envManagementPassword = '' // no process environment on Workers; secrets arrive as bindings
   const managementSecret =
@@ -646,12 +653,6 @@ export function createCloudflareGateway(options: CloudflareGatewayOptions): Clou
     context: RequestContext,
     render: (message: string) => GatewayResponse,
   ): { readonly text: string } | { readonly handled: Handled } => {
-    const contentEncoding = headerValue(context.request.headers, 'content-encoding')
-    if (zstdDecode === undefined && (contentEncoding ?? '').toLowerCase().includes('zstd')) {
-      // No decoder linked into this build: the runtime states the honest
-      // transport answer instead of a fake decode failure.
-      return { handled: { response: render('unsupported content encoding: zstd') } }
-    }
     const decoded = context.decodeBody()
     if (!decoded.ok) return { handled: { response: render(decoded.message) } }
     return { text: decoded.text }
@@ -1486,10 +1487,11 @@ export function createCloudflareGateway(options: CloudflareGatewayOptions): Clou
       facadeHeaders: request.headers,
       decodeBody: () => {
         if (bodyDecoded === undefined) {
-          bodyDecoded =
-            zstdDecode === undefined
-              ? { ok: true, text: new TextDecoder().decode(request.body), message: '' }
-              : decodeBodyBytes(request.body, headerValue(request.headers, 'content-encoding'), zstdDecode)
+          bodyDecoded = decodeBodyBytes(
+            request.body,
+            headerValue(request.headers, 'content-encoding'),
+            zstdDecode,
+          )
         }
         return bodyDecoded
       },

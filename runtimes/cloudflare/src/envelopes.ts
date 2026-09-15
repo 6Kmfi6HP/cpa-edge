@@ -78,6 +78,9 @@ export function invalidRequestBody(message: string): string {
 /** Depth-rejection wording for the hostile-input guard (unpinned). */
 export const MAX_DEPTH_MESSAGE = 'Invalid request: exceeded max depth'
 
+/** Pinned zstd decode-failure wording (S1-25 magic-mismatch golden). */
+export const ZSTD_MAGIC_MISMATCH = 'failed to decode zstd request body: invalid input: magic number mismatch'
+
 /** Realtime nested envelope, map-sorted keys (S1 section 3.7). */
 export function realtimeEnvelope(code: string, message: string, type: string): string {
   return JSON.stringify({

@@ -834,6 +834,39 @@ describe('S1 management surface', () => {
     expect(header(noState, 'X-Cpa-Version')).toBeUndefined()
   })
 
+  it('regression (T2 parity): the composed-management path still key-gates the plane-owned routes', async () => {
+    // A composed facade must NOT leave the auth-url family open: the
+    // plane-owned subset is gated by the plane regardless (cloudflare
+    // gates them explicitly; the node runtime must match).
+    const gateway = createNodeGateway({
+      config: BASE_CONFIG,
+      configYaml: [
+        'port: 18317',
+        'api-keys:',
+        '  - oracle-local-key-1',
+        'remote-management:',
+        '  allow-remote: true',
+        '  secret-key: oracle-mgmt-key-1',
+        '',
+      ].join('\n'),
+    })
+    const noKey = await gateway.handle(request('GET', '/v0/management/anthropic-auth-url'))
+    expect(noKey.status).toBe(401)
+    expect(await text(noKey)).toBe('{"error":"missing management key"}')
+    expect(header(noKey, 'X-Cpa-Version')).toBe('v7.3.4')
+    expect(header(noKey, 'X-Cpa-Commit')).toBe('8335eac')
+    expect(header(noKey, 'X-Cpa-Build-Date')).toBe('2026-09-15T14:07:06Z')
+    expect(header(noKey, 'X-Cpa-Support-Plugin')).toBe('1')
+    const wrongKey = await gateway.handle(request('GET', '/v0/management/get-auth-status', bearer('nope')))
+    expect(wrongKey.status).toBe(401)
+    expect(await text(wrongKey)).toBe('{"error":"invalid management key"}')
+    const noKeySession = await gateway.handle(request('DELETE', '/v0/management/oauth-session'))
+    expect(noKeySession.status).toBe(401)
+    const withKey = await gateway.handle(request('GET', '/v0/management/anthropic-auth-url', bearer(MGMT_KEY)))
+    expect(withKey.status).toBe(200)
+    expect(JSON.parse(await text(withKey))).toMatchObject({ status: 'ok' })
+  })
+
   it('auth-url, get-auth-status and oauth-session answer via the plane', async () => {
     const gateway = gatewayWith()
     const authUrl = await gateway.handle(request('GET', '/v0/management/codex-auth-url', bearer(MGMT_KEY)))

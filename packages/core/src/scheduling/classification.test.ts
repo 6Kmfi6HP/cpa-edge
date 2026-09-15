@@ -96,6 +96,19 @@ describe('failure classification ladder', () => {
     }
   })
 
+  it('treats the string_above_max_length fault code as a request-scoped stop even on 502', () => {
+    // A transient-looking status carrying the recorded fault code is
+    // caller-attributed: rotation stops and nothing cools.
+    const classification = classifyFailure({
+      httpStatus: 502,
+      bodyText: '{"error": {"code": "string_above_max_length", "message": "mock too long"}}',
+    })
+    expect(classification.kind).toBe('request_scoped')
+    expect(classification.rotation).toBe('stop')
+    expect(classification.cooldown).toBe('none')
+    expect(classification.retryRoundEligible).toBe(false)
+  })
+
   it('classifies 401 and invalid_grant as unauthorized failures', () => {
     const unauthorized = classifyFailure({ httpStatus: 401, bodyText: '{"error": "bad key"}' })
     expect(unauthorized.kind).toBe('unauthorized')

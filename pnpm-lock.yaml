@@ -133,6 +133,9 @@ importers:
       '@cpa-edge/translators':
         specifier: workspace:*
         version: link:../../packages/translators
+      fzstd:
+        specifier: ^0.1.1
+        version: 0.1.1
     devDependencies:
       '@cloudflare/workers-types':
         specifier: '*'
@@ -189,6 +192,9 @@ importers:
       '@cpa-edge/management':
         specifier: workspace:*
         version: link:../../packages/management
+      '@cpa-edge/runtime-node':
+        specifier: workspace:*
+        version: link:../node
       '@cpa-edge/translators':
         specifier: workspace:*
         version: link:../../packages/translators

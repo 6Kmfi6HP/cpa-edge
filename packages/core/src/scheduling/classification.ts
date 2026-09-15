@@ -89,7 +89,7 @@ export const REQUEST_FAULT_CODES: readonly string[] = Object.freeze([
   'cyber_policy',
   'context_length_exceeded',
   'message_too_big',
-  'string_above_max_string',
+  'string_above_max_length',
   'invalid_prompt',
   'invalid_value',
   'unsupported_value',

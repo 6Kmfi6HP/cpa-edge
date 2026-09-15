@@ -855,3 +855,66 @@ describe('end-to-end composition smoke', () => {
     expect(await read.text()).toBe('{"logging-to-file":true}')
   })
 })
+
+// ---------------------------------------------------------------------------
+// R-S7-A: the remote-management gate on a public deployment
+// ---------------------------------------------------------------------------
+
+describe('remote management gate (R-S7-A)', () => {
+  it('a remote client without allow-remote reads the disabled 403, not the API', async () => {
+    const record: Record<string, unknown> = {
+      ...DIRECT_RECORD(),
+      'remote-management': {
+        'allow-remote': false,
+        'secret-key': MGMT_KEY,
+        'disable-control-panel': true,
+      },
+    }
+    const gateway = gatewayWith(record)
+    const remote = await gateway.handle(
+      request(
+        'GET',
+        '/v0/management/logging-to-file',
+        [['Authorization', `Bearer ${MGMT_KEY}`], ['X-Forwarded-For', '203.0.113.9']],
+      ),
+    )
+    expect(remote.status).toBe(403)
+    expect(await text(remote)).toBe('{"error":"remote management disabled"}')
+  })
+
+  it('allow-remote: true admits the remote client (the required setting here)', async () => {
+    const gateway = gatewayWith(DIRECT_RECORD())
+    const remote = await gateway.handle(
+      request(
+        'GET',
+        '/v0/management/logging-to-file',
+        [['Authorization', `Bearer ${MGMT_KEY}`], ['X-Forwarded-For', '203.0.113.9']],
+      ),
+    )
+    expect(remote.status).toBe(200)
+    expect(await text(remote)).toBe('{"logging-to-file":false}')
+  })
+
+  it('get-auth-status without a key keeps the recorded 401', async () => {
+    const response = await gatewayWith(DIRECT_RECORD()).handle(
+      request('GET', '/v0/management/get-auth-status?state=abc'),
+    )
+    expect(response.status).toBe(401)
+    expect(await text(response)).toBe('{"error":"missing management key"}')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// F8: the usage queue keeps S6 semantics through the KV store
+// ---------------------------------------------------------------------------
+
+describe('usage queue surface (F8: no RESP wire, queue intact)', () => {
+  it('usage-queue reads work over the KV-backed store', async () => {
+    const gateway = gatewayWith(DIRECT_RECORD())
+    const response = await gateway.handle(
+      request('GET', '/v0/management/usage-queue', bearer(MGMT_KEY)),
+    )
+    expect(response.status).toBe(200)
+    expect(typeof JSON.parse(await text(response))).toBe('object')
+  })
+})

@@ -1447,9 +1447,13 @@ export function createNodeGateway(options: NodeGatewayOptions): NodeGateway {
         // Availability middleware: the whole surface is absent (S1 §3.9).
         return { status: 404, headers: withCors([]), body: '' }
       }
-      // The composed/injected management facade owns its own auth; the
-      // plane-gated path applies only when no instance is available.
-      if (managementApi === undefined) {
+      // T2 parity finding: the plane-OWNED management routes (auth-url
+      // family, get-auth-status, oauth-session) are key-gated by the
+      // plane ALWAYS - a composed facade delegates only the payload
+      // routes (mgmt-rest) and its auth never covers these. The payload
+      // delegation keeps its own internal gate when a facade exists.
+      const planeOwnedRoute = context.match.entry.id !== 'mgmt-rest'
+      if (planeOwnedRoute || managementApi === undefined) {
         // Per-request socket address overrides the construction-time one
         // (merged auth-plane override).
         const verdict = await plane.authenticateManagement(

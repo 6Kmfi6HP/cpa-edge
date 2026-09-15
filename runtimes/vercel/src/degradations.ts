@@ -539,7 +539,7 @@ function candidatesForModel(
   options: RequestOverlayOptions,
   model: string,
 ): readonly FamilyCandidate[] | undefined {
-  for (const [family, candidates] of options.candidatesByFamily) {
+  for (const candidates of options.candidatesByFamily.values()) {
     const matching = candidates.filter((candidate) => candidate.aliases.has(model))
     if (matching.length > 0) return matching
   }

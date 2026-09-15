@@ -313,6 +313,26 @@ describe('session affinity scheduling (S4-11)', () => {
     )
     expect(childOff?.credential.id).toBe('b')
   })
+
+  it('sticks child session ids that extend a bound id on an exact-key miss', async () => {
+    const pool = [simpleCredential('a'), simpleCredential('b')]
+    const sched = scheduler({ sessionAffinity: true })
+    const first = await sched.pick(pool, request({ sessionIdentity: 'thread-123', affinityScope: COMPAT }))
+    expect(first?.credential.id).toBe('a')
+    // 'thread-123-child-9' has no binding of its own, but 'thread-123'
+    // is a live stored prefix of it: the child sticks to a.
+    const child = await sched.pick(
+      pool,
+      request({ sessionIdentity: 'thread-123-child-9', affinityScope: COMPAT }),
+    )
+    expect(child?.credential.id).toBe('a')
+    expect(child?.fromAffinity).toBe(true)
+    // A session id that extends nothing bound falls back to the strategy
+    // (and the sticky child pick above advanced no cursor).
+    const fresh = await sched.pick(pool, request({ sessionIdentity: 'unrelated-1', affinityScope: COMPAT }))
+    expect(fresh?.credential.id).toBe('b')
+    expect(fresh?.fromAffinity).toBe(false)
+  })
 })
 
 describe('websocket transport preference scheduling (S4-21)', () => {
@@ -330,10 +350,17 @@ describe('websocket transport preference scheduling (S4-21)', () => {
     expect(wsPick?.credential.id).toBe('ws-low')
   })
 
-  it('respects priority on the HTTP leg', async () => {
+  it('respects priority on the HTTP leg (low-priority credential sorts first)', async () => {
     const sched = scheduler()
-    const httpPick = await sched.pick(wsPool, request({ surfaceProvider: 'codex' }))
-    expect(httpPick?.credential.id).toBe('plain-high')
+    // Decisive ID arrangement: the low-priority credential sorts FIRST, so
+    // a flat rotation over all tiers would pick it; the highest ready
+    // tier must still win on the plain HTTP leg.
+    const decisivePool = [
+      simpleCredential('a-low', { priority: -5, websocketEnabled: true, provider: 'codex' }),
+      simpleCredential('z-high', { priority: 0, provider: 'codex' }),
+    ]
+    const httpPick = await sched.pick(decisivePool, request({ surfaceProvider: 'codex' }))
+    expect(httpPick?.credential.id).toBe('z-high')
   })
 
   it('legacy path (affinity on) filters codex only inside the highest tier', async () => {

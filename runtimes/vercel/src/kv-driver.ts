@@ -329,7 +329,7 @@ function parseEnvelope(text: string): StoredEnvelope {
 
 /** Escapes the glob metacharacters a MATCH pattern would otherwise honor. */
 function globEscape(prefix: string): string {
-  return prefix.replace(/([*?\[\]])/g, (match) => `\${match}`)
+  return prefix.replace(/([*?[\]])/g, (_, metachar: string) => `\\${metachar}`)
 }
 
 /**

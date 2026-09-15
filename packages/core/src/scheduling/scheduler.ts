@@ -259,7 +259,17 @@ export class CredentialScheduler {
     if (this.config.sessionAffinity) {
       const key = this.affinityCacheKey(scope, model, request)
       if (key !== undefined) {
-        const binding = await this.affinity.get(key)
+        // Exact key first. On an exact-key miss, a stored binding whose
+        // session id is the longest prefix of the request's session id
+        // still sticks, so child sessions extending a bound id inherit
+        // its credential.
+        const exact = await this.affinity.get(key)
+        const binding =
+          exact !== undefined
+            ? exact
+            : request.sessionIdentity !== undefined
+              ? await this.affinity.longestPrefixLookup(scope, request.sessionIdentity, model)
+              : undefined
         if (binding !== undefined) {
           const bound = eligible.find((credential) => credential.id === binding.authId)
           if (bound !== undefined) {
@@ -313,13 +323,23 @@ export class CredentialScheduler {
       provider: surfaceProvider,
     }
 
-    // Collapse to the participating view: the shard path searches the
-    // ws-enabled sub-view across ALL priority tiers first; the legacy path
-    // (session affinity active) filters codex-only inside the already
+    // Collapse to the participating view. The shard path first searches the
+    // ws-enabled sub-view across ALL priority tiers - the one documented
+    // cross-tier exception; whenever that preference yields no cross-tier
+    // view, the pick collapses to the highest priority tier that has a
+    // ready credential, exactly like every other selection. The legacy
+    // path (session affinity active) filters codex-only inside the already
     // collapsed highest tier and never crosses tiers.
     let view: readonly SchedulingCandidate[]
     if (this.websocketPreferencePath === 'shard') {
-      view = shardWebsocketView(candidates, context).view
+      const shard = shardWebsocketView(candidates, context)
+      if (shard.preferred) {
+        view = shard.view
+      } else {
+        const priority = highestReadyPriority(candidates)
+        if (priority === undefined) return undefined
+        view = tierView(candidates, priority)
+      }
     } else {
       const priority = highestReadyPriority(candidates)
       if (priority === undefined) return undefined

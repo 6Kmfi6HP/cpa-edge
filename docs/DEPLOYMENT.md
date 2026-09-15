@@ -238,9 +238,14 @@ the "lands with T1" items are recorded integration seams, not scope cuts.
 
 ## 3. Cloudflare Workers (as delivered by T2)
 
-Source: the T2 runtime and its shipped operator notes
-(`runtimes/cloudflare/DEPLOY.md`, `runtimes/cloudflare/wrangler.toml`).
-Anything still pending T2's final report is marked `TODO-T2` in §6.
+Source: the T2 runtime, its shipped operator notes
+(`runtimes/cloudflare/DEPLOY.md`, `runtimes/cloudflare/wrangler.toml`),
+and T2's final delivery report (folded in below). Delivery status per that
+report: 74/74 package tests green; `wrangler deploy --dry-run` passed —
+bundle 6.42 MiB (2.72 MiB gzip), within Workers limits; the
+`CpaEdgeDurableObject` DO binding resolves (sqlite-backed, migrations tag
+`v1`). T2's gate review is in flight; any finding that changes a fact
+below will be folded in when forwarded.
 
 ### 3.1 Topology
 
@@ -249,23 +254,30 @@ auth files, cooldowns, OAuth sessions, usage queue, log ring — lives in
 one sqlite-backed Durable Object (`CpaEdgeDurableObject`, binding
 `CPA_EDGE_DO`), which is this platform's equivalent of the reference's
 single process. Token refresh, device-flow polling, and retention sweeps
-run on the object's alarm. `/v1/ws` upgrades are accepted into WebSocket
-hibernation.
+run on the object's alarm, which re-arms at the earliest of: the next
+refresh due, the next device-poll tick, the next management retention
+sweep, or a 60-second idle heartbeat. `/v1/ws` upgrades are accepted
+(101) into WebSocket hibernation; enabling `ws-auth` while sessions are
+live terminates them with close code 1008 (policy violation).
 
 ### 3.2 Deploy
 
 1. `npx wrangler deploy` (from `runtimes/cloudflare`; wrangler resolves
    the workspace TypeScript sources — no build step).
 2. Provide the config (one of):
-   - **KV binding `CPA_CONFIG`** holding the `config.yaml` text under the
-     key `config.yaml` (recommended), or
+   - **KV binding `CPA_CONFIG`** holding the `config.yaml` text under
+     the key `config.yaml` (recommended). Create the namespace with
+     `npx wrangler kv namespace create CPA_CONFIG`, bind it in
+     `wrangler.toml`, then put the config text under the key, or
    - **plain-text var `CPA_CONFIG_YAML`** with the config inline
      (`[vars]` in `wrangler.toml` — keep secrets out of it).
-3. First boot seeds the object's stored copy from that source. After
+3. Config precedence at boot: the object's **stored copy first**, then
+   the KV binding, then the plain-text var, then an empty config. First
+   boot seeds the stored copy from the first available source. After
    that, config changes go through the management API only
-   (`PUT /v0/management/config.yaml`, scalar writes) — there is no file
-   watcher on this platform (S7 F6), and writes hot-reload the gateway
-   immediately.
+   (`PUT /v0/management/config.yaml`, scalar writes) and are written
+   back to the stored copy — there is no file watcher on this platform
+   (S7 F6), and writes hot-reload the gateway immediately.
 
 ### 3.3 Required config on this platform
 
@@ -277,12 +289,12 @@ hibernation.
 
 | Feature | Behavior here |
 |---|---|
-| F1 outbound proxy | proxy-credentialed credentials are excluded from scheduling; requests with no eligible credential get 501 `proxy_unavailable`; config accepted and echoed |
+| F1 outbound proxy | proxy-credentialed credentials are excluded from scheduling; requests with no eligible credential get 501 `proxy_unavailable`; config accepted and echoed; `POST /v0/management/api-call` keeps the upstream scheme validation (`400 {"error":"invalid proxy_url"}`) and returns the F1 501 body when a proxy would be required |
 | F2 plugins | config surface served; installs 501; nothing loads |
 | F3 logs | `GET/DELETE /v0/management/logs` served from the DO-backed log ring (capacity 1000, same shapes) |
 | F4 `/v1/ws` | route served: auth gate (`ws-auth`, default required), gorilla-style 400 for non-upgrades, passing upgrades accepted into DO hibernation; the relay protocol behind the 101 has no merged executor yet, sessions hold silent |
 | F5a redirect logins | `anthropic/codex/antigravity/devin-auth-url` → 501 `local callback server is not available on this runtime` |
-| F5b device logins | EQUIVALENT: sessions are Store-backed, polling runs on DO alarms, completions persist auth files exactly like the packaged flows |
+| F5b device logins | EQUIVALENT (live): sessions are Store-backed, polling runs on DO alarms with per-provider loop semantics byte-matching the package flows, completions persist auth files exactly like the packaged flows |
 | F5c callbacks | EQUIVALENT: `/anthropic/callback` etc. and the oauth-callback ladder run over the Store-backed registry |
 | F6 hot reload | management API writes only, applied immediately |
 | F7 TLS | platform-terminated; the `tls` block is accepted and ignored |
@@ -291,13 +303,12 @@ hibernation.
 ### 3.5 Notes and constraints (T2)
 
 - Config text is parsed by this runtime's block-YAML reader. Flow
-  collections, anchors, block scalars, and tab indentation are rejected at
-  boot — rewrite the config in block style first (the management
-  facade's own writer always emits block style).
-- `content-encoding: zstd` request bodies need the `fzstd` decoder; it
-  is not yet a dependency of this package, so such bodies answer
-  `unsupported content encoding: zstd` until the orchestrator links it
-  (open item in the T2 report — see §6).
+  collections, anchors, block scalars, and tab indentation are rejected
+  at boot with explicit errors — rewrite the config in block style first
+  (the management facade's own writer always emits block style).
+- `content-encoding: zstd` request bodies decode through the runtime's
+  `fzstd` decoder (the earlier open item is resolved — the dependency is
+  installed in the runtime package).
 
 ## 4. Vercel (as delivered by T3)
 
@@ -425,22 +436,29 @@ recorded as 200 with full translation). CPA-Edge enforces a strict
 boundary instead: non-JSON or malformed bodies are rejected with 400 in
 each surface's error shape. Well-formed clients see no difference.
 
-## 6. Fill-in checklist (awaiting T2/T3 reports)
+## 6. Fill-in checklist (T2 filled; T3 pending)
 
 This section is the explicit placeholder ledger. Each `TODO` is filled
 from the integrator's report when the orchestrator forwards it; nothing
 below is invented.
 
-TODO-T2 (Cloudflare):
+T2 (Cloudflare) — FILLED (2026-09-16, from T2's final report):
 
-- [ ] Final deploy verification transcript (wrangler deploy output,
-      first-boot seeding logs).
-- [ ] Step-by-step KV namespace provisioning for operators (the
-      wrangler.toml sketch references it but the report should confirm
-      the exact commands).
-- [ ] Resolution of the `fzstd` / `content-encoding: zstd` open item.
-- [ ] Anything else T2's report adds (alarm cadence, DO storage limits,
-      route notes).
+- [x] Deploy verification: 74/74 package tests; `wrangler deploy
+      --dry-run` passed (bundle 6.42 MiB / 2.72 MiB gzip, within
+      Workers limits; DO binding resolves; sqlite-backed DO, migrations
+      tag `v1`). Folded into §3.
+- [x] KV provisioning: `npx wrangler kv namespace create CPA_CONFIG`,
+      bind in `wrangler.toml`, config text under key `config.yaml` (or
+      the `CPA_CONFIG_YAML` var). Folded into §3.2.
+- [x] zstd open item: resolved — `fzstd` installed in the runtime
+      package. Folded into §3.5.
+- [x] Alarm cadence (earliest-of re-arm with a 60s idle heartbeat), WS
+      hibernation with `ws-auth` termination close 1008, F5b device
+      flows live with per-provider loop parity, F1 501 ladder incl.
+      api-call scheme validation. Folded into §3.1/§3.4.
+- Residual: T2's gate review is in flight — any finding that changes a
+  folded fact gets re-folded here when forwarded.
 
 TODO-T3 (Vercel):
 
