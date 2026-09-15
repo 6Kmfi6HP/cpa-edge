@@ -303,13 +303,13 @@ function parseMapping(state: ParseState, indent: number): BlockNode {
       throw new YamlError(`yaml: line ${state.index - 1}: mapping values are not allowed in this context`)
     }
     if (line.content.startsWith('- ') || line.content === '-') break
+    // A value token without a key (`: :`). go-yaml reports this without a
+    // line number; the recorded S5 golden pins those exact bytes.
+    if (line.content.startsWith(':')) {
+      throw new YamlError('yaml: did not find expected key')
+    }
     const split = splitKey(line.content)
     if (split === undefined) {
-      if (line.content.startsWith(':')) {
-        // `: :` - a value token without a key. go-yaml reports this without
-        // a line number; the recorded S5 golden pins those exact bytes.
-        throw new YamlError('yaml: did not find expected key')
-      }
       if (isUnsupportedFlow(line.content)) {
         throw new YamlError(`yaml: line ${state.index - 1}: did not find expected node content`)
       }

@@ -1,0 +1,6 @@
+{
+ "mode": "same as S2d9-10 (upstream-error 404 model_not_found)",
+ "mock_script": "control/codex_responses/S2d9-10.http_error.json (referenced, not duplicated)",
+ "control_file": "S2d9-10",
+ "note": "the trigger call hit the mock once (visible in S2d9-10's fixture); THIS call made no upstream attempt"
+}

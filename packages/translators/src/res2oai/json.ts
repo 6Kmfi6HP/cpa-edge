@@ -235,6 +235,21 @@ export function isValidJson(text: string): boolean {
   }
 }
 
+/**
+ * Re-marshals a JSON document compactly, preserving key order (the
+ * recorded compact passthrough: the mock's spaced reply bytes become the
+ * compact downstream body). Invalid JSON passes through unchanged.
+ */
+export function remarshalJson(text: string): string {
+  const parsed: unknown = tryParseJson(text)
+  if (parsed === undefined) return text
+  try {
+    return serializeOrdered(wireValueOf(parsed))
+  } catch {
+    return text
+  }
+}
+
 /** Detached plain-object copy of a parsed value (non-objects become {}). */
 export function wireObject(value: unknown): WireObject {
   const out: WireObject = {}

@@ -16,12 +16,12 @@
 | S2d1 | spec: OpenAI client → Gemini upstream | 1 | spec-s2d1-oai2gem | spec-fix | 1 | R1: adv-spec-6 FAIL (B1 multi-candidate stream golden required); N1-N7 dispatched |
 | S2d2 | spec: Gemini client → OpenAI upstream | 1 | spec-s2d2-gem2oai | merged | 2 | ADMITTED round 2. 26 goldens; countTokens formula independently reproduced by reviewer. Unlocks I-tr-S2d2. |
 | S2d3 | spec: OpenAI client → Claude upstream | 1 | spec-s2d3-oai2cla | merged | 2 | ADMITTED round 2. 26 goldens. Unlocks I-tr-S2d3. |
-| S2d4 | spec: Claude client → OpenAI upstream | 1 | spec-s2d4-cla2oai | spec-fix | 1 | R1: adv-spec-4 FAIL (B1 two-stage thinking table — S2d2-class; discriminating batch authorized to w4) |
+| S2d4 | spec: Claude client → OpenAI upstream | 1 | spec-s2d4-cla2oai | spec-adv-r2 | 1 | fix cycle + 12-golden batch done; round-2 running on adv-spec-4 |
 | S2d5 | spec: OpenAI client → Codex/Responses upstream | 1 | spec-s2d5-oai2codex | merged | 2 | ADMITTED round 2 (R1-R7 text rider to writer). 26 goldens; union->enum MUST + type-selection pinned. Unlocks I-tr-S2d5. |
 | S2d6 | spec: Responses client → OpenAI chat upstream | 1 | spec-s2d6-res2oai | merged | 3 | ADMITTED round 3. 27 goldens; stream Ensure + CloseError catalog + empty200 conductor rule. Unlocks I-tr-S2d6. |
 | S2d7 | spec: Gemini client → Claude upstream | 1 | spec-s2d7-gem2cla | merged | 2 | ADMITTED round 2. 31 goldens; validator families byte-pinned; empty-stream conductor gate recorded-deviation integrated. Unlocks I-tr-S2d7. |
 | S2d8 | spec: Claude client → Gemini upstream | 1 | spec-s2d8-cla2gem | merged | 2 | ADMITTED round 2. 18 goldens; two-stage thinking rule; byte-encoding MUSTs. Unlocks I-tr-S2d8. |
-| S2d9 | spec: Codex/Responses passthrough semantics | 1 | spec-s2d9-codex | spec-fix | 1 | R1: adv-spec-5 FAIL (B1 stream usage-detail injection; B2 image-mode inversion); N1-N12 text fixes |
+| S2d9 | spec: Codex/Responses passthrough semantics | 1 | spec-s2d9-codex | spec-adv-r2 | 1 | 14 fixes applied; optional N11 batch in flight at w2; round-2 running on adv-spec-5 |
 | S2d10 | spec: Antigravity redirect rules | 1 | spec-s2d10-antigravity | merged | 2 | ADMITTED round 2. 18 goldens; R-SYNCREDS precedent; feeds I-exec-antigravity + I-auth antigravity flow. |
 | S3 | spec: auth flows | 1 | spec-s3-auth | merged | 3 | ADMITTED after 3 rounds. Goldens: 44 dirs. Unlocked I-auth + S3 contract tests. |
 | S4 | spec: scheduling | 1 | spec-s4-scheduling | merged | 2 | ADMITTED round 2. 23 goldens; per-family ID contracts numerically verified; WS-preference divergence pinned. Unlocks I-core. |
@@ -37,7 +37,7 @@
 | I-tr-S2d5 | packages/translators: OpenAI→Codex/Responses | 2 | impl-i-tr-s2d5 | impl | 0 |  |
 | I-tr-S2d6 | packages/translators: Responses→OpenAI chat | 2 | impl-i-tr-s2d6 | impl | 0 |  |
 | I-tr-S2d7 | packages/translators: Gemini→Claude | 2 | — | merged | 2 | MERGED: gem2cla complete (spec 2 rounds, impl gate 2 rounds incl. S2d7-31 recorded ruling). 108 module + 33 contract green. |
-| I-tr-S2d8 | packages/translators: Claude→Gemini | 2 | impl-i-tr-s2d8 | impl | 0 |  |
+| I-tr-S2d8 | packages/translators: Claude→Gemini | 2 | impl-i-tr-s2d8 | impl-adv | 0 | delivered: 54+20+21 green; impl-review running on adv-impl-3 |
 | I-tr-S2d9 | packages/translators: Codex passthrough | 2 | — | pending | 0 |  |
 | I-tr-S2d10 | packages/translators: Antigravity redirect | 2 | — | pending | 0 |  |
 | I-exec-openai | packages/executors: openai executor | 2 | — | pending | 0 |  |
@@ -57,4 +57,3 @@
 
 ## Verdict / escalation log
 (appended by orchestrator)
-- 2026-09-16 04:4x I-tr-S2d2 MERGED (impl gate PASS-WITH-NONBLOCKING). gem2oai complete: 3 directions merged. Robustness riders logged for T1/D2 (depth cap, time-box, failureCount atomicity).

@@ -20,7 +20,7 @@
  * `send`, so the same facade runs on every runtime.
  */
 import type { JsonValue, Store } from '@cpa-edge/core'
-import { isPlainObject, parseStrictJson, rawValueAt, serializeOrdered } from './json'
+import { isPlainObject, parseStrictJson, rawValueAt, remarshalJson, serializeOrdered } from './json'
 import type { WireObject } from './json'
 import { RawJson } from './json'
 import { translateCompactPassthrough } from './compact'
@@ -404,7 +404,11 @@ export function createRes2OaiService(options: Res2OaiServiceOptions): Res2OaiSer
       } catch {
         return unexpectedEof()
       }
-      return { retryable: false, response: jsonBody(200, ensureResponsesUsageDetails(buffer), 'application/json') }
+      // The recorded compact downstream is the re-marshalled compact form of
+      // the upstream reply (field order preserved, spacing normalized), with
+      // the usage-detail members appended by the ensure post-step.
+      const body = ensureResponsesUsageDetails(remarshalJson(buffer))
+      return { retryable: false, response: jsonBody(200, body, 'application/json') }
     }
     let bodyText: string
     try {

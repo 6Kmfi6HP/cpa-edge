@@ -359,7 +359,7 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
 
   const persistSequence = (key: string, values: readonly string[]): void => {
     const editor = new YamlFileEditor(configText)
-    editor.setBlock([], key, renderSequence(values, true).map((line) => line.slice(2)))
+    editor.setBlock([], key, renderSequence(values, true))
     editor.ensureTrailingNewline()
     configText = editor.getText()
     reloadEffective()
@@ -372,10 +372,10 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
       const record = (typeof entry === 'object' && entry !== null && !Array.isArray(entry) ? entry : {}) as {
         [key: string]: JsonValue
       }
-      const rendered = renderEntryLines(record, 2)
+      const rendered = renderEntryLines(record, 0)
       lines.push(...rendered)
     }
-    editor.setBlock([], key, lines.map((line) => line.slice(2)))
+    editor.setBlock([], key, lines)
     editor.ensureTrailingNewline()
     configText = editor.getText()
     reloadEffective()
@@ -579,8 +579,9 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
     }
 
     // ---- scalar fields ----
-    const scalar = scalarRoute(first ?? '')
-    if (scalar !== undefined && rest.length === 0) {
+    const relative = segments.join('/')
+    const scalar = scalarRoute(relative)
+    if (scalar !== undefined) {
       return scalarHandler(method, scalar, query, request)
     }
 

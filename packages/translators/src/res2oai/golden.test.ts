@@ -168,7 +168,7 @@ function buildMockResponse(mock: RecordedMock, caseId: string): Res2OaiUpstreamR
   return {
     status: 200,
     headers: [['Content-Type', 'application/json']],
-    body: scriptedByteStream([encoder.encode(JSON.stringify(reply))], undefined),
+    body: scriptedByteStream([encoder.encode(pythonJson(reply))], undefined),
   }
 }
 
