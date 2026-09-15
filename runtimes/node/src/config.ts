@@ -8,7 +8,7 @@
  * normalized result only.
  */
 import { asPlainObject, readNumber, readObject, readString } from '@cpa-edge/auth'
-import { gem2cla, gem2oai, oai2cla } from '@cpa-edge/translators'
+import { cla2gem, gem2cla, gem2oai, oai2cla, oai2codex, res2oai } from '@cpa-edge/translators'
 
 /** Provider families the registry and dispatch table know about. */
 export type ProviderFamily =
@@ -286,6 +286,55 @@ export function openAiCompatCredentials(config: NormalizedConfig): readonly gem2
         ...(model.alias !== model.name ? { alias: model.alias } : {}),
         ...(model.thinking?.levels !== undefined ? { thinking: { levels: model.thinking.levels } } : {}),
         ...(model.forceMapping ? { forceMapping: true } : {}),
+      })),
+    }))
+}
+
+/** Maps codex-api-key entries onto the oai2codex facade shape. */
+export function codexCredentialsForChat(config: NormalizedConfig): readonly oai2codex.Oai2CodexCredential[] {
+  return config.providers
+    .filter((provider): provider is ProviderEntry => provider.family === 'codex-api-key')
+    .map((provider) => ({
+      apiKey: provider.apiKey,
+      ...(provider.baseUrl.length > 0 ? { baseUrl: provider.baseUrl } : {}),
+      ...(Object.keys(provider.headers).length === 0 ? {} : { headers: provider.headers }),
+      models: provider.models.map((model) => ({
+        name: model.name,
+        ...(model.alias !== model.name ? { alias: model.alias } : {}),
+        ...(model.thinking === undefined ? {} : { thinking: true }),
+      })),
+    }))
+}
+
+/** Maps openai-compatibility entries onto the res2oai facade shape. */
+export function openAiCompatCredentialsForResponses(config: NormalizedConfig): readonly res2oai.Res2OaiCredential[] {
+  return config.providers
+    .filter((provider): provider is ProviderEntry => provider.family === 'openai-compatibility')
+    .map((provider) => ({
+      apiKey: provider.apiKey,
+      baseUrl: provider.baseUrl,
+      provider: provider.providerName,
+      ...(Object.keys(provider.headers).length === 0 ? {} : { headers: provider.headers }),
+      models: provider.models.map((model) => ({
+        name: model.name,
+        ...(model.alias !== model.name ? { alias: model.alias } : {}),
+      })),
+    }))
+}
+
+/** Maps gemini-api-key entries onto the cla2gem facade shape. */
+export function geminiCredentialsForMessages(config: NormalizedConfig): readonly cla2gem.Cla2GemCredential[] {
+  return config.providers
+    .filter((provider): provider is ProviderEntry => provider.family === 'gemini-api-key')
+    .map((provider) => ({
+      apiKey: provider.apiKey,
+      ...(provider.baseUrl.length > 0 ? { baseUrl: provider.baseUrl } : {}),
+      models: provider.models.map((model) => ({
+        name: model.name,
+        ...(model.alias !== model.name ? { alias: model.alias } : {}),
+        ...(model.thinking === undefined
+          ? {}
+          : { thinking: model.thinking as { min?: number; max?: number; levels?: readonly string[] } }),
       })),
     }))
 }

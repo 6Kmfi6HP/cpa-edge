@@ -293,7 +293,8 @@ The executor parses upstream frames (`data:` lines, `event:`/`id:`/`retry:`/comm
 | clean upstream EOF without `[DONE]` | treated as `[DONE]` (synthesized): NO error, NO extra frame (only Responses-protocol clients get a failure) |
 | frame whose payload is an OpenAI error object (`error` / `response.error` / `code`+`message` / `type` `error|response.error|response.failed` / SSE `event: error|response.error|response.failed`) | terminal in-stream error (§5.4); status taken from the payload's `status`/`status_code`(400-599), else 502 |
 | non-SSE JSON line (starts with `{`/`[` outside a data frame) | terminal in-stream error, status 502, message = that raw line |
-| truncated frame / bare-LF chunked line | terminal in-stream error, status 502, message from the transport |
+| data payload that STARTS with a complete JSON value but carries TRAILING garbage after it (e.g. a stray `}`) | **translated NORMALLY** — the chunk reader consumes the complete leading value and tolerates the trailing bytes; no error frame, downstream output is built from the leading value **[WIRE, S1-recorded]** |
+| truncated/malformed frame with NO complete leading JSON value (incl. bare-LF chunked lines) | terminal in-stream error, status 502, message from the transport |
 
 - Frame ORDER is upstream arrival order; text/reasoning/finish/usage frames are emitted in the order the corresponding upstream frames complete.
 - `usageMetadata` timing: the usage frame is the LAST downstream frame (upstream sends it last when `include_usage` is honored), after the finish frame.
@@ -366,8 +367,11 @@ data: {"error":{"message":"unexpected EOF","type":"server_error","code":"interna
   i.e. for a Gemini client the terminal error carries an `event: error` line followed by an OpenAI-shaped error object — DIFFERENT from the OpenAI chat client, which gets the same `data:` object without the `event:` line. The message is the transport error text (`unexpected EOF`); the type/code derive from status ≥ 500.
 - Upstream error payload delivered INSIDE a `data:` frame: same framing, body = the upstream payload verbatim (it is valid JSON), status code for type/code derivation taken from the payload (else 502).
 - Already-flushed frames before the failure are preserved.
+- **Trailing-garbage tolerance (recorded pin, S1-17):** the terminal-error path fires only for payloads with NO complete leading JSON value. A `data:` payload that starts with a complete JSON value followed by trailing garbage (e.g. a stray `}` after the root object) is TRANSLATED NORMALLY — the chunk reader consumes the leading value and ignores the trailing bytes; no error frame is emitted. Recorded evidence: `tests/fixtures/S1/S1-17/` (Gemini-client stream with trailing-garbage upstream frames → 200, translated frames, no error frame) and `tests/fixtures/S1/S1-15/` (chat passthrough of the same wire bytes → 200, clean frames; the golden's `mock-response.json` carries the exact scripted bytes). Per SPEC.md precedence this recorded behavior outranks any stricter static reading of the frame-validation code.
 
 ### 5.5 Error body shape derivation (shared)
+
+Stream-payload parseability rule (recorded, S1-17): only a payload with NO complete leading JSON value is an unparseable-payload terminal error; a payload whose leading JSON value is complete is translated normally even when trailing garbage follows that value (see §5.4, §4.2; recorded pins in `tests/fixtures/S1/S1-17/` and `tests/fixtures/S1/S1-15/`).
 
 For gateway-built error bodies (evidence: `BuildErrorResponseBodyWithError`): if the error text is itself valid JSON it is emitted verbatim (this is what makes upstream 429 bodies and cooldown bodies byte-preserve); otherwise it is wrapped as `{"error":{"message":<text>,"type":<type>,"code":<code>}}` with type/code from status: 401→`authentication_error`/`invalid_api_key`, 403→`permission_error`/`insufficient_quota`, 429→`rate_limit_error`/`rate_limit_exceeded`, 404→`invalid_request_error`/`model_not_found`, ≥500→`server_error`/`internal_server_error`, else `invalid_request_error` with no code.
 

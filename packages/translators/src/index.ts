@@ -11,3 +11,6 @@
 export * as oai2cla from './oai2cla/index'
 export * as gem2oai from './gem2oai/index'
 export * as gem2cla from './gem2cla/index'
+export * as oai2codex from './oai2codex/index'
+export * as res2oai from './res2oai/index'
+export * as cla2gem from './cla2gem/index'

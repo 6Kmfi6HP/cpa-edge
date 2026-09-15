@@ -26,14 +26,17 @@ import {
   type AuthPlaneConfig,
   type FetchLike,
 } from '@cpa-edge/auth'
-import type { ManagementApi } from '@cpa-edge/management'
-import { gem2cla, gem2oai, oai2cla } from '@cpa-edge/translators'
+import { createManagementApi, type BuildInfo, type ManagementApi } from '@cpa-edge/management'
+import { cla2gem, gem2cla, gem2oai, oai2cla, oai2codex, res2oai } from '@cpa-edge/translators'
 import { decompress as fzstdDecompress } from 'fzstd'
 import {
   claudeCredentialsForChat,
   claudeCredentialsForGemini,
+  codexCredentialsForChat,
+  geminiCredentialsForMessages,
   normalizeRuntimeConfig,
   openAiCompatCredentials,
+  openAiCompatCredentialsForResponses,
   type NormalizedConfig,
 } from './config'
 import { ModelRegistry } from './registry'
@@ -104,10 +107,13 @@ export interface NodeGatewayOptions {
   /** Platform capability profile; defaults to the node constant (S7 3.1). */
   readonly capabilities?: RuntimeCapabilities
   /**
-   * Dispatch seam for the management surface: the composed
-   * `createManagementApi` instance once I-mgmt merges. Until injected
-   * the auth-plane subset answers and every payload route 404-empties.
+   * Raw config.yaml text. With a management secret configured, the
+   * gateway composes the merged `createManagementApi` internally
+   * (I-mgmt); an explicit `managementApi` injection overrides it (the
+   * contract harness composes its own instance over the same seams).
    */
+  readonly configYaml?: string
+  /** Pre-composed management API; overrides the internal composition. */
   readonly managementApi?: ManagementApi
   /**
    * zstd request-body decoder override (tests); defaults to fzstd, the
@@ -129,8 +135,21 @@ export interface NodeGateway {
   readonly config: NormalizedConfig
 }
 
-/** Gateway version stamped into upstream user-agents (build identity). */
+/**
+ * Build identity (the anchored reference build): stamped into upstream
+ * user-agents and the management build headers (S1 §2).
+ */
 const GATEWAY_VERSION = 'v7.3.4'
+const GATEWAY_COMMIT = '8335eac'
+const GATEWAY_BUILD_DATE = '2026-09-15T14:07:06Z'
+
+/** Anchor build-info block for the composed management API (I-mgmt merge). */
+const ANCHOR_BUILD_INFO: BuildInfo = {
+  version: GATEWAY_VERSION,
+  commit: GATEWAY_COMMIT,
+  buildDate: GATEWAY_BUILD_DATE,
+  supportPlugin: true,
+}
 
 // ---------------------------------------------------------------------------
 // Dispatch table - surfaces x provider families -> direction facade
@@ -167,7 +186,7 @@ export const DIRECTIONS: Readonly<Record<string, DirectionSeam>> = {
   'chat:codex-api-key': {
     id: 'oai2codex',
     importPath: '@cpa-edge/translators/oai2codex',
-    merged: false,
+    merged: true,
   },
   'chat:xai-api-key': { id: 'xai executor', importPath: 'packages/executors (I-exec-grok)', merged: false },
   'chat:meta-api-key': { id: 'meta executor', importPath: 'packages/executors', merged: false },
@@ -187,7 +206,7 @@ export const DIRECTIONS: Readonly<Record<string, DirectionSeam>> = {
   'messages:gemini-api-key': {
     id: 'cla2gem',
     importPath: '@cpa-edge/translators/cla2gem',
-    merged: false,
+    merged: true,
   },
   // Responses client surface
   'responses:codex-api-key': {
@@ -198,7 +217,7 @@ export const DIRECTIONS: Readonly<Record<string, DirectionSeam>> = {
   'responses:openai-compatibility': {
     id: 'res2oai',
     importPath: '@cpa-edge/translators/res2oai',
-    merged: false,
+    merged: true,
   },
   // Gemini v1beta client surface
   'v1beta:openai-compatibility': {
@@ -216,6 +235,9 @@ export const DIRECTIONS: Readonly<Record<string, DirectionSeam>> = {
     importPath: 'packages/executors (I-exec-gemini)',
     merged: false,
   },
+  // Management surface (I-mgmt MERGED; composed internally over the
+  // same Store/clock/build-info seams, or injected wholesale).
+  'v0:management': { id: 'management', importPath: '@cpa-edge/management', merged: true },
 }
 
 /** The seam answer for a not-yet-merged direction (never a pinned body). */
@@ -541,6 +563,50 @@ export function createNodeGateway(options: NodeGatewayOptions): NodeGateway {
   const hasKeepAlive = (options.keepAlivePassword ?? '').length > 0
   const CALL_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/
 
+  // Management surface (I-mgmt merged): compose the facade over the
+  // same Store/clock unless the caller injected one. Without a raw
+  // config.yaml the plane-subset answers and payload routes 404-empty
+  // (the recorded unknown-subroute behavior).
+  const managementApi: ManagementApi | undefined =
+    options.managementApi ??
+    (managementSecret.length > 0 && (options.configYaml ?? '').length > 0
+      ? createManagementApi({
+          configYaml: options.configYaml ?? '',
+          managementKey: managementSecret,
+          store,
+          buildInfo: ANCHOR_BUILD_INFO,
+          ...(options.remoteAddress === undefined
+            ? {}
+            : { clientIp: options.remoteAddress }),
+          now,
+        })
+      : undefined)
+
+  const codexChatService = oai2codex.createOai2CodexService({
+    credentials: codexCredentialsForChat(config),
+    gatewayVersion: GATEWAY_VERSION,
+    store,
+    now,
+    requestRetry: config.requestRetry,
+    transientErrorCooldownSeconds: config.transientErrorCooldownSeconds,
+  })
+  const res2OaiService = res2oai.createRes2OaiService({
+    apiKeys: config.apiKeys,
+    credentials: openAiCompatCredentialsForResponses(config),
+    store,
+    now,
+    requestRetry: config.requestRetry,
+    transientErrorCooldownSeconds: config.transientErrorCooldownSeconds,
+  })
+  const cla2GemService = cla2gem.createCla2GemService({
+    apiKeys: config.apiKeys,
+    credentials: geminiCredentialsForMessages(config),
+    store,
+    now,
+    requestRetry: config.requestRetry,
+    transientErrorCooldownSeconds: config.transientErrorCooldownSeconds,
+  })
+
   /** Handler outcome: response + the trace-eligible credential index. */
   interface Handled {
     readonly response: GatewayResponse
@@ -592,21 +658,29 @@ export function createNodeGateway(options: NodeGatewayOptions): NodeGateway {
       return { response: plainJson(503, imageOnlyModelBody(model)) }
     }
     const resolved = registry.resolve(model)
+    const facadeRequest = {
+      method: context.request.method,
+      path: `${context.url.pathname}${context.url.search}`,
+      headers: context.facadeHeaders,
+      body: decoded.text,
+    }
     if (resolved === undefined || resolved.family === 'claude-api-key') {
       // The merged chat-surface facade owns both the `model_not_found`
       // rendering and the claude translation (an empty candidate list
       // renders the same 400 as upstream).
       try {
-        const response = await claudeChatService.handleChatCompletions(
-          {
-            method: context.request.method,
-            path: `${context.url.pathname}${context.url.search}`,
-            headers: context.facadeHeaders,
-            body: decoded.text,
-          },
-          send,
-        )
+        const response = await claudeChatService.handleChatCompletions(facadeRequest, send)
         return { response, ...(resolved === undefined ? {} : { trace: resolved.familyIndex }) }
+      } catch (error) {
+        if (error instanceof RangeError) return { response: plainJson(400, depthFailureBody()) }
+        throw error
+      }
+    }
+    if (resolved.family === 'codex-api-key') {
+      // oai2codex (S2d5, merged): the Codex/Responses upstream.
+      try {
+        const response = await codexChatService.handleChatCompletions(facadeRequest, send)
+        return { response, trace: resolved.familyIndex }
       } catch (error) {
         if (error instanceof RangeError) return { response: plainJson(400, depthFailureBody()) }
         throw error
@@ -616,7 +690,7 @@ export function createNodeGateway(options: NodeGatewayOptions): NodeGateway {
   }
 
   /** Claude-messages surface (S1 §3.3): seams until the cla2* merge. */
-  const dispatchMessages = (context: RequestContext): Handled => {
+  const dispatchMessages = async (context: RequestContext): Promise<Handled> => {
     const decoded = decodeOrFail(context, (message) =>
       plainJson(400, claudeInvalidRequestBody(`Invalid request: ${message}`)),
     )
@@ -634,11 +708,32 @@ export function createNodeGateway(options: NodeGatewayOptions): NodeGateway {
     if (resolved === undefined) {
       return { response: plainJson(400, claudeModelNotFoundBody(model)) }
     }
+    if (resolved.family === 'gemini-api-key') {
+      // cla2gem (S2d8, merged): the gemini upstream; the facade is
+      // path-aware (messages + count_tokens).
+      try {
+        const response = await cla2GemService.handleV1Messages(
+          {
+            method: context.request.method,
+            path: `${context.url.pathname}${context.url.search}`,
+            headers: context.facadeHeaders,
+            body: decoded.text,
+          },
+          send,
+        )
+        return { response, trace: resolved.familyIndex }
+      } catch (error) {
+        if (error instanceof RangeError) {
+          return { response: plainJson(400, claudeInvalidRequestBody(MAX_DEPTH_MESSAGE)) }
+        }
+        throw error
+      }
+    }
     return { response: directionNotMerged() }
   }
 
   /** Responses surface (S1 §3.2/§3.5). */
-  const dispatchResponses = (context: RequestContext): Handled => {
+  const dispatchResponses = async (context: RequestContext): Promise<Handled> => {
     const decoded = decodeOrFail(context, (message) => plainJson(400, invalidRequestBody(message)))
     if ('handled' in decoded) return decoded.handled
     const parsed = parseJsonGuarded(decoded.text)
@@ -655,11 +750,30 @@ export function createNodeGateway(options: NodeGatewayOptions): NodeGateway {
     if (resolved === undefined) {
       return { response: plainJson(400, modelNotFoundBody(model)) }
     }
+    if (resolved.family === 'openai-compatibility') {
+      // res2oai (S2d6, merged): Responses client over the openai-compat
+      // chat upstream; the facade is path-aware (responses + compact).
+      try {
+        const response = await res2OaiService.handleResponses(
+          {
+            method: context.request.method,
+            path: `${context.url.pathname}${context.url.search}`,
+            headers: context.facadeHeaders,
+            body: decoded.text,
+          },
+          send,
+        )
+        return { response, trace: resolved.familyIndex }
+      } catch (error) {
+        if (error instanceof RangeError) return { response: plainJson(400, depthFailureBody()) }
+        throw error
+      }
+    }
     return { response: directionNotMerged() }
   }
 
   /** POST /v1/responses/compact (S1-18). */
-  const dispatchResponsesCompact = (context: RequestContext): Handled => {
+  const dispatchResponsesCompact = async (context: RequestContext): Promise<Handled> => {
     const decoded = decodeOrFail(context, (message) => plainJson(400, invalidRequestBody(message)))
     if ('handled' in decoded) return decoded.handled
     const parsed = parseJsonGuarded(decoded.text)
@@ -675,6 +789,25 @@ export function createNodeGateway(options: NodeGatewayOptions): NodeGateway {
     const resolved = registry.resolve(model)
     if (resolved === undefined) {
       return { response: plainJson(400, modelNotFoundBody(model)) }
+    }
+    if (resolved.family === 'openai-compatibility') {
+      // res2oai owns the compact path (S2d6); the stream:true gate above
+      // stays route-owned (the pinned S1-18 400).
+      try {
+        const response = await res2OaiService.handleResponses(
+          {
+            method: context.request.method,
+            path: `${context.url.pathname}${context.url.search}`,
+            headers: context.facadeHeaders,
+            body: decoded.text,
+          },
+          send,
+        )
+        return { response, trace: resolved.familyIndex }
+      } catch (error) {
+        if (error instanceof RangeError) return { response: plainJson(400, depthFailureBody()) }
+        throw error
+      }
     }
     return { response: directionNotMerged() }
   }
@@ -919,13 +1052,14 @@ export function createNodeGateway(options: NodeGatewayOptions): NodeGateway {
         return { response: await fromWebResponse(await plane.handleOauthSession(toWebRequest(context))) }
       }
       case 'mgmt-rest': {
-        if (options.managementApi !== undefined) {
-          const wire = await options.managementApi.handle(toWebRequest(context))
+        if (managementApi !== undefined) {
+          // I-mgmt merged: the facade owns the whole payload surface
+          // (auth, build headers, CORS block included in rawHeaders).
+          const wire = await managementApi.handle(toWebRequest(context))
           return { response: { status: wire.status, headers: wire.rawHeaders, body: await wire.text() } }
         }
-        // Payload routes wait for the I-mgmt merge (dispatch seam): the
-        // auth-plane subset answers; everything else is the recorded
-        // unknown-subroute 404.
+        // No raw config.yaml given: the auth-plane subset answers and
+        // every payload route keeps the recorded unknown-subroute 404.
         return { response: emptyNotFound() }
       }
       case 'models-list': {
@@ -1219,8 +1353,17 @@ export function createNodeGateway(options: NodeGatewayOptions): NodeGateway {
         // Availability middleware: the whole surface is absent (S1 §3.9).
         return { status: 404, headers: withCors([]), body: '' }
       }
-      if (options.managementApi === undefined) {
-        const verdict = await plane.authenticateManagement(toWebRequest(context))
+      // The composed/injected management facade owns its own auth; the
+      // plane-gated path applies only when no instance is available.
+      if (managementApi === undefined) {
+        // Per-request socket address overrides the construction-time one
+        // (merged auth-plane override).
+        const verdict = await plane.authenticateManagement(
+          toWebRequest(context),
+          context.request.remoteAddress === undefined
+            ? undefined
+            : { remoteAddress: context.request.remoteAddress },
+        )
         if (!verdict.ok) return planeRejected(verdict.response)
       }
     }

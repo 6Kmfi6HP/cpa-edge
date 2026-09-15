@@ -936,23 +936,41 @@ describe('route-layer hostile-input guard', () => {
 })
 
 describe('dispatch seams for unmerged directions', () => {
+  const SEAM_BODY =
+    '{"error":{"message":"direction not yet available in this build","type":"server_error","code":"not_implemented"}}'
+
   it('answers a clearly-marked 503 for merged-pending families', async () => {
     const gateway = gatewayWith()
     const chat = await gateway.handle(
       request('POST', '/v1/chat/completions', bearer(API_KEY), '{"model": "mock-model", "messages": []}'),
     )
     expect(chat.status).toBe(503)
-    expect(await text(chat)).toBe(
-      '{"error":{"message":"direction not yet available in this build","type":"server_error","code":"not_implemented"}}',
-    )
+    expect(await text(chat)).toBe(SEAM_BODY)
     const messages = await gateway.handle(
       request('POST', '/v1/messages', bearer(API_KEY), '{"model": "claude-mock-model", "messages": []}'),
     )
     expect(messages.status).toBe(503)
+    expect(await text(messages)).toBe(SEAM_BODY)
+  })
+
+  it('responses:codex-api-key stays a seam until codex-passthrough merges', async () => {
+    const gateway = createNodeGateway({
+      config: {
+        ...BASE_CONFIG,
+        'codex-api-key': [
+          {
+            'api-key': 'codex-upstream-key',
+            'base-url': 'http://127.0.0.1:21003',
+            models: [{ name: 'gpt-mock-codex', alias: 'codex-mock-model' }],
+          },
+        ],
+      },
+    })
     const responses = await gateway.handle(
-      request('POST', '/v1/responses', bearer(API_KEY), '{"model": "mock-model", "input": "hi"}'),
+      request('POST', '/v1/responses', bearer(API_KEY), '{"model": "codex-mock-model", "input": "hi"}'),
     )
     expect(responses.status).toBe(503)
+    expect(await text(responses)).toBe(SEAM_BODY)
   })
 })
 
