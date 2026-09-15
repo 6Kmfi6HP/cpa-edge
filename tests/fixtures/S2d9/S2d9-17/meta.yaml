@@ -41,5 +41,32 @@
   "notes": [
     "Worker-1's attempt returned HTTP 408 (not 200) although the mock wrote the documented writes exactly. Investigate on a fresh container: (a) repeat as specified; (b) variant with all sleeps halved; (c) variant with a single 300ms pause and no comment/partial-line tricks. If a stall policy is confirmed, record it as reality and report the observed threshold/trigger — the section will spec it; if it was a mock artifact, re-record and keep the original expectation."
   ],
-  "expect_note": "upstream_expect/downstream_expect in the cases file are predictions; recorded bytes are authoritative"
+  "expect_note": "upstream_expect/downstream_expect in the cases file are predictions; recorded bytes are authoritative",
+  "investigation": {
+    "question": "worker-1 recorded HTTP 408 for S2d9-17; amended cases ask (a) as-specified, (b) halved sleeps, (c) single 300ms pause without comment/partial-line tricks",
+    "root_cause": "worker-1's mock iterated json.loads(writes.json) directly; the cases-file writes value is a dict {'writes': [...]} so iteration hit the KEY string and crashed the handler mid-stream after headers -> truncated chunked response -> reference surfaced a timeout (their 408). Fixed in the worker-2 mock copy.",
+    "results": {
+      "a-as-specified": {
+        "http_status": 200,
+        "elapsed_s": 1.083,
+        "body_head": "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_mock_017\",\"object\":\"response\",\"created_at\":1742812800,\"status\":\"in_progress\",\"model\":\"mock-codex-ups"
+      },
+      "a2-as-specified-repeat": {
+        "http_status": 200,
+        "elapsed_s": 1.074,
+        "body_head": "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_mock_017\",\"object\":\"response\",\"created_at\":1742812800,\"status\":\"in_progress\",\"model\":\"mock-codex-ups"
+      },
+      "b-halved-sleeps": {
+        "http_status": 200,
+        "elapsed_s": 0.554,
+        "body_head": "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_mock_017\",\"object\":\"response\",\"created_at\":1742812800,\"status\":\"in_progress\",\"model\":\"mock-codex-ups"
+      },
+      "c-single-pause-clean-frames": {
+        "http_status": 200,
+        "elapsed_s": 0.312,
+        "body_head": "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_mock_017\",\"object\":\"response\",\"created_at\":1742812800,\"status\":\"in_progress\",\"model\":\"mock-codex-ups"
+      }
+    },
+    "conclusion": "as-specified returns HTTP 200 (twice, repeatable; ~1.08s elapsed, consistent with the scripted 300+150+150+150+300+0ms pacing). No reference stall policy observed; keep the 200 expectation. Worker-1's 408 was a mock artifact, not reference behavior."
+  }
 }

@@ -1,5 +1,5 @@
 {
- "id": "S2d8-20-strictjson-400",
+ "id": "S2d8-20-strict-json-400",
  "purpose": "Gate-authorized golden (recorded fresh): a non-JSON /v1/messages body is rejected client-side with the strict-JSON 400 shape before any routing; zero upstream hits.",
  "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6 (docker eceasy/cli-proxy-api:v7.3.4, digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266)",
  "recorded_at": "2026-09-16T04:08:31",

@@ -15,7 +15,6 @@ export {
   buildGeminiUpstreamHeaders,
   headerListToRecord,
 } from './headers'
-export { GEMINI_UPSTREAM_USER_AGENT as GEMINI_USER_AGENT } from './headers'
 
 export { RawJson, isPlainObject, parseStrictJson, serializeOrdered, rawValueAt, rawSpanAt } from './json'
 export type { WireObject, WireValue } from './json'
@@ -37,7 +36,7 @@ export {
   buildToolConfig,
   translateClaudeToGemini,
 } from './request'
-export type { Cla2GemContext, Cla2GemUpstreamBody } from './request'
+export type { Cla2GemContext, Cla2GemUpstreamBody } from './types'
 
 export { claudeRequestSegments, countSegments, estimateClaudeInputTokens } from './tokens'
 

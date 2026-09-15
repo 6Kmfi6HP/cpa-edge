@@ -916,3 +916,566 @@ function buildMockUpstreamResponse(script: MockScript, caseId: string): MockUpst
     },
   }
 }
+
+// ─── Comparison helpers ──────────────────────────────────────────────────────────────
+
+function headerValue(headers: HeaderList, name: string): string | undefined {
+  const key = name.toLowerCase()
+  for (const [headerName, value] of headers) {
+    if (headerName.toLowerCase() === key) return value
+  }
+  return undefined
+}
+
+async function readResponseBody(body: ResponsesServiceResponse['body']): Promise<string> {
+  if (typeof body === 'string') return body
+  if (body !== null && typeof body === 'object' && typeof body.getReader === 'function') {
+    const reader = body.getReader()
+    const decoder = new TextDecoder()
+    let out = ''
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      out += decoder.decode(value, { stream: true })
+    }
+    return out + decoder.decode()
+  }
+  throw new Error('adapter response body must be a string or a web ReadableStream (see adapter interface in the header)')
+}
+
+const encoder = new TextEncoder()
+
+function truncate(text: string): string {
+  return text.length > 200 ? `${text.slice(0, 200)}…` : text
+}
+
+// ─── Downstream SSE: framing decoder + R-SSE frame comparison ───────────────────────
+
+/** Terminal event names of the downstream Responses stream (spec §4.1/§4.3/§5.2). */
+const TERMINAL_EVENT_NAMES: ReadonlySet<string> = new Set([
+  'response.completed',
+  'response.incomplete',
+  'response.failed',
+  'error',
+])
+
+/** In-stream failure events (spec §5.2): the only frames allowed a leading `\n`. */
+const FAILURE_EVENT_NAMES: ReadonlySet<string> = new Set(['response.failed', 'error'])
+
+interface SseFrame {
+  readonly event: string
+  readonly data: string
+}
+
+interface DecodedSse {
+  readonly frames: readonly SseFrame[]
+  /** Per frame: was it preceded by the §5.2 leading `\n` (failure frames only). */
+  readonly failureLead: readonly boolean[]
+  /** The §4.1 WriteDone lone `\n` after the last frame (clean closes only). */
+  readonly trailingWriteDone: boolean
+}
+
+/**
+ * Decodes a downstream SSE body under the §4.1 byte rules and enforces the framing
+ * template while decoding: every event is exactly `event: <type>\ndata: <json>\n\n`
+ * (single space after each colon, LF endings, no id:/retry: lines, no multi-line
+ * blocks), `data: [DONE]` never appears, terminal failure frames carry exactly one
+ * leading `\n`, no other frame does, nothing follows the first terminal event, and
+ * the only allowed trailing byte is the clean-close WriteDone `\n`.
+ */
+function decodeDownstreamSse(body: string, context: string): DecodedSse {
+  const blocks = body.split('\n\n')
+  const tail = blocks.pop()
+  if (tail !== undefined && tail !== '' && tail !== '\n') {
+    throw new Error(
+      `${context}: the body must end with a frame terminator (+ the WriteDone \\n on a clean close); found trailing ${JSON.stringify(tail)}`,
+    )
+  }
+  const frames: SseFrame[] = []
+  const failureLead: boolean[] = []
+  let terminalSeen = false
+  for (const block of blocks) {
+    let text = block
+    const lead = text.startsWith('\n')
+    if (lead) text = text.slice(1)
+    const lines = text.split('\n')
+    const eventLine = lines[0] ?? ''
+    const dataLine = lines[1] ?? ''
+    if (lines.length !== 2 || !eventLine.startsWith('event: ') || !dataLine.startsWith('data: ')) {
+      throw new Error(
+        `${context}: every downstream event must be exactly \`event: <type>\\ndata: <json>\` ` +
+          `(single space after each colon, no id:/retry: lines) — found ${JSON.stringify(text.slice(0, 80))}`,
+      )
+    }
+    const event = eventLine.slice('event: '.length)
+    const data = dataLine.slice('data: '.length)
+    if (data === '[DONE]') {
+      throw new Error(`${context}: a data: [DONE] frame must never appear downstream (§4.1 — the terminal marker is the completed/incomplete event)`)
+    }
+    if (terminalSeen) {
+      throw new Error(`${context}: events after the terminal event must be dropped (§4.1) — found ${event}`)
+    }
+    if (FAILURE_EVENT_NAMES.has(event) && !lead) {
+      throw new Error(`${context}: the terminal failure frame must be written after one leading \\n (§5.2)`)
+    }
+    if (lead && !FAILURE_EVENT_NAMES.has(event)) {
+      throw new Error(`${context}: only terminal failure frames may carry the leading \\n — found on ${event}`)
+    }
+    terminalSeen = TERMINAL_EVENT_NAMES.has(event)
+    frames.push({ event, data })
+    failureLead.push(lead)
+  }
+  return { frames, failureLead, trailingWriteDone: tail === '\n' }
+}
+
+/** Order-pinned (event name + data bytes) comparison (R-ORDER is inert — see header). */
+function expectDecodedSse(actual: DecodedSse, expected: DecodedSse, context: string): void {
+  if (actual.frames.length !== expected.frames.length) {
+    let difference = 'one side is empty'
+    const count = Math.min(actual.frames.length, expected.frames.length)
+    for (let index = 0; index < count; index += 1) {
+      if (actual.frames[index]?.event !== expected.frames[index]?.event || actual.frames[index]?.data !== expected.frames[index]?.data) {
+        difference =
+          `frame ${index}: recorded ${truncate(`${expected.frames[index]?.event ?? ''} | ${expected.frames[index]?.data ?? ''}`)} ` +
+          `vs produced ${truncate(`${actual.frames[index]?.event ?? ''} | ${actual.frames[index]?.data ?? ''}`)}`
+        break
+      }
+    }
+    if (difference === 'one side is empty' && count > 0) difference = `common prefix of ${count} frames matches`
+    throw new Error(`${context}: decoded SSE frame count ${actual.frames.length} != recorded ${expected.frames.length}. ${difference}`)
+  }
+  for (let index = 0; index < expected.frames.length; index += 1) {
+    const expectedFrame = expected.frames[index]
+    const actualFrame = actual.frames[index]
+    if (expectedFrame === undefined || actualFrame === undefined) continue
+    let expectedData = expectedFrame.data
+    let actualData = actualFrame.data
+    if (FAILURE_EVENT_NAMES.has(expectedFrame.event)) {
+      expectedData = maskFailureFrameData(expectedData, context)
+      actualData = maskFailureFrameData(actualData, context)
+    }
+    expect(actualFrame.event, `${context}: SSE frame ${index} event name`).toBe(expectedFrame.event)
+    expect(actualData, `${context}: SSE frame ${index} data bytes`).toBe(expectedData)
+  }
+  expect(actual.failureLead, `${context}: failure frames must carry the §5.2 leading \\n exactly where recorded`).toEqual(
+    expected.failureLead,
+  )
+  expect(
+    actual.trailingWriteDone,
+    `${context}: the clean-close WriteDone trailing \\n (§4.1) must appear exactly where recorded`,
+  ).toBe(expected.trailingWriteDone)
+}
+
+// ─── Upstream wire comparison (primary gold) ─────────────────────────────────────────
+
+interface CapturedUpstreamCall {
+  readonly request: ResponsesRequest
+  readonly call: UpstreamRequest
+}
+
+function assertUpstreamWire(recorded: WireLine, captured: CapturedUpstreamCall, caseId: string): void {
+  const context = `S2d6[${caseId}] upstream wire`
+  expect(captured.call.method, `${context}: method`).toBe(recorded.method)
+  expect(captured.call.url, `${context}: url (origin + recorded wire path; §2.4/§3.2 suffix rules)`).toBe(
+    `${UPSTREAM_ORIGIN}${recorded.path}`,
+  )
+
+  const expectedPairs: Array<[string, string]> = []
+  for (const [name, value] of Object.entries(recorded.headers)) {
+    if (name.toLowerCase() === 'content-length') continue // transport-derived; consistency-checked below
+    expectedPairs.push([name, normalizeUpstreamHeaderValue(name, value)])
+  }
+  const actualPairs: Array<[string, string]> = []
+  let actualContentLength: string | undefined
+  for (const [name, value] of captured.call.headers) {
+    if (name.toLowerCase() === 'content-length') {
+      actualContentLength = value
+      continue
+    }
+    if (name.toLowerCase() === 'authorization') {
+      expect(value.startsWith('Bearer '), `${context}: Authorization must carry the Bearer scheme`).toBe(true)
+      actualPairs.push([name, '<redacted>'])
+      continue
+    }
+    actualPairs.push([name, normalizeUpstreamHeaderValue(name, value)])
+  }
+  expect(actualPairs, `${context}: header list (order + names + values)`).toEqual(expectedPairs)
+  if (actualContentLength !== undefined) {
+    expect(actualContentLength, `${context}: Content-Length must match the body byte length`).toBe(
+      String(encoder.encode(captured.call.body).length),
+    )
+  }
+  expect(captured.call.body, `${context}: translated body bytes`).toBe(recorded.body)
+}
+
+// ─── Downstream comparison (per case) ────────────────────────────────────────────────
+
+interface DownstreamAssertionResult {
+  readonly body: string
+  readonly decoded: DecodedSse | undefined
+}
+
+async function assertDownstreamStep(
+  produced: ResponsesServiceResponse,
+  expected: RecordedResponse,
+  caseId: string,
+): Promise<DownstreamAssertionResult> {
+  const context = `S2d6[${caseId}] downstream`
+  const body = await readResponseBody(produced.body)
+  expect(produced.status, `${context}: status`).toBe(expected.status)
+
+  const expectedContentType = headerValue(expected.headers, 'content-type')
+  if (expectedContentType === undefined) throw new Error(`${context}: fixture must record Content-Type`)
+  expect(headerValue(produced.headers, 'content-type'), `${context}: Content-Type`).toBe(expectedContentType)
+
+  const expectedCacheControl = headerValue(expected.headers, 'cache-control')
+  const cacheControl = headerValue(produced.headers, 'cache-control')
+  if (expectedCacheControl === undefined) {
+    expect(cacheControl, `${context}: Cache-Control must be absent outside SSE commits`).toBeUndefined()
+  } else {
+    expect(cacheControl, `${context}: Cache-Control`).toBe(expectedCacheControl)
+  }
+
+  const expectedConnection = headerValue(expected.headers, 'connection')
+  const connection = headerValue(produced.headers, 'connection')
+  if (expectedConnection === undefined) {
+    expect(connection, `${context}: Connection must be absent outside SSE commits (§4.1 header set)`).toBeUndefined()
+  } else {
+    expect(connection, `${context}: Connection`).toBe(expectedConnection)
+  }
+
+  // Presence-only: the trace id VALUE is dynamic; the recorded absences (the
+  // gateway-local middleware surfaces) are part of the contract surface.
+  const expectedTrace = headerValue(expected.headers, 'x-cpa-trace-id') !== undefined
+  expect(
+    headerValue(produced.headers, 'x-cpa-trace-id') !== undefined,
+    `${context}: X-Cpa-Trace-Id presence must match the recorded head`,
+  ).toBe(expectedTrace)
+
+  const producedContentLength = headerValue(produced.headers, 'content-length')
+  if (producedContentLength !== undefined) {
+    expect(producedContentLength, `${context}: Content-Length must match the body byte length when emitted`).toBe(
+      String(encoder.encode(body).length),
+    )
+  }
+
+  if (expectedContentType === 'text/event-stream') {
+    const expectedDecoded = decodeDownstreamSse(expected.body, `${context}: recorded`)
+    const actualDecoded = decodeDownstreamSse(body, `${context}: produced`)
+    expectDecodedSse(actualDecoded, expectedDecoded, context)
+    return { body, decoded: actualDecoded }
+  }
+  expect(body, `${context}: body bytes`).toBe(expected.body)
+  return { body, decoded: undefined }
+}
+
+// ─── Clause layer (semantic MUSTs that byte equality hides as unreadable failures) ────
+
+function usageKeyOrder(usage: Record<string, unknown>): readonly string[] {
+  return Object.keys(usage)
+}
+
+function assertUpstreamClauses(caseId: CaseId, captured: CapturedUpstreamCall): void {
+  const context = `S2d6[${caseId}] upstream clauses`
+  const body = parseJsonRecord(captured.call.body, `${context}: translated body`)
+  const client = parseJsonRecord(captured.request.body, `${context}: client body`)
+
+  // §3.1: the upstream model field is the RESOLVED name, never the client alias.
+  expect(body.model, `${context}: model is the resolved upstream name`).toBe(UPSTREAM_MODEL)
+
+  const clientStream = client.stream === true
+  const acceptHeader = headerValue(captured.call.headers, 'accept')
+  const cacheControlHeader = headerValue(captured.call.headers, 'cache-control')
+  if (clientStream) {
+    // §2.3/§3.2: streaming is upstream-SSE with the forced usage option appended last.
+    expect(body.stream, `${context}: stream flag`).toBe(true)
+    expect(body.stream_options, `${context}: stream_options.include_usage forced true (§2.3)`).toEqual({
+      include_usage: true,
+    })
+    const keys = Object.keys(body)
+    expect(keys[keys.length - 1], `${context}: stream_options appended LAST by the executor`).toBe('stream_options')
+    expect(acceptHeader, `${context}: SSE Accept header`).toBe('text/event-stream')
+    expect(cacheControlHeader, `${context}: SSE Cache-Control header`).toBe('no-cache')
+  } else {
+    expect(body.stream, `${context}: stream flag`).toBe(false)
+    expect(
+      Object.hasOwn(body, 'stream_options'),
+      `${context}: non-stream requests never gain stream_options`,
+    ).toBe(false)
+    expect(acceptHeader, `${context}: no SSE Accept on non-stream upstream calls`).toBeUndefined()
+    expect(cacheControlHeader, `${context}: no SSE Cache-Control on non-stream upstream calls`).toBeUndefined()
+  }
+
+  if (captured.request.path === RESPONSES_COMPACT_PATH) {
+    // §2.4: the client stream field is deleted from the compact passthrough body.
+    expect(Object.hasOwn(body, 'stream'), `${context}: compact bodies delete the stream key`).toBe(false)
+  }
+
+  if (caseId === 'S2d6-nostream-basic') {
+    // §3.1 whitelist: these Responses fields are DROPPED, never translated.
+    for (const dropped of ['temperature', 'top_p', 'user', 'store', 'metadata', 'previous_response_id', 'truncation']) {
+      expect(Object.hasOwn(body, dropped), `${context}: whitelist drop — ${dropped} must not reach the upstream`).toBe(false)
+    }
+  }
+
+  if (caseId === 'S2d6-nostream-reasoning' || caseId === 'S2d6-stream-reasoning') {
+    // §3.1: reasoning.effort → reasoning_effort (lowercased, trimmed).
+    expect(body.reasoning_effort, `${context}: reasoning_effort`).toBe('high')
+  }
+}
+
+function assertDownstreamClauses(caseId: CaseId, result: DownstreamAssertionResult): void {
+  const context = `S2d6[${caseId}] downstream clauses`
+  if (result.decoded === undefined) {
+    const body = parseJsonRecord(result.body, context)
+    const isCompact = caseId.startsWith('S2d6-compact-')
+    if (!isCompact) {
+      // §3.3 echo quirk: the non-stream response model echoes the RESOLVED upstream name.
+      expect(body.model, `${context}: non-stream echo quirk — model is the resolved upstream name (§3.3)`).toBe(
+        UPSTREAM_MODEL,
+      )
+    }
+    const usage = asRecord(body.usage)
+    if (usage !== undefined) {
+      // §3.3/§8-4: Ensure appends BOTH detail objects after total_tokens (this order).
+      expect(usageKeyOrder(usage), `${context}: non-stream usage key order (details appended after total)`).toEqual([
+        'input_tokens',
+        'output_tokens',
+        'total_tokens',
+        'output_tokens_details',
+        'input_tokens_details',
+      ])
+    }
+    return
+  }
+
+  const frames = result.decoded.frames
+  const lastFrame = frames[frames.length - 1]
+  const lastEvent = lastFrame?.event ?? ''
+  const isFailureLast = FAILURE_EVENT_NAMES.has(lastEvent)
+  const dataFrameCount = frames.length - (isFailureLast ? 1 : 0)
+
+  // §4.3 echo asymmetry: stream-side events echo the CLIENT-REQUESTED model (alias).
+  for (const frame of frames) {
+    if (frame.event === 'response.created' || frame.event === 'response.in_progress' || frame.event === 'response.completed' || frame.event === 'response.incomplete') {
+      const payload = parseJsonRecord(frame.data, `${context}: ${frame.event} payload`)
+      const response = asRecord(payload.response)
+      expect(response?.model, `${context}: ${frame.event} echoes the client-requested model (§3.4/§4.3)`).toBe(
+        MODEL_ALIAS,
+      )
+    }
+  }
+
+  if (isFailureLast && lastFrame !== undefined) {
+    // §5.2: the failure frame's sequence_number equals the data-frame count at close.
+    const payload = parseJsonRecord(lastFrame.data, `${context}: failure frame payload`)
+    expect(payload.sequence_number, `${context}: failure frame sequence_number == data-frame count (§5.2)`).toBe(
+      dataFrameCount,
+    )
+  }
+
+  if (caseId === 'S2d6-stream-usage-incomplete') {
+    const terminal = frames.find((frame) => frame.event === 'response.incomplete')
+    if (terminal === undefined) throw new Error(`${context}: expected a response.incomplete terminal frame`)
+    const response = asRecordOrThrow(
+      asRecord(parseJsonRecord(terminal.data, `${context}: terminal payload`)).response,
+      `${context}: terminal response object`,
+    )
+    const usage = asRecordOrThrow(response.usage, `${context}: terminal usage`)
+    // §3.5 stream shape: cached_tokens inline (2nd key), reasoning_tokens appended after total.
+    expect(usageKeyOrder(usage), `${context}: stream usage key order (§3.5)`).toEqual([
+      'input_tokens',
+      'input_tokens_details',
+      'output_tokens',
+      'total_tokens',
+      'output_tokens_details',
+    ])
+  }
+}
+
+// ─── Case runner ─────────────────────────────────────────────────────────────────────
+
+interface ReplaySession {
+  readonly service: ResponsesService
+  readonly captured: CapturedUpstreamCall[]
+  readonly advanceClock: (deltaMs: number) => void
+}
+
+/** Fresh service + fresh MemoryStore per case; the clock never touches wall time. */
+function makeSession(): ReplaySession {
+  if (adapterFactory === undefined) throw new Error('adapter factory missing')
+  let nowMs = FROZEN_NOW_MS
+  const now = (): number => nowMs
+  const service = adapterFactory({
+    apiKeys: [GATEWAY_API_KEY],
+    credentials: [
+      {
+        apiKey: UPSTREAM_API_KEY,
+        baseUrl: UPSTREAM_BASE_URL,
+        models: [{ name: UPSTREAM_MODEL, alias: MODEL_ALIAS }],
+      },
+    ],
+    store: new MemoryStore({ now }),
+    now,
+    requestRetry: 0,
+    transientErrorCooldownSeconds: -1,
+  })
+  if (typeof service.handleResponses !== 'function') {
+    throw new Error(`${ADAPTER_EXPORT}() must return an object with a handleResponses(request, send) method`)
+  }
+  return {
+    service,
+    captured: [],
+    advanceClock: (deltaMs: number) => {
+      nowMs += deltaMs
+    },
+  }
+}
+
+interface CaseFiles {
+  readonly caseId: CaseId
+  readonly meta: CaseMeta
+  readonly request: ResponsesRequest
+  readonly recorded: RecordedResponse
+  readonly wire: readonly WireLine[]
+}
+
+async function loadCaseFiles(caseId: CaseId): Promise<CaseFiles> {
+  const meta = await readCaseMeta(caseId)
+  validateDynamicFields(caseId, meta.dynamic_fields)
+  const request = parseRequestFile(await readFixtureText(caseId, 'request.http'))
+  const recorded = parseDownstreamFile(await readFixtureText(caseId, 'downstream.md'))
+  const wire = parseWireLines(await readFixtureText(caseId, 'upstream.jsonl'))
+  expect(recorded.status, `S2d6[${caseId}]: recorded status must match meta http_status`).toBe(Number(meta.http_status))
+  expect(wire.length, `S2d6[${caseId}]: recorded wire lines must match meta upstream_hits`).toBe(meta.upstream_hits)
+  return { caseId, meta, request, recorded, wire }
+}
+
+/** NE-LENIENT divergence replay for S2d6-badbody-notfound (see header: HARNESS SEMANTICS). */
+async function assertBadRequestDivergence(
+  produced: ResponsesServiceResponse,
+  recorded: RecordedResponse,
+  caseId: CaseId,
+): Promise<void> {
+  const context = `S2d6[${caseId}] NE-LENIENT divergence`
+  const body = await readResponseBody(produced.body)
+  expect(produced.status, `${context}: strict boundary must reject with 400`).toBe(400)
+  const contentType = headerValue(produced.headers, 'content-type')
+  expect(
+    contentType !== undefined && contentType.startsWith('application/json'),
+    `${context}: strict 400 carries a JSON content type (the exact variant is rewrite-owned)`,
+  ).toBe(true)
+  const parsed = parseJsonRecord(body, `${context}: strict 400 body`)
+  const error = asRecord(parsed.error)
+  expect(error, `${context}: strict 400 body carries an error object`).toBeDefined()
+  expect(error?.type, `${context}: strict 400 error type (this surface's error shape)`).toBe('invalid_request_error')
+  const message = asString(error?.message)
+  expect(typeof message === 'string' && message.length > 0, `${context}: strict 400 message is non-empty`).toBe(true)
+  expect(
+    body === recorded.body,
+    `${context}: the strict 400 must NOT reproduce the reference's lenient model_not_found bytes (SPEC.md NE-LENIENT)`,
+  ).toBe(false)
+}
+
+interface ReplayOptions {
+  /** Override the scripted mock behavior (derived tests patch the canned usage). */
+  readonly script?: MockScript
+  /** Override the expected downstream body (derived tests swap the usage object). */
+  readonly expectedBody?: string
+}
+
+async function replayCase(session: ReplaySession, caseId: CaseId, options: ReplayOptions = {}): Promise<void> {
+  const files = await loadCaseFiles(caseId)
+  const resolved = await resolveMockScript(caseId)
+  const script = options.script ?? resolved.script
+  const mock = buildMockUpstreamResponse(script, caseId)
+
+  let currentRequest: ResponsesRequest | undefined
+  const send: UpstreamSender = async (call) => {
+    if (currentRequest === undefined) {
+      throw new Error(`S2d6[${caseId}]: harness bug — upstream call outside the request step`)
+    }
+    session.captured.push({ request: currentRequest, call })
+    return mock.response
+  }
+
+  currentRequest = files.request
+  const produced = await session.service.handleResponses(files.request, send)
+
+  const callsThisCase = session.captured
+  expect(callsThisCase.length, `S2d6[${caseId}]: upstream call count (gateway-local cases call nothing)`).toBe(
+    files.meta.upstream_hits,
+  )
+  for (const [index, captured] of callsThisCase.entries()) {
+    const recorded = files.wire[index]
+    if (recorded === undefined) {
+      throw new Error(`S2d6[${caseId}]: more upstream calls than recorded wire lines`)
+    }
+    expect(
+      mock.status,
+      `S2d6[${caseId}] upstream call ${index + 1}: scripted mock reply status matches the recorded response_status`,
+    ).toBe(recorded.responseStatus)
+    assertUpstreamWire(recorded, captured, caseId)
+    assertUpstreamClauses(caseId, captured)
+  }
+
+  if (caseId === 'S2d6-badbody-notfound') {
+    await assertBadRequestDivergence(produced, files.recorded, caseId)
+    return
+  }
+
+  const expected =
+    options.expectedBody === undefined
+      ? files.recorded
+      : { ...files.recorded, body: options.expectedBody }
+  const result = await assertDownstreamStep(produced, expected, caseId)
+  assertDownstreamClauses(caseId, result)
+}
+
+// ─── Derived expectations (no golden; spec §3.3/§3.5 source-cited) ────────────────────
+
+/** Swaps the usage object of a recorded body, asserting the target substring is unique. */
+function withSwappedUsage(body: string, from: string, to: string, context: string): string {
+  const occurrences = body.split(from).length - 1
+  if (occurrences !== 1) {
+    throw new Error(`${context}: expected exactly one occurrence of the recorded usage object, found ${occurrences}`)
+  }
+  return body.replace(from, to)
+}
+
+/** §3.3 derived: translator writes reasoning before total; Ensure appends ONLY cached_tokens. */
+const DERIVED_NONSTREAM_USAGE =
+  '{"input_tokens":9,"output_tokens":6,"output_tokens_details":{"reasoning_tokens":4},"total_tokens":15,"input_tokens_details":{"cached_tokens":0}}'
+/** §3.5 derived: terminal builder writes both details inline; Ensure appends NOTHING. */
+const DERIVED_STREAM_USAGE =
+  '{"input_tokens":9,"input_tokens_details":{"cached_tokens":0},"output_tokens":6,"output_tokens_details":{"reasoning_tokens":4},"total_tokens":15}'
+
+const RECORDED_NONSTREAM_USAGE =
+  '{"input_tokens":9,"output_tokens":6,"total_tokens":15,"output_tokens_details":{"reasoning_tokens":0},"input_tokens_details":{"cached_tokens":0}}'
+const RECORDED_STREAM_USAGE =
+  '{"input_tokens":9,"input_tokens_details":{"cached_tokens":0},"output_tokens":6,"total_tokens":15,"output_tokens_details":{"reasoning_tokens":0}}'
+
+/** Patches a canned chat reply / SSE chunk list with reasoning_tokens > 0 upstream usage. */
+function patchUsageWithReasoning(script: MockScript, caseId: string): MockScript {
+  const patchUsage = (usage: Record<string, unknown>): Record<string, unknown> => ({
+    ...usage,
+    output_tokens_details: { reasoning_tokens: 4 },
+  })
+  if (script.kind === 'nonstream') {
+    const reply = asRecordOrThrow(script.reply, `S2d6[${caseId}] derived nonstream reply`)
+    return { kind: 'nonstream', reply: { ...reply, usage: patchUsage(asRecordOrThrow(reply.usage, 'canned usage')) } }
+  }
+  if (script.kind === 'stream') {
+    const events: unknown[] = []
+    for (const event of script.script.events) {
+      const chunk = asRecord(event)
+      if (chunk !== undefined && asRecord(chunk.usage) !== undefined) {
+        events.push({ ...chunk, usage: patchUsage(asRecordOrThrow(chunk.usage, 'chunk usage')) })
+      } else {
+        events.push(event)
+      }
+    }
+    return { kind: 'stream', script: { events, terminator: script.script.terminator }, abortAfter: script.abortAfter }
+  }
+  throw new Error(`S2d6[${caseId}] derived: cannot patch an error script`)
+}

@@ -1,4 +1,4 @@
-# S2d8-01-nostream-basic downstream (exact bytes; body)
+# S2d8-19-alias-rejection downstream (exact bytes; body)
 
 ## Status + headers
 ```

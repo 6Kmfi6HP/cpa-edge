@@ -343,7 +343,7 @@ const EXPECTED_CASES = [
   'S2d8-17-disconnect',
   'S2d8-18-stream-error-before-first-chunk',
   'S2d8-19-alias-rejection',
-  'S2d8-20-strictjson-400',
+  'S2d8-20-strict-json-400',
 ] as const
 
 type CaseId = (typeof EXPECTED_CASES)[number]
