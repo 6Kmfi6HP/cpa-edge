@@ -306,7 +306,7 @@
  *     surface: the §5.1 error passthroughs, the §5.3 pre-frame variants, and the 400);
  *     Retry-After (exact when present — the only recorded value is S2d9-12's `3600`,
  *     byte-pinned under the frozen clock; absent when the recording has none).
- *   - `Date`, `X-Cpa-Trace-Id` and the other X-Cpa-*/X-Server-* headers, the CORS block,
+ *   - `Date`, `X-Cpa-Trace-Id` and the other X-Cpa-* and X-Server-* headers, the CORS block,
  *     `Connection`, `Content-Length`, `Transfer-Encoding` are S1/transport/middleware
  *     territory and are not compared (trace: per the family ruling). Content-Length is
  *     consistency-checked when the adapter emits it.
@@ -732,7 +732,7 @@ function parseJsonRecord(text: string, context: string): Record<string, unknown>
 const RECOGNIZED_DYNAMIC_FIELDS: ReadonlySet<string> = new Set([
   'Date response header',
   'Date',
-  'X-Cpa-Trace-Id and other X-Cpa-*/X-Server-* response headers',
+  'X-Cpa-Trace-Id and other X-Cpa-* and X-Server-* response headers',
   'X-Cpa-* response headers',
   'upstream body prompt_cache_key (uuid) and header Session-Id when the client sent no prompt_cache_key',
   'nothing else is dynamic: mock ids (resp_mock_*), created_at 1742812800, ports, and key strings are fixed',
@@ -1474,8 +1474,11 @@ function assertDownstreamClauses(
   }
   if (caseId === 'S2d9-02' || caseId === 'S2d9-03' || caseId === 'S2d9-05' || caseId === 'S2d9-06' || caseId === 'S2d9-07' || caseId === 'S2d9-17') {
     // §4.6 output repair: the mock's terminal frame ships an EMPTY output; the gateway
-    // rebuilds it from the recorded output_item.done items.
-    const terminal = frames.find((frame) => frame.event === 'response.completed')
+    // rebuilds it from the recorded output_item.done items. (The derived replay of
+    // S2d9-02 terminates with response.done after the §4.2 rename — same repair.)
+    const terminal = frames.find(
+      (frame) => frame.event === 'response.completed' || frame.event === 'response.done',
+    )
     const payload = parseJsonRecord(terminal?.data ?? '{}', `${context}: terminal payload`)
     const output = asArray(asRecordOrThrow(payload.response, `${context}: terminal response`).output)
     expect(output?.length, `${context}: terminal output rebuilt from output_item.done items`).toBeGreaterThan(0)
@@ -2097,3 +2100,69 @@ describe('S2d9 fixture inventory (harness self-check, adapter-independent)', () 
     }
   })
 })
+
+
+// ─── Golden replays (adapter suite) ────────────────────────────────────────────────────
+
+suite(suiteTitle, () => {
+  for (const caseId of STANDALONE_CASES) {
+    it(`${caseId} — replays the recorded golden: upstream wire byte-exact, downstream surface byte-exact`, async () => {
+      const session = makeSession()
+      await replayStep(session, caseId)
+    })
+  }
+
+  it('S2d9-11 + S2d9-12 — the 429 and its immediate repeat on ONE shared session (rate-limit cooldown family)', async () => {
+    // Recorded 5ms apart on one container (meta cross-check in the inventory). The
+    // harness clock does NOT advance between the steps: the second request observes the
+    // window at elapsed ≈ 0 and must short-circuit BEFORE the sender — 429 + Retry-After
+    // 3600 + the model_cooldown body with reset_time "1h0m0s", byte-pinned, zero upstream
+    // calls. A replay that reaches the upstream fails the zero-call pin loudly.
+    const session = makeSession()
+    await replayStep(session, 'S2d9-11')
+    await replayStep(session, 'S2d9-12')
+  })
+
+  it('S2d9-10 + S2d9-18 — the 404 and the twice-fired observation on ONE shared session (model-not-found cooldown family)', async () => {
+    // Recorded as the S2d9-10 request fired TWICE back-to-back with no restart; this
+    // fixture pair pins the observable 404 -> 503 window: the trigger replays its verbatim
+    // 404 golden, then the immediate repeat returns the 503 auth_unavailable selection
+    // error (gateway struct layout, last upstream error embedded) with ZERO upstream calls.
+    const session = makeSession()
+    await replayStep(session, 'S2d9-10')
+    await replayStep(session, 'S2d9-18')
+  })
+
+  it('derived (no golden): an upstream response.done data payload is renamed to response.completed (§4.2)', async () => {
+    // The S2d9-02 script is patched so the terminal frame arrives as
+    // `event: response.done` + data `{"type":"response.done",...}`. Spec §4.2 renames the
+    // DATA payload type to response.completed; the recorded event-preservation note keeps
+    // the event line as the upstream sent it. Expected surface: the recorded S2d9-02
+    // golden with exactly the terminal event line swapped to `event: response.done` — the
+    // renamed payload, usage-detail injection, output repair, terminal close, and the
+    // WriteDone `\n` all match the recorded bytes. The event-line half of this expectation
+    // is interpretation (the spec sentence pins only the payload rename) — see OPEN
+    // QUESTIONS in the mission reply; the inventory asserts the surgery anchors.
+    const caseId = 'S2d9-02' as CaseId
+    const scriptBytes = await mockScriptBytes(caseId)
+    const patchedScript: MockScript = {
+      kind: 'stream',
+      bytes: replaceUnique(
+        replaceUnique(scriptBytes, 'event: response.completed', 'event: response.done', 'derived response.done script (event line)'),
+        '"type":"response.completed"',
+        '"type":"response.done"',
+        'derived response.done script (payload type)',
+      ),
+    }
+    const recorded = parseDownstreamFile(await readFixtureText(caseId, 'downstream.md'))
+    const expectedBody = replaceUnique(
+      recorded.body,
+      'event: response.completed',
+      'event: response.done',
+      'derived response.done golden (terminal event line)',
+    )
+    const session = makeSession()
+    await replayStep(session, caseId, { script: patchedScript, expectedBody })
+  })
+})
+
