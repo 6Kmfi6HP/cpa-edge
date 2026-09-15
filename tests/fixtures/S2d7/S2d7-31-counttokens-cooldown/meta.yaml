@@ -1,0 +1,39 @@
+{
+  "case": "S2d7-31-counttokens-cooldown",
+  "recorded_at": "2026-09-15T20:59:51Z",
+  "recorder": "oracle-runner-3",
+  "version": {
+    "image": "eceasy/cli-proxy-api:v7.3.4",
+    "digest": "sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+    "commit": "8335eac731946bd4eff18f500653f93736df53d6",
+    "binary_self_report": "CLIProxyAPI Version: v7.3.4, Commit: 8335eac, BuiltAt: 2026-09-15T14:07:06Z"
+  },
+  "client_protocol": "gemini (/v1beta, x-goog-api-key)",
+  "upstream_provider_type": "claude-api-key (mock_claude.py, worker-3 port 21002)",
+  "stream": false,
+  "base_url": "http://127.0.0.1:8397",
+  "port_adaptation": "cases file 18317->8397; upstream mock 19002->21002 (worker-3)",
+  "purpose": "RULING RECORDING (impl-review N1): does an ACTIVE credential cooldown gate :countTokens? Procedure: trip a 429 cooldown (mock error mode), then fire countTokens within the ~1s cooldown window. Outcome decides: 429 model_cooldown (cooldown gates count) vs 200 {totalTokens,...} (count bypasses cooldown).",
+  "dynamic_fields": [
+    "Date",
+    "X-Cpa-Trace-Id",
+    "upstream Host port (21002)",
+    "mock wire ts"
+  ],
+  "sequence": "step 2 fired <1s after step 1; wait >=1s after step 2 before any further case",
+  "upstream_wire_step1": 1,
+  "upstream_wire_step2": 0,
+  "layout": "request.http carries both steps; downstream-1.md + downstream-2.md per step",
+  "notes": [
+    "upstream wire entries: step1=1, step2=0 (countTokens expected 0 either way)",
+    "RULING OUTCOME (a): an ACTIVE credential cooldown GATES :countTokens. Step 2 (fired <1s after the 429 trip) returned HTTP 429 + model_cooldown body in the exact S2d7-19 shape (alphabetical keys, last_upstream_error = verbatim mock 429 body, model cm, provider claude, reset_seconds 1/reset_time 1s) with Retry-After: 1. NO upstream request occurred for step 2 (wire delta 0). countTokens does NOT bypass the cooldown pre-flight."
+  ],
+  "files": [
+    "meta.yaml",
+    "request.http",
+    "downstream-1.md",
+    "downstream-2.md",
+    "upstream.jsonl",
+    "mock-response.json"
+  ]
+}

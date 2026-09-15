@@ -1579,7 +1579,18 @@
         "X-Cpa-Trace-Id"
       ],
       "deterministic": "1s cooldown window; if step 2 lands after the window by accident, re-run the pair",
-      "fixture": "tests/fixtures/S2d7/S2d7-31-counttokens-cooldown/"
+      "fixture": "tests/fixtures/S2d7/S2d7-31-counttokens-cooldown/",
+      "expect_downstream": {
+        "status": "recorded",
+        "outcome": "cooldown GATES countTokens",
+        "step2_http_status": 429,
+        "step2_body": "{\"error\":{\"code\":\"model_cooldown\",\"last_upstream_error\":\"<verbatim 429 body>\",\"message\":\"All credentials for model cm are cooling down via provider claude (last error: <verbatim>)\",\"model\":\"cm\",\"provider\":\"claude\",\"reset_seconds\":1,\"reset_time\":\"1s\"}}",
+        "step2_headers": [
+          "Retry-After: 1"
+        ],
+        "step2_upstream_wire_delta": 0,
+        "fixture_layout_note": "request.http carries both steps; downstream-1.md / downstream-2.md per step"
+      }
     }
   ]
 }

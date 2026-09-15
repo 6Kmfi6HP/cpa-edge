@@ -12,7 +12,7 @@ import { codexTerminalFailureBody, codexTerminalFailureStatus, emptyIncompleteBo
 import { serializeOrdered, wireObject } from './json'
 import { scanDataLines } from './sse'
 import { restoreToolName } from './tools'
-import type { CodexToChatContext, WireObject, WireValue } from './types'
+import type { CodexToChatContext, WireObject } from './types'
 
 function readRecord(value: unknown): Record<string, unknown> | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
@@ -587,7 +587,6 @@ function renderChatCompletion(
   const createdAt = readNumber(response, 'created_at') ?? nowSeconds()
 
   let content: string | null = null
-  let sawOutputText = false
   let reasoning: string | null = null
   let sawReasoning = false
   const toolCalls: WireObject[] = []
@@ -602,7 +601,6 @@ function renderChatCompletion(
       // Only the FIRST content part of each message item is taken.
       const partRecord = readRecord((readArrayValue(item, 'content') ?? [])[0])
       if (partRecord !== undefined && partRecord['type'] === 'output_text') {
-        sawOutputText = true
         content = (content ?? '') + (readString(partRecord, 'text') ?? '')
       }
       continue

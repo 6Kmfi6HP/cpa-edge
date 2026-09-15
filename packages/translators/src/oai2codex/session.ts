@@ -23,12 +23,6 @@ export async function sha256Hex(seed: string): Promise<string> {
   return hex(new Uint8Array(digest))
 }
 
-/** SHA-1 digest bytes of a UTF-8 string. */
-async function sha1(seed: string): Promise<Uint8Array> {
-  const digest = await crypto.subtle.digest('SHA-1', encoder.encode(seed))
-  return new Uint8Array(digest)
-}
-
 function hex(bytes: Uint8Array): string {
   let out = ''
   for (const byte of bytes) out += byte.toString(16).padStart(2, '0')
@@ -59,9 +53,6 @@ const ROOT_VERSION = 'cpa-session-root-v1'
  * material; this one is stable across requests.
  */
 const ROOT_FORMAT = 'openai'
-
-/** Identity-root field order (canonical JSON, insertion-ordered). */
-const ROOT_FIELDS: readonly string[] = Object.freeze(['version', 'format', 'caller_scope', 'instructions', 'session', 'user'])
 
 /** Derives the caller-scope hash over the client api key. */
 export async function callerScopeHash(apiKey: string): Promise<string> {

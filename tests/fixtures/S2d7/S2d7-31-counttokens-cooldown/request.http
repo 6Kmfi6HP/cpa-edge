@@ -1,0 +1,25 @@
+# Both steps in order (step dividers; step 2 fired <1s after step 1)
+
+### step 1 (1-cooldown-setup): POST /v1beta/models/cm:streamGenerateContent?alt=sse
+POST /v1beta/models/cm:streamGenerateContent?alt=sse HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+x-goog-api-key: oracle-local-key-1
+Content-Type: application/json
+Content-Length: 61
+
+
+{"contents":[{"role":"user","parts":[{"text":"Say hello"}]}]}
+
+### step 2 (2-counttokens-during-cooldown): POST /v1beta/models/cm:countTokens
+POST /v1beta/models/cm:countTokens HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+x-goog-api-key: oracle-local-key-1
+Content-Type: application/json
+Content-Length: 61
+
+
+{"contents":[{"role":"user","parts":[{"text":"Say hello"}]}]}

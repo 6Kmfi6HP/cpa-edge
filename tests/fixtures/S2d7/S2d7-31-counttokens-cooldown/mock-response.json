@@ -1,0 +1,17 @@
+{
+  "control_file_step1": {
+    "mode": "error",
+    "status": 429
+  },
+  "reply": {
+    "status": 429,
+    "body": {
+      "type": "error",
+      "error": {
+        "type": "rate_limit_error",
+        "message": "mock rate limit"
+      }
+    }
+  },
+  "note": "step 2 (countTokens) never calls upstream; control state irrelevant for it"
+}

@@ -10,7 +10,7 @@
  * byte-exact contract material (S2d5 sections 2.3, 3.1-3.3).
  */
 import { CpaError } from '@cpa-edge/core'
-import { memberValueStart, parseStrictJson, rawSpanAt, rawValueAt, readArray, readObject, readString, scanObjectMembers, serializeDocument, serializeOrdered, wireObject } from './json'
+import { memberValueStart, parseStrictJson, rawValueAt, readArray, readObject, readString, scanObjectMembers, serializeDocument, serializeOrdered, wireObject } from './json'
 import type { DocumentValue, RawSpan } from './json'
 import { RawJson } from './json'
 import { deriveCodexSessionId, truncateRunes } from './session'
@@ -57,8 +57,8 @@ export async function translateChatToCodex(
   const nameMap = buildShortNameMap(collectAllToolNames(request, tools))
   const customOnly = customOnlyNames(tools)
 
-  const translation = translateInput(messages, customOnly, nameMap)
-  const translatedTools = translateTools(tools, rawBody, nameMap)
+  const translation = translateInput(messages, customOnly)
+  const translatedTools = translateTools(tools, rawBody)
   const toolChoice = translateToolChoice(request['tool_choice'], nameMap, customOnly)
   const text = translateText(request, rawBody)
   const reasoning = translateReasoning(request, ctx.thinking === true)
@@ -158,11 +158,7 @@ interface InputTranslation {
   readonly firstUserParts: readonly WireObject[]
 }
 
-function translateInput(
-  messages: readonly unknown[],
-  customOnly: ReadonlySet<string>,
-  nameMap: Readonly<Record<string, string>>,
-): InputTranslation {
+function translateInput(messages: readonly unknown[], customOnly: ReadonlySet<string>): InputTranslation {
   const items: WireObject[] = []
   const instructionTexts: string[] = []
   let firstUserParts: WireObject[] | undefined
@@ -182,7 +178,7 @@ function translateInput(
 
     if (role === 'system' || role === 'developer') {
       pending.clear()
-      const parts = messageParts(record['content'], false)
+      const parts = messageParts(record['content'], false, false)
       instructionTexts.push(partsText(parts))
       items.push({ type: 'message', role: 'developer', content: parts })
       continue
@@ -206,7 +202,7 @@ function translateInput(
       // Assistant items with zero content parts are dropped (tool-call
       // carriers); the call items below are emitted regardless.
       if (parts.length > 0) items.push({ type: 'message', role, content: parts })
-      appendAssistantCalls(record, messageIndex, items, pending, seenIds, ambiguousIds, callItems, customOnly, nameMap)
+      appendAssistantCalls(record, messageIndex, items, pending, seenIds, ambiguousIds, callItems, customOnly)
       continue
     }
     items.push({ type: 'message', role, content: parts })
@@ -302,7 +298,6 @@ function appendAssistantCalls(
   ambiguousIds: Set<string>,
   callItems: Map<string, WireObject>,
   customOnly: ReadonlySet<string>,
-  nameMap: Readonly<Record<string, string>>,
 ): void {
   const calls = record['tool_calls']
   if (!Array.isArray(calls)) return
@@ -507,11 +502,7 @@ interface TranslatedTools {
 }
 
 /** `tools[]` -> flattened Codex tool objects, client order preserved. */
-function translateTools(
-  tools: readonly unknown[],
-  rawBody: string,
-  nameMap: Readonly<Record<string, string>>,
-): TranslatedTools {
+function translateTools(tools: readonly unknown[], rawBody: string): TranslatedTools {
   const out: WireObject[] = []
   let declaresImageTool = false
   for (let index = 0; index < tools.length; index++) {
@@ -546,7 +537,7 @@ function translateTools(
         out.push(wireObject(record))
         continue
       }
-      out.push(new RawJson(spliceRawMemberValue(rawTool, 'name', shortenToolName(readString(record, 'name') ?? ''))) as unknown as WireValue)
+      out.push(new RawJson(spliceRawMemberValue(rawTool, 'name', shortenToolName(readString(record, 'name') ?? ''))) as unknown as WireObject)
       continue
     }
 
