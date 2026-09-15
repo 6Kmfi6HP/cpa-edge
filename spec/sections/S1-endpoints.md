@@ -122,7 +122,7 @@ Evidence: `sdk/api/handlers/openai/openai_videos_handlers.go` (`VideosCreate`, `
 
 ### 3.7 Realtime/live surface (special auth, §4.2)
 
-All bodies below are the **nested realtime envelope** `{"error":{"message":...,"param":null,"type":...,"code":...}}` (map-sorted wire order `code`,`message`,`param`,`type`), produced by `writeRealtimeError` (`internal/client/codex/live/client_secret.go`). The generic live errors routed through `writeLiveError` (`internal/client/codex/live/live.go`) switch to this nested form **only when the request path starts with `/v1/realtime`**; `/v1/live` and `/v1/alpha/search` keep the plain `{"error":"<msg>"}` shape (recorded S1-23).
+All bodies below are the **nested realtime envelope** `{"error":{"code":...,"message":...,"param":null,"type":...}}` (map-sorted wire order, exactly as recorded), produced by `writeRealtimeError` (`internal/client/codex/live/client_secret.go`). The generic live errors routed through `writeLiveError` (`internal/client/codex/live/live.go`) switch to this nested form **only when the request path starts with `/v1/realtime`**; `/v1/live` and `/v1/alpha/search` keep the plain `{"error":"<msg>"}` shape (recorded S1-23).
 
 | Method | Path | Auth | Behavior |
 |---|---|---|---|
@@ -349,10 +349,11 @@ Case definitions: `spec/recordings/S1.cases.json` (24 recordable cases + 5 FIXTU
 | S1-18 | responses endpoints (non-stream/SSE/compact-400/codex alias) | 11 | recorded |
 | S1-19 | WS upgrade required (responses 400, realtime 426, realtime auth envelopes) | 9 | recorded |
 | S1-20 | management auth matrix + unknown subroute/wrong-method 404 empty + oauth-callback bad state | 17 | recorded |
-| S1-21 | healthz GET/HEAD, HEAD / 404, keep-alive absent 404 | 9 | recorded |
+| S1-21 | healthz GET/HEAD, HEAD / 404, keep-alive absent 404 | 9 | recorded (re-record scheduled in S1-25 group F: round-1 HEAD fixture had a duplicated header block in the body section; contract layer treats HEAD bodies as empty) |
 | S1-22 | OAuth callbacks (HTML 200, devin 400, state validation) | 11 | recorded |
 | S1-23 | codex-only routes without codex credentials (503 auth_not_found, alias routing) | 7 | recorded |
 | S1-24 | countTokens via provider (local synthesis, empty upstream.jsonl) | 5 | recorded |
+| S1-25 | gate round-1 follow-up batch: realtime 501 capability stubs, sideband 426 code split, client_secrets/hangup bodies, N1 pinning gaps (image-only 503, images 400s, interactions 400s, gemini empty-action, mgmt 403s, oauth-callback state-required, zstd 400), config variants (empty api-keys, example-key safe mode closing S1-D3), S1-21 re-record | — | pending |
 
 Recording corrections applied to this section from fixture bytes (fixtures are authoritative per SPEC precedence):
 - S1-13: unknown `:method` is a silent fall-through → 200 with empty body and no upstream dispatch (the oracle's inline narrative said "dispatched upstream"; the fixture's single upstream.jsonl entry belongs to the generateContent probe and the S1-13 downstream response carries no `X-Cpa-Trace-Id` — fixture + source agree).
@@ -361,8 +362,16 @@ Recording corrections applied to this section from fixture bytes (fixtures are a
 - S1-23: exact 503 selector string recorded: `{"error":"auth_not_found: no auth available"}`.
 - S1-24: countTokens synthesized locally (§3.4 note).
 
+Gate round-1 corrections applied from `reports/adversary/S1.md` (B1–B4, N3/N5/N6/N7):
+- B1: realtime capability routes (`translations` GET+POST, `translations/client_secrets`, `transcription_sessions`, `calls/:id/{accept,reject,refer}`) are ALWAYS 501 stubs with the nested `not_supported_error`/`realtime_capability_not_supported` body; `calls/:id/hangup` is the only real control endpoint (400/403/404 matrix in §3.7).
+- B2: all `/v1/realtime*` errors use the nested realtime envelope (path-prefix switch in `writeLiveError`); 426 code is `websocket_upgrade_required` only without `?call_id=` and `realtime_request_failed` on the sideband path; `client_secrets` 400 is nested `invalid_request`.
+- B3: `claude-code.disable-cloaking-model-list: true` (default false) returns verbatim ids in the Claude model list.
+- B4: the all-disabled image gate literal is `disable-image-generation: true` (bool), four-state value false/true/"chat"/"passthrough".
+- N3: pprof listener one-liner (§3.10). N5: `invalid body` added to the oauth-callback 400 list. N6: R-SSE decoded-event-sequence contract binding (§7). N7: `param` is not an ErrorDetail struct field (§6.3.3); plugin-present mgmt unknown-path runs auth before 404, anchored no-plugin path 404s without any key (§3.9); `?alt=` (empty) selects SSE framing (§7); zstd comma-lists decode last-to-first (§5). N8: inventory-level looseness accepted (S5/S2 own the detail).
+Open pinning gaps from N1 (plus the B1/B2 realtime bodies) are batched into case S1-25 (§9).
+
 FIXTURE-DEFERRED (documented in spec, no fixture; reasons in `spec/recordings/S1.cases.json` → `fixture_deferred`):
-S1-D1 keep-alive TUI 200/401; S1-D2 client_version/grok-shell model catalogs; S1-D3 example-API-key safe mode; S1-D4 Home-mode gates; S1-D5 plugin WS route.
+S1-D1 keep-alive TUI 200/401; S1-D2 client_version/grok-shell model catalogs; S1-D3 example-API-key safe mode — **deferral closing: recording authorized (gate round 1, ruling N2) via the S1-25 batch config variant V2**; S1-D4 Home-mode gates; S1-D5 plugin WS route. Sub-deferral (recorded nowhere, documented in §4.3): `remote management key not set` 403 — TUI-embed-only (server mode without a secret never registers the management routes).
 
 Pre-recording bootstrap evidence (already captured in `_cpa_edge_ref/probes/bootstrap/`) backing §2/§5: probes 01–17 (root, unknown route, OPTIONS, wrong method, models auth pair, models valid, chat 400, management auth matrix, gemini models, keep-alive 404) and the mock-recordings set (models/chat/chat-stream happy paths + cooldown 500).
 

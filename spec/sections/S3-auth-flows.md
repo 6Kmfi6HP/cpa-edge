@@ -50,11 +50,19 @@ Credential extraction order (first configured-key match wins; per-source precede
 - At least one credential present but none matches → `401` `{"error":"Invalid API key"}` (evidence: `NewInvalidCredentialError`).
 - Comparison semantics: exact string equality against an in-memory set (Go map lookup). Not constant-time; no hashing; case-sensitive. OPTIONAL hardening (constant-time compare) may be registered as a non-equivalence, otherwise mirror as-is.
 
-Realtime routes (`/v1/realtime`, `/v1/realtime/calls`, `.../client_secrets`, `.../sessions`, `.../transcription_sessions`, `.../translations*`, `.../hangup|accept|reject|refer`) use `realtimeStandardAuthMiddleware` (same evaluation) but a different failure body (evidence: `internal/api/server_middleware.go`):
+Realtime routes split into TWO middleware variants (evidence: `internal/api/server_middleware.go`, `internal/api/server_routes.go`):
+- `realtimeAuthMiddleware` (ephemeral-key first, then API-key fallback) on: `GET|POST /v1/realtime`, `POST /v1/realtime/calls`, `GET /v1/realtime/calls/:call_id`, `GET|POST /v1/realtime/translations`. It first inspects the Bearer token: if it carries the ephemeral-client-secret prefix `ek_` (secrets issued by `POST /v1/realtime/client_secrets`; format `ek_` + 32 random bytes base64url; default lifetime 10 min, bounds 10 s–2 h), it is validated against the in-memory secret store — a syntactically `ek_`-prefixed token that is unknown/expired aborts with `401`:
 ```json
-{"error":{"message":"<Missing API key|Invalid API key>","type":"authentication_error","param":null,"code":"invalid_api_key"}}
+{"error":{"code":"invalid_realtime_client_secret","message":"Realtime client secret is invalid or expired","param":null,"type":"invalid_request_error"}}
+```
+(recorded key order alphabetical). Any non-`ek_` credential falls through to the standard API-key evaluation below. When no secret store is initialized, an `ek_`-prefixed token still yields the same 401.
+- `realtimeStandardAuthMiddleware` (API-key only) on: `POST /v1/realtime/client_secrets`, `POST /v1/realtime/sessions`, `POST /v1/realtime/transcription_sessions`, `POST /v1/realtime/translations/client_secrets`, `POST /v1/realtime/calls/:call_id/{hangup,accept,reject,refer}`.
+Both variants share the API-key failure body:
+```json
+{"error":{"code":"invalid_api_key","message":"<Missing API key|Invalid API key>","param":null,"type":"authentication_error"}}
 ```
 HTTP 5xx from the auth layer instead yields `"type":"server_error","code":"authentication_service_error"`.
+Separately, config `ws-auth` (default true) toggles authentication for the realtime WebSocket upgrade paths as a whole (config schema in S6, management route in S5; enforcement lives with the realtime handler).
 
 Example-API-key safe mode (evidence: `internal/safemode/example_api_keys.go`, `internal/api/server_middleware.go`):
 - If any configured top-level key equals `your-api-key-1`, `your-api-key-2`, or `your-api-key-3`, the server starts in safe mode.
@@ -71,7 +79,7 @@ Route gating: `/v0/management/*` handlers are registered iff at least one of {co
 
 Per-request pipeline (evidence: `internal/api/handlers/management/handler.go` `Middleware` → `AuthenticateManagementKey`):
 1. Response headers set on every management response (before any check, including 401/403/404 bodies): `X-CPA-VERSION`, `X-CPA-COMMIT`, `X-CPA-BUILD-DATE`, `X-CPA-SUPPORT-PLUGIN` — emitted with Go-canonical capitalization `X-Cpa-Version: v7.3.4`, `X-Cpa-Commit: 8335eac`, `X-Cpa-Build-Date: 2026-09-15T14:07:06Z`, `X-Cpa-Support-Plugin: 1` (recorded). These headers do NOT appear on `/v1`/`/v1beta` auth rejections (those carry only the global CORS block from S1). `X-Cpa-Trace-Id` is never emitted on auth or management surfaces (it is only listed in `Access-Control-Expose-Headers`). Values are build-info constants; masked as dynamic in goldens.
-2. `clientIP = c.ClientIP()` (gin default proxy rules); `localClient` iff IP is `127.0.0.1` or `::1`.
+2. `clientIP = c.ClientIP()`. PINNED CONTRACT (B6/N8): the server never calls gin's `SetTrustedProxies`, so gin v1.10.1 defaults apply — trust-all-proxies with `X-Forwarded-For`/`X-Real-IP` enabled: `clientIP` is the leftmost valid `X-Forwarded-For` entry when present, else `X-Real-IP`, else the TCP remote address. `localClient` iff that IP is `127.0.0.1` or `::1`. Consequence: any client (including a remote one) can present `X-Forwarded-For: 127.0.0.1` and be treated as local, and the ban counter is keyed by the resolved (spoofable) IP. This is recorded reality, not an endorsement. Replay topology: the `s3-mgmt-remote-disabled` golden pins this deterministically with explicit `X-Forwarded-For` headers and is byte-replayable from ANY network position.
 3. Key extraction: `Authorization: Bearer <key>` (non-bearer → whole header value), else `X-Management-Key`.
 4. Ban check first: if this IP is currently banned → `403` `{"error":"IP banned due to too many failed attempts. Try again in <remaining>"}` where `<remaining>` is a Go duration string at seconds precision (recorded observation: `30m0s` on the first banned request, which lands <1s after the ban is set). The failure that triggers the ban is itself answered `401` — only SUBSEQUENT requests get the 403. No failure is counted while banned; ban expiry resets the counter.
 5. Remote gate: `!localClient && !allowRemote` → `403` `{"error":"remote management disabled"}` (no failure counted). `allowRemote` = config `remote-management.allow-remote`; forced true when env `MANAGEMENT_PASSWORD` is set.
@@ -140,7 +148,7 @@ Refresh: form POST `client_id`, `grant_type=refresh_token`, `refresh_token`, `sc
 | Authorize endpoint | `https://accounts.google.com/o/oauth2/v2/auth` | `internal/auth/antigravity/constants.go`, `auth.go` |
 | Token endpoint | `https://oauth2.googleapis.com/token` | same |
 | Client ID | `1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com` | same |
-| Client secret | public installed-app constant in upstream `constants.go` (needed for the form exchange; treat as a public value, not a secret) | same |
+| Client secret | `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` (public installed-app constant, same caveat as other inlined constants) | same |
 | Redirect URI | `http://localhost:51121/oauth-callback` | same |
 | Scopes | `cloud-platform`, `userinfo.email`, `userinfo.profile`, `cclog`, `experimentsandconfigs` (full googleapis URLs in source) | same |
 | Loopback port / path | 51121, `/oauth-callback` (plain HTML response, no redirect) | `sdk/auth/antigravity.go` |

@@ -14,7 +14,7 @@
 | ORACLE | reference env at _cpa_edge_ref (outside repo) | — | — | merged | 0 | v7.3.4 anchor; image digest recorded; 17 probes; recordable/credentialed table; harness proven |
 | S1 | spec: endpoint inventory | 1 | spec-s1-endpoints | spec-fix | 1 | R1: adv-spec-1 FAIL (B1-B4 realtime/config literals); S1-25+D3+21 follow-up recording authorized |
 | S2d1 | spec: OpenAI client → Gemini upstream | 1 | spec-s2d1-oai2gem | spec | 0 |  |
-| S2d2 | spec: Gemini client → OpenAI upstream | 1 | spec-s2d2-gem2oai | spec | 0 |  |
+| S2d2 | spec: Gemini client → OpenAI upstream | 1 | spec-s2d2-gem2oai | spec-adv | 0 | section+20 goldens done; review assigned adv-spec-4 |
 | S2d3 | spec: OpenAI client → Claude upstream | 1 | spec-s2d3-oai2cla | spec | 0 |  |
 | S2d4 | spec: Claude client → OpenAI upstream | 1 | spec-s2d4-cla2oai | spec | 0 |  |
 | S2d5 | spec: OpenAI client → Codex/Responses upstream | 1 | spec-s2d5-oai2codex | spec | 0 |  |

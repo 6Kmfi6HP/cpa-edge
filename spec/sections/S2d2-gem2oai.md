@@ -53,7 +53,7 @@ MUST (path parsing, evidence: `sdk/api/handlers/gemini/gemini_handlers.go` `Gemi
 - If the method segment is none of `generateContent` / `streamGenerateContent` / `countTokens`, the gateway returns **200 with an empty body**, with no upstream dispatch and no `X-Cpa-Trace-Id` response header **[WIRE, S1-recorded]**. OPTIONAL to replicate exactly; a deliberate 400 is a registered non-equivalence if chosen (see §7).
 - The request body is read before method dispatch; unknown methods still consume the body.
 - Trailing-slash variants of these routes trigger the S1-owned redirect behavior (GET 301 / POST 307 + `Location`, no CORS headers); not pinned here.
-- `POST /v1beta/models/models/{alias}:generateContent` (the `models/`-prefixed resource form) does NOT resolve: the model segment is the literal string `models/{alias}` and the gateway answers **400** `model_not_found`. The GET single-model endpoint accepts both forms; the POST endpoints accept only the bare alias. This asymmetry MUST be preserved.
+- `POST /v1beta/models/models/{alias}:generateContent` (the `models/`-prefixed resource form) does NOT resolve: the model segment is the literal string `models/{alias}` and the gateway answers **400** `model_not_found` (recorded in `gem2oai-model-resolution-errors` R2). The single-model GET endpoint behaves the same way for lookups but answers **404** `not_found` for a prefixed id (recorded in `gem2oai-models-list` R3). Neither endpoint resolves `models/`-prefixed ids; only the LIST response itself carries the `models/` prefix.
 
 ### 2.2 Auth (client side)
 
@@ -81,7 +81,7 @@ MUST (evidence: `internal/runtime/executor/openai_compat_executor.go` `Execute` 
 
 MUST (evidence: `sdk/api/handlers/gemini/gemini_handlers.go` `GeminiModels` / `GeminiGetHandler`):
 - `GET /v1beta/models` returns `{"models":[...]}` where every registered model (all providers) appears with `name` prefixed `models/`; a missing `displayName`/`description` defaults to the raw model id; a missing `supportedGenerationMethods` defaults to `["generateContent"]`.
-- `GET /v1beta/models/{id}` accepts the bare id and the `models/`-prefixed id; 200 returns the model map (name prefixed) or 404 `{"error":{"message":"Not Found","type":"not_found"}}`.
+- `GET /v1beta/models/{id}` resolves ONLY the bare id; 200 returns the model map (name prefixed `models/`), and any id that does not resolve — including the `models/`-prefixed form — answers 404 `{"error":{"message":"Not Found","type":"not_found"}}` (recorded in `gem2oai-models-list` R2-R4).
 - openai-compat aliases appear in this list like any other model — a Gemini client can discover `mock-model` and call it.
 
 ### 2.5 Response headers (gateway → client)
@@ -113,7 +113,7 @@ Built from a fixed base `{"model":"","messages":[]}`; top-level key order is: `m
 | `generationConfig.stopSequences` | `stop` | array of strings; only if non-empty |
 | `generationConfig.candidateCount` | `n` | integer |
 | `generationConfig.responseModalities` | `modalities` | each entry lowercased; only `text`/`image`/`audio` kept; only if non-empty |
-| `generationConfig.thinkingConfig.thinkingLevel` (or `thinking_level`) | `reasoning_effort` | lowercased+trimmed |
+| `generationConfig.thinkingConfig.thinkingLevel` (or `thinking_level`) | `reasoning_effort` | lowercased+trimmed; **`auto` does NOT pass through**: for openai-compat config models without explicit thinking config the gateway clamps it to `medium` (recorded in `gem2oai-thinking-config` R3) |
 | `generationConfig.thinkingConfig.thinkingBudget` (or `thinking_budget`) | `reasoning_effort` | budget→level mapping (§3.3); used only when no level key present |
 | (stream flag) | `stream` | always present: `true` for `:streamGenerateContent`, `false` otherwise |
 | top-level `service_tier` | `service_tier` | copied verbatim if it is a string; a Gemini-body oddity, kept for compatibility |
@@ -206,12 +206,14 @@ Reasoning extraction: `message.reasoning_content` as a string, an array of strin
 
 `thinkingBudget` → `reasoning_effort` (evidence: `internal/thinking/convert.go`): `-1`→`auto`, `0`→`none`, `1..512`→`minimal`, `513..1024`→`low`, `1025..8192`→`medium`, `8193..24576`→`high`, `≥24577`→`xhigh`; values `< -1` produce NO reasoning_effort.
 
+**Auto-level clamping (recorded):** the openai-compat executor attaches a default thinking capability to configured models that have no explicit `thinking` config (`ThinkingSupport{Levels:["low","medium","high"]}`, dynamic thinking NOT allowed — evidence: `sdk/cliproxy/auth/api_key_model_capabilities.go`). Because dynamic is disallowed, the gateway's thinking pipeline converts a Gemini `thinkingLevel: "auto"` (or `thinkingBudget: -1`) into the mid-range level `medium` before the upstream call (`internal/thinking/validate.go` `convertAutoToMidRange`), so the upstream body carries `"reasoning_effort":"medium"` (recorded in `gem2oai-thinking-config` R3). Levels other than `auto` (e.g. `high`) and explicit budgets pass through the threshold mapping unchanged (recorded R1/R2). Models with explicit thinking capabilities in the model registry are outside the golden set.
+
 ### 3.4 Token count
 
 `POST /v1beta/models/{alias}:countTokens`:
 - Translates the request exactly like `:generateContent` (stream=false), counts tokens LOCALLY with the OpenAI tokenizer chosen by model prefix (default `o200k_base`; evidence: `internal/runtime/executor/helps/token_helpers.go`), over the translated request's message roles, message texts/content parts, tools/functions, tool_choice, response_format. No upstream call.
 - Response body, byte-exact: `{"totalTokens":<N>,"promptTokensDetails":[{"modality":"TEXT","tokenCount":<N>}]}` (evidence: `internal/translator/common/bytes.go`).
-- `<N>` is deterministic for a fixed input body; goldens pin the recorded integer.
+- `<N>` is deterministic for a fixed input body; the golden pins the recorded integer. For the golden body (`{"contents":[{"role":"user","parts":[{"text":"Say hello"}]}]}`) the recorded count is **4**: `{"totalTokens":4,"promptTokensDetails":[{"modality":"TEXT","tokenCount":4}]}` (`gem2oai-count-tokens`, 76 bytes).
 
 ---
 
@@ -292,11 +294,12 @@ MUST **[WIRE]**:
 ### 5.3 Rate-limit cooldown
 
 MUST **[WIRE]**:
-- An upstream 429 puts the credential into a rate-limit cooldown (~1s reset). A request for the same model during the cooldown fails with HTTP 500 and body:
+- An upstream 429 puts the credential into a rate-limit cooldown. A request for the same model during the cooldown fails with the STATUS OF THE TRIGGERING UPSTREAM ERROR (429 in the golden — the cooldown error wraps the last upstream status error) plus a `Retry-After: <reset_seconds>` response header, and body:
 ```
 {"error":{"code":"model_cooldown","last_upstream_error":"<summary>","message":"All credentials for model <alias> are cooling down via provider <provider-key> (last error: <summary>)","model":"<alias>","provider":"<provider-key>","reset_seconds":<n>,"reset_time":"<n>s"}}
 ```
-  keys in alphabetical order (Go map marshal); `<provider-key>` for a named openai-compat provider is `openai-compatible-<name>` (e.g. `openai-compatible-mock-openai`; evidence: `internal/util/provider.go` `OpenAICompatibleProviderKey`, `sdk/cliproxy/auth/selector.go` `modelCooldownError`).
+  keys in alphabetical order (Go map marshal); `<provider-key>` for a named openai-compat provider is `openai-compatible-<name>` (e.g. `openai-compatible-mock-openai`; evidence: `internal/util/provider.go` `OpenAICompatibleProviderKey`, `sdk/cliproxy/auth/selector.go` `modelCooldownError` — including its `Retry-After` header derivation). `last_upstream_error` is the extracted `code: message` summary of the upstream body (e.g. `rate_limit_exceeded: mock rate limit`).
+- The cooldown window ESCALATES with consecutive post-window rate-limit failures (evidence: `sdk/cliproxy/auth/cooldown_backoff_test.go` quota backoff levels; first 429 opens a ~1s window, and the window doubles per post-window failure). The golden records the third consecutive 429 inside a few seconds: `reset_seconds: 4`, `reset_time: "4s"`, `Retry-After: 4` (`gem2oai-cooldown-after-429` R2). Contract tests MUST read the recorded `reset_seconds` value from the fixture rather than assuming 1.
 - `transient-error-cooldown-seconds: -1` does NOT disable this cooldown (oracle-recorded); transient transport-error cooldowns ARE disabled by `-1`.
 
 ### 5.4 Mid-stream failures (after SSE headers committed)
@@ -319,7 +322,7 @@ For gateway-built error bodies (evidence: `BuildErrorResponseBodyWithError`): if
 
 ## 6. Golden samples index
 
-All fixtures recorded by @oracle-runner against CLIProxyAPI v7.3.4 (image `eceasy/cli-proxy-api:v7.3.4`, digest `sha256:97825da3...4266`) with the openai mock upstream (`_cpa_edge_ref/mock/mock_openai.py`, port 18999) wired as:
+**Status: all 20 fixtures RECORDED (2026-09-15/16) by @oracle-runner-3 against CLIProxyAPI v7.3.4** (image `eceasy/cli-proxy-api:v7.3.4`, digest `sha256:97825da3...4266`) with the openai mock upstream (`_cpa_edge_ref/mock/mock_openai.py`, port 18999) wired as:
 
 ```yaml
 openai-compatibility:
@@ -340,21 +343,21 @@ Recording requests: `spec/recordings/S2d2.cases.json`. Layout per RECIPES (`repo
 | 2 | `gem2oai-system-snake-multimodal` | `system_instruction` snake key; system inline image → data: URL; user thought part dropped; user inline audio → `input_audio`; mixed turn → content array | happy / `s2d2-nonstream-text` |
 | 3 | `gem2oai-tools-toolconfig` | functionDeclarations (parameters + parametersJsonSchema); tool_choice NONE/AUTO/ANY-single/ANY-multi mappings; upstream tools bytes | happy / `s2d2-nonstream-text` |
 | 4 | `gem2oai-tool-roundtrip-request` | functionCall→tool_calls with deterministic sha256 ids; functionResponse→tool messages FIFO; content JSON-stringification; empty function-role turn quirk; upstream messages bytes | happy / `s2d2-nonstream-text` |
-| 5 | `gem2oai-thinking-config` | thinkingLevel→reasoning_effort; thinkingBudget→level thresholds; auto passthrough | happy / `s2d2-nonstream-text` |
+| 5 | `gem2oai-thinking-config` | thinkingLevel→reasoning_effort; thinkingBudget→level thresholds; **`auto` CLAMPS to `medium`** (recorded deviance from passthrough) | happy / `s2d2-nonstream-text` |
 | 6 | `gem2oai-role-mapping` | `model`→`assistant`; text-part concatenation; unknown roles verbatim | happy / `s2d2-nonstream-text` |
 | 7 | `gem2oai-resp-nonstream-toolcall` | message.tool_calls→functionCall parts; id preserved; tool_calls→STOP finishReason | happy / `s2d2-nonstream-toolcall` |
 | 8 | `gem2oai-resp-nonstream-reasoning` | reasoning_content→thought part first; length→MAX_TOKENS; reasoning_tokens→thoughtsTokenCount | happy / `s2d2-nonstream-reasoning` |
 | 9 | `gem2oai-stream-text-full` | role chunk dropped; per-delta text frames; finish frame; usage-only frame; [DONE] swallowed; no [DONE] downstream; SSE headers; `?alt=sse` equivalence | happy / `s2d2-stream-full` |
 | 10 | `gem2oai-stream-toolcall` | tool_call deltas buffered (no frames); flush on finish frame; args reassembly; id preserved | happy / `s2d2-stream-toolcall` |
 | 11 | `gem2oai-stream-reasoning` | reasoning deltas → `{"thought":true,...}` frames; interleaved with text frames in arrival order | happy / `s2d2-stream-reasoning` |
-| 12 | `gem2oai-stream-slow` | progressive flush per translated frame (chunk count/order; inter-arrival ≥ delay) | slow (300ms) / `s2d2-stream-full` |
+| 12 | `gem2oai-stream-slow` | progressive flush per translated frame (chunk count/order; inter-arrival ≥ delay; re-run duration 1.578s at 300ms, frames byte-identical to case 9) | slow (300ms) / `s2d2-stream-full` |
 | 13 | `gem2oai-stream-disconnect` | mid-stream hard close: flushed frames preserved; terminal `event: error` frame with `unexpected EOF`; HTTP stays 200 | disconnect (after 2) / `s2d2-stream-full` |
 | 14 | `gem2oai-error-in-stream-payload` | upstream error object inside a data frame → terminal `event: error` frame with payload verbatim, HTTP 200 | happy / `s2d2-stream-midstream-error` |
 | 15 | `gem2oai-error-429` | upstream 429 body+status VERBATIM for non-stream AND stream (no SSE headers on pre-stream failure) | error (429) |
-| 16 | `gem2oai-cooldown-after-429` | model_cooldown body (500, alphabetical keys, provider `openai-compatible-mock-openai`); NOT disabled by cooldown config | error (429) then immediate replay |
+| 16 | `gem2oai-cooldown-after-429` | model_cooldown body: status 429 + `Retry-After: 4`, alphabetical keys, `reset_seconds: 4`/`reset_time: "4s"` at the 3rd consecutive 429, provider `openai-compatible-mock-openai`; NOT disabled by cooldown config | error (429) then immediate replay |
 | 17 | `gem2oai-model-resolution-errors` | unknown alias 400; `models/`-prefixed POST 400; unknown `:method` 200-empty; colon-less action 404 JSON | none (gateway-local) |
 | 18 | `gem2oai-count-tokens` | totalTokens+promptTokensDetails body; deterministic o200k count; NO upstream request | none (gateway-local) |
-| 19 | `gem2oai-models-list` | Gemini-format model list includes openai-compat alias with `models/` prefix + defaults; GET single model 200/404 | none (gateway-local) |
+| 19 | `gem2oai-models-list` | Gemini-format model list includes openai-compat alias with `models/` prefix + defaults; GET single model: bare id 200, prefixed/unknown id 404 `not_found` | none (gateway-local) |
 | 20 | `gem2oai-auth-styles` | x-goog-api-key and Bearer both accepted on `/v1beta`; 401 shapes | none (gateway-local) |
 
 CREDENTIALED-ONLY behaviors on this pair: none — the openai-compatibility upstream is fully mockable per R-FIXTURE. All 20 cases are RECORDABLE-LOCALLY; none is FIXTURE-DEFERRED.
@@ -367,7 +370,7 @@ CREDENTIALED-ONLY behaviors on this pair: none — the openai-compatibility upst
 2. **Q2 — multi-choice overlay (n>1):** non-stream responses merge ALL choices into `candidates[0]` positionally; streaming ignores per-choice indexing entirely (frames always `index:0`, and only the first-choice flow is mapped). This is lossy for n>1. Intentional non-equivalence: CPA-Edge reproduces it (goldens pin n=1 only). A "correct" multi-candidate mapping would be a registered improvement, not a silent one.
 3. **Q3 — unknown `:method` returns 200 empty:** preserved as recorded (gin writes nothing when no case matches). A 400 would be cleaner but is a client-visible change; keep 200-empty unless the gate rules otherwise.
 4. **Q4 — `streamGenerateContent` without `alt=sse`:** real Gemini answers a JSON array; the gateway answers SSE in both cases (`alt=sse` is mapped to the empty alt). Gemini SDKs always use `?alt=sse`, so this is recorded behavior with low blast radius. CPA-Edge reproduces it.
-5. **Q5 — countTokens fidelity:** counts come from a local `o200k_base` tokenizer over the TRANSLATED request, not from the upstream. The golden pins the exact integer for one fixed body; CPA-Edge must reproduce that integer (tokenizer behavior is part of the contract).
+5. **Q5 — countTokens fidelity (RESOLVED by recording):** counts come from a local tokenizer over the TRANSLATED request, not from the upstream; the upstream wire log stays empty. The golden pins the exact integer (4) for the fixed body; CPA-Edge must reproduce that integer (tokenizer behavior is part of the contract).
 6. **Q6 — role-chunk dead branch:** the stream translator has an unreachable first-chunk role-emission path; the role frame is always dropped. Recorded; do not "fix".
 7. **Q7 — thought-part loss:** hidden-thought parts in REQUESTS are dropped silently (they cannot be represented in the OpenAI wire). Gemini clients that replay model thoughts lose them. Documented, not fixable without protocol extension.
 8. **Q8 — `finish_reason` present on the same frame as a content/tool delta:** the finish mapping only fires for frames where the delta carries no content/tool_calls; a frame combining `delta.content` with a non-null `finish_reason` emits ONLY the content frame and the finish reason is LOST. Recorded edge; goldens avoid it; flagged for the adversary.

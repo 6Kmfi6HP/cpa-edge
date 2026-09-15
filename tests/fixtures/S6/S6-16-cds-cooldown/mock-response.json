@@ -1,0 +1,11 @@
+{
+ "mode": "error",
+ "status": 500,
+ "body": {
+  "error": {
+   "message": "mock rate limit",
+   "type": "rate_limit_exceeded",
+   "code": "rate_limit_exceeded"
+  }
+ }
+}

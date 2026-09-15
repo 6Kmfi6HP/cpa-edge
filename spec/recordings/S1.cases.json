@@ -1058,7 +1058,8 @@
           }
         }
       ],
-      "expected": "healthz-get: 200 {\"status\":\"ok\"}. healthz-head: 200 empty. root-head: 404 empty. keepalive: 404 empty (route not registered in server mode)."
+      "expected": "healthz-get: 200 {\"status\":\"ok\"}. healthz-head: 200 empty. root-head: 404 empty. keepalive: 404 empty (route not registered in server mode).",
+      "notes": "RE-RECORDED in the S1-25 batch (group F): the round-1 fixture had a duplicated header block in the HEAD downstream.md body section; contract layer treats HEAD bodies as empty either way."
     },
     {
       "id": "S1-22",
@@ -1176,6 +1177,458 @@
       ],
       "expected": "200 {\"totalTokens\":3,\"promptTokensDetails\":[{\"modality\":\"TEXT\",\"tokenCount\":3}]} computed LOCALLY (RECORDED OUTCOME); upstream.jsonl is EMPTY — the openai-compat executor tokenizes in-process and synthesizes the count body; no upstream call happens.",
       "notes": "VERIFY-AND-REPORT: count-via-openai-compat behavior is not pinned by prior probes; recording it pins the route regardless of outcome."
+    },
+    {
+      "id": "S1-25",
+      "purpose": "Gate round-1 follow-up batch (adversary authorization): pin the realtime capability stubs, sideband 426, client_secrets/hangup bodies, the N1 pinning-gap list, config-variant behaviors (empty api-keys, example-key safe mode), management 403s, and the S1-21 HEAD re-record.",
+      "classification": "RECORDABLE-LOCALLY",
+      "record": "response (per request: status + headers + exact body)",
+      "notes": [
+        "All requests use the baseline config from S1 (BOOTSTRAP.md section 3) unless a 'config_variant' is given; provider attachment NOT needed - every probe fails before any upstream call.",
+        "Config variant runs required: (V1) api-keys: [] ; (V2) api-keys: ['your-api-key-1'] (safe mode activates; template values per internal/safemode/example_api_keys.go) ; (V3) remote-management.allow-remote: false (secret still set) ; (V4) fresh container, IP-ban probes run LAST and container discarded after.",
+        "Source IP note: requests via the published docker port arrive from the bridge gateway (not loopback), so the remote-disabled 403 is recordable as-is.",
+        "Sub-item intentionally NOT probed: 'remote management key not set' 403 is TUI-embed-only (server mode without a secret does not register the routes at all) - stays documented in section 4.3.",
+        "VERIFY-AND-REPORT items are marked; report actual bytes and I will reconcile the section."
+      ],
+      "requests": [
+        {
+          "name": "rt-translations-get",
+          "group": "A-capability-stubs",
+          "method": "GET",
+          "path": "/v1/realtime/translations",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1"
+          },
+          "expected": "501 {\"error\":{\"code\":\"realtime_capability_not_supported\",\"message\":\"Realtime translation sessions are not supported by the ChatGPT/Codex OAuth upstream\",\"param\":null,\"type\":\"not_supported_error\"}}"
+        },
+        {
+          "name": "rt-translations-post",
+          "group": "A-capability-stubs",
+          "method": "POST",
+          "path": "/v1/realtime/translations",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{}",
+          "expected": "501 same body as rt-translations-get"
+        },
+        {
+          "name": "rt-translations-client-secrets",
+          "group": "A-capability-stubs",
+          "method": "POST",
+          "path": "/v1/realtime/translations/client_secrets",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{}",
+          "expected": "501 same body (same handler as translations)"
+        },
+        {
+          "name": "rt-transcription-sessions",
+          "group": "A-capability-stubs",
+          "method": "POST",
+          "path": "/v1/realtime/transcription_sessions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{}",
+          "expected": "501 message 'Realtime transcription-only sessions are not supported by the ChatGPT/Codex OAuth upstream'"
+        },
+        {
+          "name": "rt-sip-accept",
+          "group": "A-capability-stubs",
+          "method": "POST",
+          "path": "/v1/realtime/calls/call-0000/accept",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{}",
+          "expected": "501 message 'Realtime SIP accept are not supported by the ChatGPT/Codex OAuth upstream'"
+        },
+        {
+          "name": "rt-sip-reject",
+          "group": "A-capability-stubs",
+          "method": "POST",
+          "path": "/v1/realtime/calls/call-0000/reject",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{}",
+          "expected": "501 message 'Realtime SIP reject are not supported by the ChatGPT/Codex OAuth upstream'"
+        },
+        {
+          "name": "rt-sip-refer",
+          "group": "A-capability-stubs",
+          "method": "POST",
+          "path": "/v1/realtime/calls/call-0000/refer",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{}",
+          "expected": "501 message 'Realtime SIP refer are not supported by the ChatGPT/Codex OAuth upstream'"
+        },
+        {
+          "name": "rt-sideband-callid",
+          "group": "B-sideband-ws",
+          "method": "GET",
+          "path": "/v1/realtime?call_id=call-0000",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1"
+          },
+          "expected": "426 Upgrade: websocket header; nested body code realtime_request_failed, message 'WebSocket upgrade required' (sideband path - differs from S1-19's websocket_upgrade_required without call_id)"
+        },
+        {
+          "name": "rt-calls-sideband-nows",
+          "group": "B-sideband-ws",
+          "method": "GET",
+          "path": "/v1/realtime/calls/call-0000",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1"
+          },
+          "expected": "426 nested realtime_request_failed 'WebSocket upgrade required'"
+        },
+        {
+          "name": "rt-client-secrets-badjson",
+          "group": "B-sideband-ws",
+          "method": "POST",
+          "path": "/v1/realtime/client_secrets",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "not-json{",
+          "expected": "400 {\"error\":{\"code\":\"invalid_request\",\"message\":\"Invalid Realtime client secret request\",\"param\":null,\"type\":\"invalid_request_error\"}}"
+        },
+        {
+          "name": "rt-hangup-invalid-id",
+          "group": "C-hangup",
+          "method": "POST",
+          "path": "/v1/realtime/calls/bad%20id/hangup",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{}",
+          "expected": "400 nested invalid_call_id 'Invalid Realtime call ID' (pattern ^[A-Za-z0-9_-]{1,128}$; VERIFY-AND-REPORT)"
+        },
+        {
+          "name": "rt-hangup-unknown",
+          "group": "C-hangup",
+          "method": "POST",
+          "path": "/v1/realtime/calls/call-unknown-0000/hangup",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{}",
+          "expected": "404 nested realtime_call_not_found 'Realtime call not found'"
+        },
+        {
+          "name": "image-only-503",
+          "group": "D-pin-gaps",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "gpt-image-1.5",
+            "messages": [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ]
+          },
+          "expected": "503 OpenAI-shaped, message 'model gpt-image-1.5 is only supported on /v1/images/generations and /v1/images/edits'"
+        },
+        {
+          "name": "images-invalid-json",
+          "group": "D-pin-gaps",
+          "method": "POST",
+          "path": "/v1/images/generations",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "not json",
+          "expected": "400 'Invalid request: body must be valid JSON' (invalid_request_error)"
+        },
+        {
+          "name": "images-missing-prompt",
+          "group": "D-pin-gaps",
+          "method": "POST",
+          "path": "/v1/images/generations",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "gpt-image-1.5"
+          },
+          "expected": "400 'Invalid request: prompt is required' (invalid_request_error)"
+        },
+        {
+          "name": "images-unsupported-model",
+          "group": "D-pin-gaps",
+          "method": "POST",
+          "path": "/v1/images/generations",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "gpt-4o",
+            "prompt": "a cat"
+          },
+          "expected": "400 'Model gpt-4o is not supported on /v1/images/generations or /v1/images/edits. Use gpt-image-1.5, ...' (invalid_request_error; exact tail per handler)"
+        },
+        {
+          "name": "interactions-invalid-json",
+          "group": "D-pin-gaps",
+          "method": "POST",
+          "path": "/v1beta/interactions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "not json",
+          "expected": "400 invalid_request_error; exact message VERIFY-AND-REPORT (read-error text)"
+        },
+        {
+          "name": "interactions-both",
+          "group": "D-pin-gaps",
+          "method": "POST",
+          "path": "/v1beta/interactions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "m",
+            "agent": "a"
+          },
+          "expected": "400 'request requires exactly one of model or agent'"
+        },
+        {
+          "name": "interactions-neither",
+          "group": "D-pin-gaps",
+          "method": "POST",
+          "path": "/v1beta/interactions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {},
+          "expected": "400 'request requires exactly one of model or agent'"
+        },
+        {
+          "name": "interactions-stream-nonbool",
+          "group": "D-pin-gaps",
+          "method": "POST",
+          "path": "/v1beta/interactions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "m",
+            "stream": "yes"
+          },
+          "expected": "400 'stream must be a boolean'"
+        },
+        {
+          "name": "gemini-empty-action",
+          "group": "D-pin-gaps",
+          "method": "POST",
+          "path": "/v1beta/models/",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{}",
+          "expected": "404 {\"error\":{\"message\":\"/v1beta/models/ not found.\",\"type\":\"invalid_request_error\"}} (VERIFY-AND-REPORT - corrected derivation from round 1)"
+        },
+        {
+          "name": "gemini-no-slash",
+          "group": "D-pin-gaps",
+          "method": "POST",
+          "path": "/v1beta/models",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{}",
+          "expected": "404 empty (no route; no redirect because no POST route at trimmed path) (VERIFY-AND-REPORT)"
+        },
+        {
+          "name": "mgmt-callback-no-state",
+          "group": "D-pin-gaps",
+          "method": "GET",
+          "path": "/v0/management/oauth-callback?provider=codex&code=x",
+          "headers": {},
+          "expected": "400 {\"error\":\"state is required\",\"status\":\"error\"} (no management key needed)"
+        },
+        {
+          "name": "zstd-garbage",
+          "group": "D-pin-gaps",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json",
+            "Content-Encoding": "zstd"
+          },
+          "body": "<<raw non-zstd bytes: send literal garbage>>",
+          "expected": "400 'Invalid request: <decoder error>' (invalid_request_error; exact message VERIFY-AND-REPORT)"
+        },
+        {
+          "name": "mgmt-remote-disabled",
+          "group": "D-pin-gaps",
+          "method": "GET",
+          "path": "/v0/management/config",
+          "config_variant": "V3",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "expected": "403 {\"error\":\"remote management disabled\"} (request arrives from the non-loopback bridge gateway; valid key does not bypass)"
+        },
+        {
+          "name": "mgmt-ip-ban",
+          "group": "D-pin-gaps",
+          "method": "GET",
+          "path": "/v0/management/config",
+          "config_variant": "V4",
+          "headers": {
+            "Authorization": "Bearer wrong-key-01"
+          },
+          "repeat_times": 6,
+          "expected": "First five: 401 {\"error\":\"invalid management key\"}. Sixth: 403 {\"error\":\"IP banned due to too many failed attempts. Try again in <duration>\"} - duration is dynamic, mask it. Run this LAST in a fresh container and discard the container after."
+        },
+        {
+          "name": "emptykeys-models-noauth",
+          "group": "E-config-variants",
+          "method": "GET",
+          "path": "/v1/models",
+          "config_variant": "V1",
+          "headers": {},
+          "expected": "200 {\"data\":[],\"object\":\"list\"} - empty api-keys disables the client auth gate entirely (no 401)"
+        },
+        {
+          "name": "emptykeys-chat-noauth",
+          "group": "E-config-variants",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "config_variant": "V1",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "no-such-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ]
+          },
+          "expected": "400 model_not_found (auth skipped, routing still runs)"
+        },
+        {
+          "name": "safemode-root",
+          "group": "E-config-variants",
+          "method": "GET",
+          "path": "/",
+          "config_variant": "V2",
+          "headers": {},
+          "expected": "200 text/html warning page ('Example API key detected' page, lists the offending key); Cache-Control: no-store"
+        },
+        {
+          "name": "safemode-proxy-gate",
+          "group": "E-config-variants",
+          "method": "GET",
+          "path": "/v1/models",
+          "config_variant": "V2",
+          "headers": {
+            "Authorization": "Bearer your-api-key-1"
+          },
+          "expected": "403 {\"error\":\"unsafe_example_api_key\",\"message\":\"Proxy API endpoints are disabled because api-keys contains template values. Open /management.html?safe-mode=configure, update api-keys in Management, then retry.\"} + X-CPA-SAFE-MODE: example-api-key header"
+        },
+        {
+          "name": "safemode-proxy-noauth",
+          "group": "E-config-variants",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "config_variant": "V2",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "m",
+            "messages": []
+          },
+          "expected": "403 same body (safe-mode gate runs before client auth)"
+        },
+        {
+          "name": "safemode-mgmt-html",
+          "group": "E-config-variants",
+          "method": "GET",
+          "path": "/management.html",
+          "config_variant": "V2",
+          "headers": {},
+          "expected": "200 warning page (path matches management.html and method GET without ?safe-mode=configure)"
+        },
+        {
+          "name": "safemode-options",
+          "group": "E-config-variants",
+          "method": "OPTIONS",
+          "path": "/v1/models",
+          "config_variant": "V2",
+          "headers": {},
+          "expected": "204 (CORS middleware answers OPTIONS before the safe-mode gate)"
+        },
+        {
+          "name": "rererecord-healthz-get",
+          "group": "F-s1-21-rerecord",
+          "method": "GET",
+          "path": "/healthz",
+          "headers": {},
+          "expected": "200 {\"status\":\"ok\"} - replaces S1-21 fixture"
+        },
+        {
+          "name": "rererecord-healthz-head",
+          "group": "F-s1-21-rerecord",
+          "method": "HEAD",
+          "path": "/healthz",
+          "headers": {},
+          "expected": "200 with EMPTY body - re-record cleanly; downstream.md must not duplicate the header block in the body section (round-1 artifact)"
+        },
+        {
+          "name": "rererecord-root-head",
+          "group": "F-s1-21-rerecord",
+          "method": "HEAD",
+          "path": "/",
+          "headers": {},
+          "expected": "404 empty"
+        },
+        {
+          "name": "rererecord-keepalive",
+          "group": "F-s1-21-rerecord",
+          "method": "GET",
+          "path": "/keep-alive",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1"
+          },
+          "expected": "404 empty"
+        }
+      ]
     }
   ],
   "fixture_deferred": [
@@ -1195,7 +1648,8 @@
       "id": "S1-D3-example-api-key-safe-mode",
       "purpose": "403 gate + warning page when api-keys contain template values.",
       "classification": "FIXTURE-DEFERRED",
-      "reason": "Needs a second dedicated config run with example-template api-keys; behavior is fully specified in section 3.10 and remains testable via unit contract tests; not blocking S1 admission (OQ-5)."
+      "reason": "Needs a second dedicated config run with example-template api-keys; behavior is fully specified in section 3.10 and remains testable via unit contract tests; not blocking S1 admission (OQ-5).",
+      "status": "CLOSING: recording authorized (gate round 1, N2) and included in the S1-25 batch (group E config variant V2); remove from this deferred list once the fixture lands."
     },
     {
       "id": "S1-D4-home-mode-gates",

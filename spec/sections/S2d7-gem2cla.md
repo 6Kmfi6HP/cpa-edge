@@ -326,12 +326,17 @@ CREDENTIALED-ONLY (FIXTURE-DEFERRED, per R-FIXTURE): Claude OAuth upstream behav
 
 ## 7. Open questions and intentional non-equivalences
 
+Orchestrator rulings received 2026-09-16 (binding):
+- **Ruling (countTokens):** `js-tiktoken` (O200k-compatible, pure JS) is already installed in `packages/translators`; `totalTokens` stays UNMASKED/byte-exact in contract tests. The implementer MUST replicate the reference's estimation function (segments: system text blocks; per-message role + content text/tool ids/names/inputs; tool names; tool_choice — joined with `\n`, O200kBase count; evidence: `internal/runtime/executor/helps/claude_input_tokens.go`). The recorded goldens (S2d7-12, N=4) are the oracle; if js-tiktoken disagrees systematically, the implementer replicates the reference's delta.
+- **Ruling (quirks):** the recorded-behavior quirks below (items 1-5, 7, 11) stay pinned as MUSTs — recorded behavior outranks real-Gemini semantics per SPEC precedence; no SPEC §5 registration required.
+- **Ruling (routing):** alias-only routability (item 12) is cross-listed to S1/S4/S6 (registry scope).
+
 1. **`systemInstruction` (camelCase) is dropped** while `system_instruction` (snake) is honored — the opposite of what official Gemini SDKs send by default. Upstream asymmetry vs its own other directions (e.g. `openai→gemini` accepts both keys, `internal/translator/openai/gemini/openai_gemini_request.go`). We mirror v7.3.4 exactly; flagged for a future compat ruling.
 2. **System text becomes a `user` turn, not Claude `system`.** Mirrors v7.3.4. Registered as intentional non-equivalence vs hand-written Claude calls; no `system` key ever reaches the upstream for this pair.
 3. **Role-less `contents` turns are dropped** although the real Gemini API defaults them to `user`. Mirrored; a client relying on that default silently loses the turn. Golden S2d7-16 pins it.
 4. **`promptTokenCount` is 0 unless `message_delta.usage.input_tokens` exists** — real Anthropic streams put input tokens in `message_start`, so most real captures will show 0 for the Gemini client while the OpenAI direction shows the true count. Upstream behavior; noted, not fixed.
 5. **`alt=json` concatenation** is not the real Gemini API's JSON-array streaming. Mirrored byte-for-byte; registered as intentional non-equivalence.
-6. **countTokens numeric value** depends on an O200kBase tokenizer over the translated body. Byte-exact contract matching needs an equivalent tokenizer in CPA-Edge (JS); the recorded reference value for the golden request is 4. Open question for the orchestrator: approve a tokenizer dependency (e.g. a tiktoken-compatible package) or register `totalTokens` as a masked field in contract tests (shape-only assertion). Fixture S2d7-12 pins the reference integer either way.
+6. **countTokens numeric value — RESOLVED by ruling:** byte-exact via js-tiktoken (already installed); replicate the reference estimation function; S2d7-12 (recorded N=4) is the oracle. Kept here for traceability.
 7. **finishReason is always STOP** for this pair (both paths; the MAX_TOKENS mapping is dead code upstream). Mirrored. If a future ruling wants real MAX_TOKENS semantics it must be registered in SPEC §5 first.
 8. Non-stream `modelVersion` uses the gateway-resolved model name while stream chunks use the upstream-echoed `message.model`. Identical for current fixtures; noted for force-mapped models (S4 interaction).
 9. `X-Mock-*` control headers do NOT traverse the gateway (allowlist); mock modes MUST be set via `mock/control/claude.json` for through-gateway recordings.
