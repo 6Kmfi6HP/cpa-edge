@@ -312,19 +312,19 @@ live terminates them with close code 1008 (policy violation).
 
 ## 4. Vercel (as delivered by T3)
 
-Status: the T3 runtime sources and `vercel.json` are in-tree, but the
-final report and deploy instructions have not landed yet. Facts below
-come from the T3 sources as committed; items that need T3's report are
-marked `TODO-T3` in §6. Treat this section as provisional.
+Status: delivered. 68/68 package tests; full-repo suite 2055/2055;
+typecheck and lint clean (per T3's final report). The runtime-local
+recipe with full detail lives at `runtimes/vercel/DEPLOY.md` — this
+section carries the operator essentials; the two are kept consistent.
 
 ### 4.1 Topology
 
 One serverless function (`runtimes/vercel/api/index.ts`) answers every
-request: `runtimes/vercel/vercel.json` rewrites `/(.*)` to it (built with
-`@vercel/node`; memory 1024, `maxDuration` 300). The handler composes the
-gateway per invocation from the same shared composition as the node
-runtime, pinned to the vercel capability profile — so routing and
-translation behavior are identical, and only the platform substrate
+request: `runtimes/vercel/vercel.json` rewrites `/(.*)` to it (built
+with `@vercel/node`; memory 1024, `maxDuration` 300). The handler
+composes the gateway per invocation from the same shared composition as
+the node runtime, pinned to the vercel capability profile — so routing
+and translation behavior are identical, and only the platform substrate
 differs. No per-request state lives in module globals.
 
 ### 4.2 External KV and environment (required)
@@ -336,45 +336,115 @@ persistent state lives in an **external Redis-compatible KV service**
 | Variable | Role |
 |---|---|
 | `KV_REST_API_URL` + `KV_REST_API_TOKEN` | the KV service binding — without both, the runtime falls back to a per-invocation in-memory store, logs loudly, and persists nothing (not for production) |
-| `CPA_CONFIG_JSON` | the config document as JSON — recommended source |
-| `CPA_CONFIG_YAML` | the config document as block-style YAML text (same dialect as `config.yaml`) |
-| `CPA_CONFIG_FROM_KV=1` | read the config from the KV-persisted copy first |
-| `CPA_CONFIG_PERSIST=1` | management-API config writes persist back to KV |
-| `CPA_MAX_STREAMING_DURATION_MS` | streaming deadline budget (default 240000) |
-| `MANAGEMENT_PASSWORD` | alternative management key (§1.2) |
+| `CPA_CONFIG_JSON` | the config document as JSON (YAML-shaped keys) — recommended source; carries `remote-management`, `api-keys`, provider sections, `ws-auth`, `logging-to-file`, `proxy-url`, … exactly like `config.yaml` |
+| `CPA_CONFIG_YAML` | alternative: the config document as block-style YAML text (the `config.yaml` dialect) |
+| `CPA_CONFIG_FROM_KV=1` | load the config from the KV document `config/effective` instead of the environment (falls back to env when absent) |
+| `CPA_CONFIG_PERSIST=1` | persist management config mutations to the KV document so the next invocation sees them; recommended together with `CPA_CONFIG_FROM_KV=1` |
+| `CPA_MAX_STREAMING_DURATION_MS` | streaming budget override (default 240000; see §4.3) |
+| `MANAGEMENT_PASSWORD` | fallback management key when the config carries none (§1.2) |
 
-### 4.3 Platform behavior vs the reference (per S7, vercel column)
+### 4.3 The streaming boundary (300 s / 800 s ceilings)
+
+Vercel functions have a hard `maxDuration` ceiling — 60 s on Hobby, up
+to 300 s on Pro (fluid compute), up to 800 s on Enterprise
+configurations. When the ceiling hits, the platform stops the
+invocation with no chance to emit anything; an SSE response still open
+at that moment would die mid-frame.
+
+The mitigation implemented here (the boundary envelope is **un-pinned**
+by S7 — this is the runtime's documented choice):
+
+- Every upstream request leaves with the *remaining* budget of
+  `CPA_MAX_STREAMING_DURATION_MS` (default 240000 — the 300 s Pro
+  ceiling minus a safety margin). Set it at or below your plan's
+  `maxDuration` minus a margin; an Enterprise deployment with
+  `maxDuration: 800` should raise it accordingly (e.g. 780000).
+- When the budget trips, the upstream exchange aborts mid-stream. The
+  direction facades observe the abort as the recorded mid-stream
+  transport disconnect and render their family's pinned terminal frame
+  (OpenAI-chat family: one in-stream `unexpected EOF` server-error data
+  frame, no `[DONE]`); the response then ends cleanly instead of
+  hanging until the platform kills it.
+- An abort before the first translated frame stays the family's
+  pre-commit failure (a plain 500 envelope for the chat family), like
+  any other upstream transport failure.
+
+### 4.4 Platform behavior vs the reference (per S7, vercel column)
 
 - **Inbound WebSocket (`/v1/ws`)**: the route exists and the auth gate is
-  preserved (401 shapes identical), but no upgrade can happen — after
-  auth passes, 501 `websocket_unavailable`. `POST /v1/ws` stays 404;
-  `OPTIONS` stays 204.
-- **Outbound proxy**: proxy-credentialed credentials are excluded from
-  scheduling; 501 `proxy_unavailable` when no direct candidate exists
-  (fail closed — never silently send direct through an explicitly
-  configured proxy).
-- **File logging**: `logging-to-file: true` + `GET/DELETE
-  /v0/management/logs` → 501. The toggle still accepts and echoes
-  `true` (config compatibility).
+  preserved (401 shapes identical, or no gate when `ws-auth: false`),
+  but no upgrade can happen — after the gate, 501
+  `websocket_unavailable`. `POST /v1/ws` stays the empty 404; `OPTIONS`
+  stays 204.
+- **Outbound proxy**: fail closed. Proxy-credentialed credentials never
+  receive traffic: they are excluded from scheduling, and models served
+  only by proxied credentials answer 501 `proxy_unavailable` while
+  models with at least one direct credential succeed. Proxied providers
+  also disappear from `/v1/models` (the runtime's fail-closed choice;
+  S7 pins the request-time 501, not the list treatment). `POST
+  /v0/management/api-call` resolved to proxy mode answers the
+  management 501.
+- **File logging**: config and toggles accepted; `GET/DELETE
+  /v0/management/logs` answer 501 while `logging-to-file: true` (the
+  400 `logging to file disabled` gate still runs first). Per-request
+  error dumps (`request-error-logs*`, `request-log-by-id`) answer the
+  F3 501 after upstream-shaped validation errors. The log/error rings
+  persist through the KV store.
 - **Redirect-flow logins** (`anthropic/codex/antigravity/devin-auth-url`)
-  → 501. Serverless hosts cannot bind the localhost callback ports.
+  → 501 after the management-key gate. Serverless hosts cannot bind the
+  localhost callback ports.
 - **Device-flow logins** (`xai/meta/kimi-auth-url`): the 200 envelope
-  returns and the session is persisted, but background polling cannot
-  run — `get-auth-status` answers `wait` until the 30-minute TTL, then
-  `unknown or expired state`. Sessions **never complete**; token
-  exchange never happens (NE-S7-11).
+  returns and the session persists to the KV store, but background
+  polling cannot run — `get-auth-status` answers `wait` until the
+  30-minute TTL, then `unknown or expired state`. Sessions **never
+  complete**; token exchange never happens (NE-S7-11; tested).
 - **Callback routes + session registry**: the HTTP ladder
   (`/anthropic/callback` etc., `oauth-callback`, `get-auth-status`,
   `oauth-session`) is served with upstream shapes over the KV-backed
-  Store, but no session can reach a completion transition.
-- **Hot reload**: management-API writes only; they apply on the next
-  invocation.
-- **TLS**: platform-terminated; the `tls` block is accepted and ignored.
-- **RESP usage wire**: no raw TCP listener; no substitute surface.
+  store, but no session can reach a completion transition.
+- **Hot reload**: management-API writes persist to the KV document and
+  apply on the next invocation; there is no watcher.
+- **TLS**: platform-terminated; the `tls` block is accepted and echoed.
+- **RESP usage wire**: no raw TCP listener; no substitute surface; the
+  usage queue keeps its S6 semantics through the KV store.
 - **Management control panel** (`/management.html`): absent — 404s
   exactly as if `disable-control-panel: true` were set.
 - **Management**: `remote-management.allow-remote: true` + strong
-  `secret-key` required (§1.2).
+  `secret-key` required (§1.2); the per-IP failure counter and
+  30-minute ban apply as upstream.
+
+### 4.5 Deploy
+
+The deployment unit is the `runtimes/vercel` directory. Link a project
+and set the environment variables in the dashboard first; then:
+
+```bash
+cd runtimes/vercel
+npx esbuild api/index.ts --bundle --platform=node --format=esm \
+  --outfile=api/index.js --external:fzstd
+vercel deploy
+```
+
+Bundling first is the reliable path: the `@vercel/node` builder traces
+imports, but workspace symlinks outside the deployment directory are
+environment-dependent. Set `maxDuration` in `vercel.json` to your plan's
+ceiling and `CPA_MAX_STREAMING_DURATION_MS` below it (§4.3).
+
+### 4.6 Store substrate and consistency trade-offs (vs. the DO store)
+
+- Single-key operations are atomic (server-side scripts), so the
+  optimistic compare-and-swap behind `update()` never commits a wrong
+  value; the callback may re-run under contention (the core contract
+  already requires purity).
+- Reads through an asynchronous replica can be stale; the CAS loop
+  absorbs staleness as a retry. There is **no cross-key transaction** —
+  S6's mapping keeps every document single-key, so the contract holds,
+  but multi-document invariants would not be atomic here (the
+  Cloudflare DO store provides those).
+- Queue leases are reclaimed lazily by the next `claim`, and rings trim
+  on append: **all retention sweeps ride request traffic** — no
+  background timers exist (the S7 alarm substrate MUSTs apply to
+  Cloudflare only).
 
 ## 5. Published degradation list
 
@@ -436,11 +506,11 @@ recorded as 200 with full translation). CPA-Edge enforces a strict
 boundary instead: non-JSON or malformed bodies are rejected with 400 in
 each surface's error shape. Well-formed clients see no difference.
 
-## 6. Fill-in checklist (T2 filled; T3 pending)
+## 6. Fill-in ledger (T2 + T3 filled)
 
-This section is the explicit placeholder ledger. Each `TODO` is filled
-from the integrator's report when the orchestrator forwards it; nothing
-below is invented.
+This section tracks what was folded in from the integrators' final
+reports and what remains open. Nothing here is invented; each entry
+names its source.
 
 T2 (Cloudflare) — FILLED (2026-09-16, from T2's final report):
 
@@ -457,18 +527,36 @@ T2 (Cloudflare) — FILLED (2026-09-16, from T2's final report):
       hibernation with `ws-auth` termination close 1008, F5b device
       flows live with per-provider loop parity, F1 501 ladder incl.
       api-call scheme validation. Folded into §3.1/§3.4.
-- Residual: T2's gate review is in flight — any finding that changes a
-  folded fact gets re-folded here when forwarded.
+- Residual: T2's gate review was in flight at fill time — any finding
+  that changes a folded fact gets re-folded here when forwarded.
 
-TODO-T3 (Vercel):
+T3 (Vercel) — FILLED (2026-09-16, from T3's final report +
+`runtimes/vercel/DEPLOY.md`):
 
-- [ ] The deployment recipe beyond the in-tree `vercel.json`: project
-      setup / `vercel deploy` steps, region choice, and the DEPLOY note
-      the entry point references (T3 has not shipped it yet).
-- [ ] Confirmation of the env surface in §4.2 (names taken from the
-      in-tree source; the report is authoritative).
-- [ ] KV provisioning steps (Vercel KV / Upstash marketplace setup).
-- [ ] Streaming-budget behavior at the deadline (what the client
-      observes when `CPA_MAX_STREAMING_DURATION_MS` lapses).
-- [ ] Final S7 vercel-column verification + anything else T3's report
-      adds.
+- [x] Delivery verification: 68/68 package tests; full-repo 2055/2055;
+      typecheck + lint clean. Folded into §4 status.
+- [x] Deployment recipe: `runtimes/vercel` as the deployment unit,
+      esbuild-bundle-then-`vercel deploy`, `maxDuration`/budget
+      guidance. Folded into §4.5; full detail in the runtime-local
+      DEPLOY.md.
+- [x] Env surface confirmed (§4.2 now matches the runtime-local
+      DEPLOY.md): KV REST pair, `CPA_CONFIG_JSON`/`CPA_CONFIG_YAML`,
+      KV document `config/effective` via `CPA_CONFIG_FROM_KV` +
+      `CPA_CONFIG_PERSIST`, streaming budget, `MANAGEMENT_PASSWORD`.
+- [x] Streaming-budget behavior at the deadline: mid-stream abort
+      surfaces as the family's pinned terminal frame (chat family:
+      in-stream `unexpected EOF` frame, no `[DONE]`); pre-first-frame
+      aborts stay pre-commit 500; boundary envelope un-pinned by S7
+      (documented runtime choice). Folded into §4.3.
+- [x] S7 vercel-column verification: WS 501-after-auth, proxy
+      fail-closed incl. the `/v1/models` exclusion (unpinned choice,
+      documented), file-logs 501 with the 400 gate first, device flows
+      NE-S7-11 tested, panel absent. Folded into §4.4.
+- [x] KV consistency notes: CAS retries never commit wrong values, no
+      cross-key transactions vs. the DO store, retention sweeps ride
+      request traffic. Folded into §4.6.
+
+Open residuals (none blocking D1):
+
+- [ ] T2 gate-review findings, if any change a folded §3 fact.
+- [ ] T3 gate-review findings, if any change a folded §4 fact.

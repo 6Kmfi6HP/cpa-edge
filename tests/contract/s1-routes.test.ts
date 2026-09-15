@@ -116,21 +116,20 @@
  *   facade yet skip with the seam id from the runtime's own DIRECTIONS
  *   table; they flip on automatically when the integrator merges the
  *   facade (their upstream-call counts are pre-declared, so a flip
- *   asserts the wire log immediately). Open at the time of this
- *   revision: chat:openai-compatibility (S1-14/S1-15) and
- *   messages:openai-compatibility (S1-16); the
- *   responses:openai-compatibility seam (S1-18) merged and replays.
+ *   asserts the wire log immediately). Every seam the fixtures touch is
+ *   merged at the time of this revision - all 26 cases replay and the
+ *   suite runs skip-free; the mechanism stays in place for any future
+ *   seam the runtime re-gates.
  *
  * Red-test etiquette: a red in this suite is a recorded divergence,
  * never harness noise. Divergences already routed through the
- * orchestrator: (1) upstream chunk parsing must be lenient about
- * trailing garbage after the JSON value - the S1 mock's recorded SSE
- * payloads carry one trailing `}` (the S1-15 passthrough golden
+ * orchestrator and fixed: (1) upstream chunk parsing must be lenient
+ * about trailing garbage after the JSON value - the S1 mock's recorded
+ * SSE payloads carry one trailing `}` (the S1-15 passthrough golden
  * forwarded those exact bytes, and S1-17's golden shows the reference
  * translating them anyway; recorded fixtures outrank the derived S2d2
- * wording) - fixed for gem2oai at the time of this revision, res2oai
- * pending; (2) the chat-surface zstd 400 must carry the charset content
- * type (S1-25/zstd-garbage) - fixed at the time of this revision.
+ * wording); (2) the chat-surface zstd 400 must carry the charset
+ * content type (S1-25/zstd-garbage).
  *
  * Self-check: no leftover markers, no `any`, no silently swallowed
  * catches, assertions byte-level against recorded goldens (no timing
