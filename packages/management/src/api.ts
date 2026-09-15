@@ -242,7 +242,7 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
 
   // ---- config file state -------------------------------------------------
   let configText = ''
-  let effective: EffectiveConfig
+  let effective!: EffectiveConfig
   let authPlane: AuthPlane
 
   // ---- live subscribers --------------------------------------------------
@@ -261,16 +261,22 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
         rawHeaders: [] as HeaderList,
       })
     }
-    const headers: Array<[string, string]> = [...CORS_BLOCK]
-    if (plan.noBuildHeaders !== true) headers.push(...buildHeaders())
+    const headers: Array<[string, string]> = CORS_BLOCK.map(
+      ([name, value]) => [name, value] as [string, string],
+    )
+    if (plan.noBuildHeaders !== true) {
+      for (const pair of buildHeaders()) headers.push([pair[0], pair[1]])
+    }
     if (plan.body !== null) {
       headers.push(['Content-Type', plan.contentType ?? JSON_CONTENT_TYPE])
     }
-    if (plan.extra !== undefined) headers.push(...plan.extra)
+    if (plan.extra !== undefined) {
+      for (const [name, value] of plan.extra) headers.push([name, value])
+    }
     headers.sort((left, right) => (left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0))
     const response = new Response(plan.body === null ? null : plan.body, {
       status: plan.status,
-      headers: headers.map(([name, value]) => [name, value]),
+      headers: headers.map(([name, value]) => [name, value] as [string, string]),
     })
     return Object.assign(response, { rawHeaders: headers as HeaderList })
   }
@@ -456,7 +462,7 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
   const allCredentialIndices = async (): Promise<Map<string, { provider: string; models: readonly string[] }>> => {
     const out = new Map<string, { provider: string; models: readonly string[] }>()
     for (const [, spec] of Object.entries(PROVIDER_LISTS) as Array<[string, (typeof PROVIDER_LISTS)[ProviderListKey]]>) {
-      const entries = effective[spec.key] as readonly ProviderEntry[]
+      const entries = (effective as unknown as { [key: string]: readonly ProviderEntry[] })[spec.key]
       for (const entry of entries) {
         const models = entry.models.map((model) => model.alias)
         if (spec.family === 'openai-compatibility') {
@@ -506,13 +512,6 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
   }
 
   // ---- handle(): auth + dispatch ------------------------------------------
-  /** Boot seeding promise: the ring seed finishes before the first request. */
-  const booted = (async (): Promise<void> => {
-    for (const entry of deps.initialLogLines ?? []) {
-      await trackedAppendLog(entry)
-    }
-  })()
-
   async function handle(request: Request): Promise<WireResponse> {
     await booted
     const url = new URL(request.url)
@@ -995,7 +994,7 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
     request: Request,
   ): Promise<WireResponse> {
     const spec = PROVIDER_LISTS[path]
-    const current = effective[spec.key] as ProviderEntry[]
+    const current = [...((effective as unknown as { [key: string]: readonly ProviderEntry[] })[spec.key])]
 
     if (method === 'GET') {
       const entries = await Promise.all(
@@ -1064,7 +1063,7 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
         }
         sanitized.push(parseAndSanitizeEntry(path, spec, raw))
       }
-      const cleaned = sanitizeFamily(spec, sanitized)
+      const cleaned = sanitizeFamily(spec.family, sanitized)
       for (let i = 0; i < cleaned.length; i += 1) {
         const weight = cleaned[i]?.weight
         if (weight !== undefined && weight > 1_000_000) {
@@ -1118,7 +1117,7 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
       else if (spec.family === 'openai-compatibility' && (merged.baseUrl ?? '') === '') current.splice(targetIndex, 1)
       else if (spec.family === 'meta' && merged.apiKey === '') current.splice(targetIndex, 1)
       else current[targetIndex] = merged
-      const cleaned = sanitizeFamily(spec, current)
+      const cleaned = sanitizeFamily(spec.family, current)
       storeFamily(spec, cleaned)
       persistProviderList(path, cleaned.map((entry) => entry.raw))
       return json(200, goJson({ status: 'ok' }))
@@ -1148,7 +1147,7 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
       }
       if (targetIndex === -1) return ginError(404, 'item not found')
       current.splice(targetIndex, 1)
-      const cleaned = sanitizeFamily(spec, current)
+      const cleaned = sanitizeFamily(spec.family, current)
       storeFamily(spec, cleaned)
       persistProviderList(path, cleaned.map((entry) => entry.raw))
       return json(200, goJson({ status: 'ok' }))
@@ -1177,7 +1176,7 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
     if (spec.family === 'meta') {
       const apiKey = typeof record['api-key'] === 'string' ? (record['api-key'] as string) : ''
       const baseUrl = (parsed.baseUrl ?? '') === '' ? 'https://api.meta.ai/v1' : parsed.baseUrl
-      return { ...parsed, apiKey, baseUrl, raw: { ...record, 'base-url': baseUrl } }
+      return { ...parsed, apiKey, baseUrl: baseUrl ?? 'https://api.meta.ai/v1', raw: { ...record, 'base-url': baseUrl ?? 'https://api.meta.ai/v1' } }
     }
     return parsed
   }
@@ -2057,6 +2056,13 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
     materialize(yaml)
     await emitLog('info', 'config-reload.ts:1', 'config successfully reloaded, triggering client reload')
   }
+
+  /** Boot seeding promise: the ring seed finishes before the first request. */
+  const booted = (async (): Promise<void> => {
+    for (const entry of deps.initialLogLines ?? []) {
+      await trackedAppendLog(entry)
+    }
+  })()
 
   return {
     handle,

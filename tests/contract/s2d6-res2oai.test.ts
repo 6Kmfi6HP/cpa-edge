@@ -375,7 +375,7 @@ async function loadAdapter(): Promise<AdapterLoadResult> {
     }
     return {
       skipReason: `\`${ADAPTER_MODULE}\` does not export \`${ADAPTER_EXPORT}(options)\` yet. ` +
-        'All 27 S2d6 golden cases SKIP until the res2oai adapter ships; the required interface is documented in the header of this file.',
+        'All S2d6 golden cases SKIP until the res2oai adapter ships; the required interface is documented in the header of this file.',
     }
   } catch (error) {
     return { skipReason: `import of \`${ADAPTER_MODULE}\` failed: ${String(error)}` }

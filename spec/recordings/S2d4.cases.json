@@ -90,7 +90,8 @@
           "anthropic-version",
           "anthropic-beta",
           "Accept"
-        ]
+        ],
+        "notes": "message_start not applicable (non-stream). The wire log REDACTS the Authorization value entirely ('<redacted>'), so fixtures can assert only header PRESENCE; the Bearer-value claim rests on the recorded bootstrap probes + executor code, not on this fixture."
       }
     },
     {

@@ -266,7 +266,7 @@ export function serializeErrorEvent(event: ErrorEventInput, timestampMs: number)
 export const BUCKET_WINDOW_SECONDS = 600
 export const BUCKET_COUNT = 20
 
-export interface RecentRequestBucket {
+export type RecentRequestBucket = {
   readonly time: string
   readonly success: number
   readonly failed: number

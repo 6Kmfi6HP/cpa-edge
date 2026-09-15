@@ -106,8 +106,8 @@ export interface EffectiveConfig {
   claudeCode: { disableCloakingModelList: boolean }
   claudeHeaderDefaults: { userAgent: string; packageVersion: string; runtimeVersion: string; os: string; arch: string; timeout: string; timezone: string }
   codexHeaderDefaults: { userAgent: string; betaFeatures: string }
-  codex: { readonly [key: string]: JsonValue }
-  xai: { injectXSearch: boolean }
+  codexBlock: { readonly [key: string]: JsonValue }
+  xaiBlock: { injectXSearch: boolean }
   streaming: { readonly [key: string]: JsonValue }
   tls: { enable: boolean; cert: string; key: string }
   payload: { readonly [key: string]: JsonValue }
@@ -566,8 +566,8 @@ export function loadEffectiveConfig(yamlText: string, doc?: BlockNode): Effectiv
       userAgent: stringOf(recordOf(root['codex-header-defaults'])['user-agent']),
       betaFeatures: stringOf(recordOf(root['codex-header-defaults'])['beta-features']),
     },
-    codex: recordOf(root['codex']),
-    xai: { injectXSearch: boolOf(recordOf(root['xai'])['inject-x-search']) },
+    codexBlock: recordOf(root['codex']),
+    xaiBlock: { injectXSearch: boolOf(recordOf(root['xai'])['inject-x-search']) },
     streaming: recordOf(root['streaming']),
     tls: {
       enable: boolOf(recordOf(root['tls'])['enable']),
@@ -603,8 +603,6 @@ function readHeaderDefaults(record: { [key: string]: JsonValue }): EffectiveConf
 // ---------------------------------------------------------------------------
 
 function modelWire(alias: ModelAlias): OrderedObject {
-  const object = ordered([['name', alias.alias === '' ? alias.name : alias.name], ['alias', alias.alias]])
-  void object
   const members: Array<[string, WireValue]> = [['name', alias.name], ['alias', alias.alias]]
   if (alias.displayName !== undefined) members.push(['display-name', alias.displayName])
   if (alias.maxContextLength !== undefined) members.push(['max-context-length', alias.maxContextLength])
@@ -752,8 +750,8 @@ export function configViewWire(config: EffectiveConfig): OrderedObject {
     ['codex-api-key', providerList(config.codex, 'codex')],
     ['xai-api-key', providerList(config.xai, 'xai')],
     ['meta-api-key', providerList(config.meta, 'meta')],
-    ['xai', ordered([['inject-x-search', config.xai.injectXSearch]])],
-    ['codex', codexView(config.codex)],
+    ['xai', ordered([['inject-x-search', config.xaiBlock.injectXSearch]])],
+    ['codex', codexView(config.codexBlock)],
     ['codex-header-defaults', ordered([['user-agent', config.codexHeaderDefaults.userAgent], ['beta-features', config.codexHeaderDefaults.betaFeatures]])],
     ['claude-api-key', providerList(config.claude, 'claude')],
     ['claude-header-defaults', ordered([
