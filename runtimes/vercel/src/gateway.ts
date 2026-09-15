@@ -182,6 +182,10 @@ export function createVercelGateway(options: VercelGatewayOptions): VercelGatewa
 
   const overlay = createRequestOverlay({
     authenticateProxy: (request) => inner.plane.authenticateProxy(request),
+    authenticateManagement: (request, requestOptions) =>
+      inner.plane.authenticateManagement(request, requestOptions),
+    managementAvailable: () => inner.plane.managementAvailable(),
+    facadeComposed: wrappedManagement !== undefined,
     matchRoute,
     candidatesByFamily,
     isImageModel: (model) => fullRegistry.isImageModel(model),
@@ -298,7 +302,6 @@ function buildCandidatesByFamily(
     const normalized = providers.filter((provider) => provider.family === family)
     const rawKept = rawSectionEntries(record, family).filter((entry) => isKeptProvider(family, entry))
     const candidates: FamilyCandidate[] = normalized.map((provider) => ({
-      family,
       proxied: false,
       aliases: new Set(provider.models.map((model) => model.alias)),
     }))

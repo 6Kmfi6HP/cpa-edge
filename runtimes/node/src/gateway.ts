@@ -27,7 +27,7 @@ import {
   type FetchLike,
 } from '@cpa-edge/auth'
 import { createManagementApi, type BuildInfo, type ManagementApi } from '@cpa-edge/management'
-import { cla2gem, cla2oai, codexPassthrough, gem2cla, gem2oai, oai2cla, oai2codex, oai2gem, res2oai } from '@cpa-edge/translators'
+import { cla2gem, cla2oai, codexPassthrough, gem2cla, gem2oai, oai2cla, oai2codex, oai2gem, oai2oai, res2oai } from '@cpa-edge/translators'
 import { decompress as fzstdDecompress } from 'fzstd'
 import {
   claudeCredentialsForChat,
@@ -38,6 +38,7 @@ import {
   geminiCredentialsForMessages,
   normalizeRuntimeConfig,
   openAiCompatCredentials,
+  openAiCompatCredentialsForChat,
   openAiCompatCredentialsForMessages,
   openAiCompatCredentialsForResponses,
   type NormalizedConfig,
@@ -177,9 +178,9 @@ export const DIRECTIONS: Readonly<Record<string, DirectionSeam>> = {
   // OpenAI chat-completions client surface
   'chat:claude-api-key': { id: 'oai2cla', importPath: '@cpa-edge/translators/oai2cla', merged: true },
   'chat:openai-compatibility': {
-    id: 'oai2oai (openai-compat executor)',
-    importPath: 'packages/executors (I-exec-custom-openai / I-exec-openai)',
-    merged: false,
+    id: 'oai2oai',
+    importPath: '@cpa-edge/translators/oai2oai',
+    merged: true,
   },
   'chat:gemini-api-key': {
     id: 'oai2gem',
@@ -593,6 +594,14 @@ export function createNodeGateway(options: NodeGatewayOptions): NodeGateway {
     requestRetry: config.requestRetry,
     transientErrorCooldownSeconds: config.transientErrorCooldownSeconds,
   })
+  const oai2OaiService = oai2oai.createOai2OaiService({
+    apiKeys: config.apiKeys,
+    credentials: openAiCompatCredentialsForChat(config),
+    store,
+    now,
+    requestRetry: config.requestRetry,
+    transientErrorCooldownSeconds: config.transientErrorCooldownSeconds,
+  })
   const codexChatService = oai2codex.createOai2CodexService({
     credentials: codexCredentialsForChat(config),
     gatewayVersion: GATEWAY_VERSION,
@@ -727,6 +736,16 @@ export function createNodeGateway(options: NodeGatewayOptions): NodeGateway {
       // oai2gem (S2d1, merged): the gemini-api-key upstream.
       try {
         const response = await oai2GemService.handleChatCompletions(facadeRequest, send)
+        return { response, trace: resolved.familyIndex }
+      } catch (error) {
+        if (error instanceof RangeError) return { response: plainJson(400, depthFailureBody()) }
+        throw error
+      }
+    }
+    if (resolved.family === 'openai-compatibility') {
+      // oai2oai (merged): the openai-compatibility chat upstream.
+      try {
+        const response = await oai2OaiService.handleChatCompletions(facadeRequest, send)
         return { response, trace: resolved.familyIndex }
       } catch (error) {
         if (error instanceof RangeError) return { response: plainJson(400, depthFailureBody()) }

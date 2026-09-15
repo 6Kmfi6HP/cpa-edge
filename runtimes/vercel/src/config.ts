@@ -24,8 +24,6 @@
  * gateway's scheduling set (NE-S7-01).
  */
 
-import type { JsonValue } from '@cpa-edge/core'
-
 /** Every provider family that carries api-key credentials. */
 export const PROVIDER_FAMILIES: readonly string[] = Object.freeze([
   'openai-compatibility',
@@ -98,7 +96,7 @@ function parseJsonObjectText(text: string): Record<string, unknown> {
   try {
     parsed = JSON.parse(text)
   } catch (error) {
-    throw new Error(`CPA_CONFIG_JSON is not valid JSON: ${String(error)}`)
+    throw new Error(`CPA_CONFIG_JSON is not valid JSON: ${String(error)}`, { cause: error })
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     throw new Error('CPA_CONFIG_JSON must hold a JSON object')

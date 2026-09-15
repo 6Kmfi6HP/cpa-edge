@@ -57,7 +57,7 @@ describe('block yaml round-trip', () => {
   it('emits dialect text the parser reconstructs losslessly', () => {
     const yaml = emitBlockYaml(SAMPLE)
     // Block style only: no line opens a flow collection.
-    expect(yaml).not.toMatch(/^\s*[\[{]/m)
+    expect(yaml).not.toMatch(/^\s*[[{]/m)
     const parsed = parseBlockYaml(yaml)
     expect(parsed).toEqual(SAMPLE)
   })

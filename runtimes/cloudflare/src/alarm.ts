@@ -34,6 +34,7 @@ import type { JsonValue, Store } from '@cpa-edge/core'
 import {
   deviceDeadlineMs,
   isRefreshableCredential,
+  parseAuthFileDocument,
   KIMI,
   META,
   OAuthSessionRegistry,
@@ -261,9 +262,9 @@ async function refreshPass(deps: AlarmDeps): Promise<number | undefined> {
   let refreshed = 0
 
   for (const name of names) {
-    const parsed = parseAuthFile(name, await store.get(AUTH_FILES_NAMESPACE, name))
-    if (parsed === undefined) continue
-    const { provider, document, disabled, proxyUrl } = parsed
+    const loaded = parseAuthFileDocument(name, await store.get(AUTH_FILES_NAMESPACE, name))
+    if (!loaded.ok) continue
+    const { provider, document, disabled, proxyUrl } = loaded.file
     // Proxy-credentialed credentials cannot carry traffic here and their
     // refresh is skipped rather than silently sent direct (NE-S7-01 /
     // S7 section 2.3-F1-6).
@@ -325,28 +326,6 @@ async function refreshPass(deps: AlarmDeps): Promise<number | undefined> {
   }
   await store.put(SCHEDULER_NAMESPACE, REFRESH_QUEUE_KEY, queueDocument)
   return nextDue
-}
-
-/** Narrow parse of one auth file document for the refresh scan. */
-function parseAuthFile(
-  name: string,
-  value: JsonValue | undefined,
-): {
-  readonly provider: string
-  readonly document: Record<string, JsonValue>
-  readonly disabled: boolean
-  readonly proxyUrl: string
-} | undefined {
-  const record = asRecord(value)
-  if (record === undefined) return undefined
-  void name
-  const provider = typeof record['type'] === 'string' ? record['type'].trim().toLowerCase() : ''
-  return {
-    provider: provider.length > 0 ? provider : 'unknown',
-    document: record as Record<string, JsonValue>,
-    disabled: record['disabled'] === true,
-    proxyUrl: typeof record['proxy_url'] === 'string' ? record['proxy_url'] : '',
-  }
 }
 
 // ---------------------------------------------------------------------------

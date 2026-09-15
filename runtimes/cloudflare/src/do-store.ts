@@ -397,10 +397,11 @@ function acceptValue(value: JsonValue, label: string): JsonValue {
 function detached(value: JsonValue): JsonValue {
   try {
     return structuredClone(value)
-  } catch {
-    // Stored records passed the JSON guard on the way in; clone failure
-    // here means hostile nesting, and the raw RangeError is the honest
-    // answer.
+  } catch (error) {
+    if (!(error instanceof RangeError)) throw error
+    // Storage reads hand back freshly deserialized objects, so the only
+    // clone failure left is hostile nesting; the raw RangeError is the
+    // documented guard behavior.
     return value
   }
 }

@@ -317,7 +317,7 @@ const NAME_ESCAPES: Readonly<Record<string, string>> = Object.freeze({
 })
 
 function encodeName(name: string): string {
-  return name.replace(/[%:*?\[\]]/g, (match) => NAME_ESCAPES[match] ?? match)
+  return name.replace(/[%:*?[]/g, (match) => NAME_ESCAPES[match] ?? match)
 }
 
 function decodeName(encoded: string): string {

@@ -939,13 +939,10 @@ describe('dispatch seams for unmerged directions', () => {
   const SEAM_BODY =
     '{"error":{"message":"direction not yet available in this build","type":"server_error","code":"not_implemented"}}'
 
-  it('answers a clearly-marked 503 for merged-pending families', async () => {
+  it('native same-protocol directions stay at the designed 503 seam (ruling: never recorded -> never implemented)', async () => {
     const gateway = gatewayWith()
-    const chat = await gateway.handle(
-      request('POST', '/v1/chat/completions', bearer(API_KEY), '{"model": "mock-model", "messages": []}'),
-    )
-    expect(chat.status).toBe(503)
-    expect(await text(chat)).toBe(SEAM_BODY)
+    // messages:claude-api-key (Claude->Claude passthrough) is the v1
+    // scope boundary: unmerged by design, not by backlog.
     const messages = await gateway.handle(
       request('POST', '/v1/messages', bearer(API_KEY), '{"model": "claude-mock-model", "messages": []}'),
     )
@@ -981,6 +978,29 @@ describe('dispatch seams for unmerged directions', () => {
     const body = JSON.parse(await text(response)) as { object: string; status: string }
     expect(body.object).toBe('response')
     expect(body.status).toBe('completed')
+  })
+
+  it('chat:openai-compatibility dispatches through oai2oai', async () => {
+    const transport = scriptedFetch(() => ({
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+      body: OPENAI_CHAT_JSON,
+    }))
+    const gateway = createNodeGateway({ config: BASE_CONFIG, fetch: transport.fetch })
+    const response = await gateway.handle(
+      request(
+        'POST',
+        '/v1/chat/completions',
+        bearer(API_KEY),
+        '{"model": "mock-model", "messages": [{"role": "user", "content": "Say hello"}]}',
+      ),
+    )
+    expect(response.status).toBe(200)
+    expect(transport.calls[0]?.url).toBe('http://127.0.0.1:18999/v1/chat/completions')
+    expect(header(response, 'X-Cpa-Trace-Id')).toMatch(/^\d{14}-\d+-[0-9a-f]{8}$/)
+    const body = JSON.parse(await text(response)) as { object: string; choices: Array<{ message: { content: string } }> }
+    expect(body.object).toBe('chat.completion')
+    expect(body.choices[0]?.message.content).toBe('Hello from mock openai upstream more')
   })
 
   it('chat:gemini-api-key dispatches through oai2gem', async () => {

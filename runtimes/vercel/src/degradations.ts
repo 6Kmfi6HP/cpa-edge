@@ -389,18 +389,46 @@ const MODEL_ROUTES: ReadonlySet<string> = new Set([
   'v1beta-models-action',
 ])
 
+/** Redirect-flow auth-URL routes: no loopback callback server exists (S7 2.3-F5a). */
+const REDIRECT_AUTH_URL_PATTERN = /^\/v0\/management\/(?:anthropic|codex|antigravity|devin)-auth-url$/
+
+/** Auth-session routes the shared gateway serves through its own plane (S1 3.9). */
+const AUTH_SESSION_ROUTES: ReadonlySet<string> = new Set([
+  'mgmt-auth-url',
+  'mgmt-get-auth-status',
+  'mgmt-oauth-session',
+])
+
 /** One family candidate: a provider entry plus its proxied flag. */
 export interface FamilyCandidate {
-  readonly family: string
   readonly proxied: boolean
   /** Client-facing aliases registered under the provider. */
   readonly aliases: ReadonlySet<string>
 }
 
+/** Verdict shape of the management auth middleware (the plane's union). */
+export type ManagementAuthOutcome =
+  | { readonly ok: true; readonly headers: ReadonlyArray<readonly [string, string]> }
+  | { readonly ok: false; readonly response: Response }
+
 /** Options of {@link createRequestOverlay}. */
 export interface RequestOverlayOptions {
   /** Gateway-exposed auth plane (re-running the shared client gate). */
   readonly authenticateProxy: (request: Request) => Promise<Response | null>
+  /** Gateway-exposed management gate (401/403 shapes and ban counting). */
+  readonly authenticateManagement: (
+    request: Request,
+    options?: { readonly remoteAddress?: string },
+  ) => Promise<ManagementAuthOutcome>
+  /** Whether the management surface exists at all (availability gate). */
+  readonly managementAvailable: () => boolean
+  /**
+   * Whether the composed management facade is injected. When it is, the
+   * shared gateway skips its own management gate on the auth-session
+   * routes, so this overlay must run it; when it is not, the shared
+   * gateway runs the gate itself and the overlay delegates.
+   */
+  readonly facadeComposed: boolean
   /** Route matcher of the shared gateway. */
   readonly matchRoute: (method: string, pathname: string) =>
     | { readonly entry: { readonly id: string; readonly group: string } }
@@ -436,12 +464,36 @@ export function createRequestOverlay(options: RequestOverlayOptions) {
       return capabilityResponse(WEBSOCKET_UNAVAILABLE_BODY)
     }
 
-    // Fail-closed proxy gate (NE-S7-01): runs only on registered
-    // completion routes, after the same client auth gate, and only when
-    // the model resolves (unknown models keep their family 400s).
     const match = options.matchRoute(method, url.pathname)
     if (match === undefined) return undefined
     const id = match.entry.id
+
+    // Auth-session routes the shared gateway serves through its own
+    // plane (S1 3.9). Two things are vercel-specific here: the
+    // redirect-flow auth-URLs degrade to 501 (NE-S7-05), and the
+    // management key gate must run in front of them - the shared
+    // composition skips its own gate on these ids when a facade is
+    // injected, so this overlay restores the recorded 401/403 ladder
+    // (S7-12) for every deployment of THIS runtime.
+    if (match.entry.group === 'management' && AUTH_SESSION_ROUTES.has(id)) {
+      if (!options.managementAvailable()) return undefined
+      if (!options.facadeComposed && id !== 'mgmt-auth-url') return undefined
+      const verdict = await options.authenticateManagement(toWebRequest(request), {
+        ...(request.remoteAddress === undefined ? {} : { remoteAddress: request.remoteAddress }),
+      })
+      if (!verdict.ok) return await fromWebResponseText(verdict.response)
+      if (id === 'mgmt-auth-url' && REDIRECT_AUTH_URL_PATTERN.test(url.pathname)) {
+        return capabilityResponse(LOCAL_CALLBACK_UNAVAILABLE_BODY)
+      }
+      return undefined
+    }
+
+    // Fail-closed proxy gate (NE-S7-01): runs only on registered
+    // completion routes, after the same client auth gate, and only when
+    // the model resolves (unknown models keep their family 400s).
+    // Fail-closed proxy gate (NE-S7-01): runs only on registered
+    // completion routes, after the same client auth gate, and only when
+    // the model resolves (unknown models keep their family 400s).
     if (!MODEL_ROUTES.has(id)) return undefined
     if (match.entry.group !== 'client') return undefined
     const model = modelOf(options, id, request, url)

@@ -504,7 +504,8 @@ describe('streaming boundary (R3)', () => {
     expect(new TextDecoder().decode(first?.value ?? new Uint8Array())).toBe('abc')
     ;(armed[0] as () => void)()
     await expect(reader?.read()).rejects.toThrow(/budget/)
-    expect(cleared).toBe(0)
+    // The guard settles its timer once the stream ends in any way.
+    expect(cleared).toBe(1)
   })
 
   it('a clean end clears the timer; no budget means no timer', async () => {
@@ -582,10 +583,17 @@ describe('management degradations', () => {
     expect(list.status).toBe(501)
     expect(await text(list)).toBe(FILE_LOGGING_UNAVAILABLE_BODY)
     const badName = await gateway.handle(
-      request('GET', '/v0/management/request-error-logs/not-a-log.txt', bearer(MGMT_KEY)),
+      request('GET', '/v0/management/request-error-logs/bad%2Fname.log', bearer(MGMT_KEY)),
     )
     expect(badName.status).toBe(400)
     expect(await text(badName)).toBe('{"error":"invalid log file name"}')
+    // Names that pass validation would look for a dump; that substrate
+    // does not exist here (OQ-S7-02), so both read the 501.
+    const wrongSuffix = await gateway.handle(
+      request('GET', '/v0/management/request-error-logs/not-a-log.txt', bearer(MGMT_KEY)),
+    )
+    expect(wrongSuffix.status).toBe(501)
+    expect(await text(wrongSuffix)).toBe(FILE_LOGGING_UNAVAILABLE_BODY)
     const good = await gateway.handle(
       request('GET', '/v0/management/request-error-logs/error-abc.log', bearer(MGMT_KEY)),
     )
@@ -731,7 +739,8 @@ describe('device flows (NE-S7-11)', () => {
       request('GET', `/v0/management/get-auth-status?state=${envelope.state}`, bearer(MGMT_KEY)),
     )
     expect(expired.status).toBe(200)
-    expect(await text(expired)).toBe('{"status":"error","error":"unknown or expired state"}')
+    // gin.H serialization: alphabetical keys (goJson), as recorded.
+    expect(await text(expired)).toBe('{"error":"unknown or expired state","status":"error"}')
 
     // Exactly one vendor call: the device authorization. No polling
     // substrate exists on vercel (NE-S7-11's core claim).
@@ -745,12 +754,12 @@ describe('device flows (NE-S7-11)', () => {
       request('POST', '/v0/management/oauth-callback', [], '{"code": "x"}'),
     )
     expect(badState.status).toBe(400)
-    expect(await text(badState)).toBe('{"status":"error","error":"state is required"}')
+    expect(await text(badState)).toBe('{"error":"state is required","status":"error"}')
     const unknown = await gateway.handle(
       request('GET', '/v0/management/get-auth-status?state=validstate1', bearer(MGMT_KEY)),
     )
     expect(unknown.status).toBe(200)
-    expect(await text(unknown)).toBe('{"status":"error","error":"unknown or expired state"}')
+    expect(await text(unknown)).toBe('{"error":"unknown or expired state","status":"error"}')
   })
 })
 
