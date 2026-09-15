@@ -8,7 +8,7 @@
  * NE-LENIENT (fixtures replay well-formed bodies only), R-FIXTURE.
  *
  * ─────────────────────────────────────────────────────────────────────────────────────
- * ADAPTER INTERFACE — what the future `@cpa-edge/translators` oai2cla module MUST export.
+ * ADAPTER INTERFACE — what the `@cpa-edge/translators/oai2cla` direction module MUST export.
  * The suite dynamically imports the package and turns green-to-red once the export ships;
  * while the package is still a skeleton every case test SKIPS with the reason below. The
  * harness holds its own structural mirror of these types; the package should export the
@@ -157,7 +157,7 @@ import type { Store } from '@cpa-edge/core'
 
 // ─── Adapter load (skip-with-explanation until the real export ships) ────────────────
 
-const ADAPTER_MODULE = '@cpa-edge/translators'
+const ADAPTER_MODULE = '@cpa-edge/translators/oai2cla'
 const ADAPTER_EXPORT = 'createOai2ClaChatService'
 
 /** Structural mirror of the adapter interface documented in the header. */
