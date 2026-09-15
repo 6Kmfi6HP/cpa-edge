@@ -1,6 +1,6 @@
 # S3 — Auth flows (OAuth code, Device RFC 8628, refresh, API keys, mgmt authz)
 
-Section status: DRAFT by @spec-writer (mission S3). Anchor: CLIProxyAPI v7.3.4, commit `8335eac731946bd4eff18f500653f93736df53d6`.
+Section status: REVISION 2 after gate round 1 (review: `reports/adversary/S3.md`, verdict FAIL → blocking B1–B6 + non-blocking N1–N10 applied; B3/B4 and all doc rulings are in this text, B1/B2/B5/B6 goldens in flight with oracle-runner-4). Anchor: CLIProxyAPI v7.3.4, commit `8335eac731946bd4eff18f500653f93736df53d6`.
 All upstream citations are paths in the reference repo at that tag. Wire-level constants (URLs, client IDs, scopes, header names, JSON keys) are public-interface facts cited for compatibility, per clean-room rule 1.
 
 ## 1. Scope and boundaries
@@ -66,11 +66,11 @@ Separately, config `ws-auth` (default true) toggles authentication for the realt
 
 Example-API-key safe mode (evidence: `internal/safemode/example_api_keys.go`, `internal/api/server_middleware.go`):
 - If any configured top-level key equals `your-api-key-1`, `your-api-key-2`, or `your-api-key-3`, the server starts in safe mode.
-- Proxy paths (`/v1`, `/v1beta`, `/openai/v1`, `/backend-api/codex` prefixes) → `403` with header `X-CPA-SAFE-MODE: example-api-key` and body:
+- Proxy paths (`/v1`, `/v1beta`, `/openai/v1`, `/backend-api/codex` prefixes) → `403` with header `X-Cpa-Safe-Mode: example-api-key` (Go-canonical casing, recorded) and body:
 ```json
 {"error":"unsafe_example_api_key","message":"Proxy API endpoints are disabled because api-keys contains template values. Open /management.html?safe-mode=configure, update api-keys in Management, then retry."}
 ```
-- `GET /` and `GET /management.html` serve an HTML warning page (lists the offending keys, links to `/management.html?safe-mode=configure`) instead of the normal root payload; `GET /management.html?safe-mode=configure` is exempt and serves the panel path.
+- `GET /` and `GET /management.html` serve an HTML warning page (lists the offending keys, links to `/management.html?safe-mode=configure`) instead of the normal root payload; `HEAD` on those paths answers `200` with an empty body; `GET /management.html?safe-mode=configure` is exempt and serves the panel path.
 - Safe mode is re-evaluated when `api-keys` changes through management (clearing template values lifts the block).
 
 ### 2.2 Management-plane authorization
@@ -177,21 +177,25 @@ Plain callback routes (evidence: `internal/api/server_routes.go`):
 Management-plane callback route (NO management key; availability middleware applies): `POST /v0/management/oauth-callback` and `GET /v0/management/oauth-callback` (evidence: `internal/api/server_management.go`, `internal/api/handlers/management/oauth_callback.go`):
 - POST body JSON: `provider`, `redirect_url` (optional; parsed, its query used as fallback source for state/code/error), `code`, `state`, `error`.
 - GET query: `provider`, `code`, `state`, `error` (fallback `error_description`).
-- Validation order and responses (all JSON `{"status":...,"error":...}`):
-  1. Unparseable POST body → `400` `{"status":"error","error":"invalid body"}`.
-  2. Missing `state` → `400` `... "state is required"`.
-  3. `state` fails validation (regex `[A-Za-z0-9._-]{1..128}`, no path separators, no `..`) → `400` `"invalid state"`.
-  4. Missing both `code` and `error` → `400` `"code or error is required"`.
-  5. Unknown/expired session state → `404` `"unknown or expired state"`.
-  6. Completed session → `409` `"oauth flow is already completed"`.
-  7. Provider normalization fails (`anthropic|claude`, `codex|openai`, `antigravity|anti-gravity`, `xai|x-ai|x.ai|grok`, `devin|cognition`, `meta|muse`; plugins: `[a-z0-9-]+`) → `400` `"unsupported provider"`.
-  8. Session already carries an error status → `409` with that status message.
-  9. Provider ≠ session provider → `400` `"provider does not match state"`.
-  10. Success → `200` `{"status":"ok"}` and the callback file is published (atomic temp-file rename) for the pending login goroutine.
+- Validation order and responses (all JSON, keys alphabetized: `{"error":...,"status":"error"}` / `{"status":"ok"}`):
+  1. Unparseable POST body → `400` `"invalid body"`.
+  2. Non-empty `redirect_url` that fails `url.Parse` → `400` `"invalid redirect_url"` (checked before any state handling; when it parses, its query is only a fallback source for state/code/error).
+  3. Missing `state` → `400` `"state is required"`.
+  4. `state` fails validation (regex `[A-Za-z0-9._-]{1..128}`, no path separators, no `..`) → `400` `"invalid state"`.
+  5. Missing both `code` and `error` → `400` `"code or error is required"`.
+  6. Unknown/expired session state → `404` `"unknown or expired state"`.
+  7. Completed session → `409` `"oauth flow is already completed"`.
+  8. Provider omitted in the request → defaults to the SESSION's provider before normalization (doc).
+  9. Provider normalization fails (`anthropic|claude`, `codex|openai`, `antigravity|anti-gravity`, `xai|x-ai|x.ai|grok`, `devin|cognition`, `meta|muse`; plugins: `[a-z0-9-]+`) → `400` `"unsupported provider"`.
+  10. Session already carries an error status → `409` with that status message.
+  11. Provider ≠ session provider → `400` `"provider does not match state"`.
+  12. Persist: pending-session guard fails while the session carries a status → `409` with that status; guard fails without a status (cancel race) → `409` `"oauth flow is not pending"`; any other write error (e.g. read-only auth dir) → `500` `"failed to persist oauth callback"`.
+  13. Success → `200` `{"status":"ok"}` and the callback file is published (atomic temp-file rename) for the pending login goroutine.
+The middleware-level `500` "handler not initialized" branch is intentionally not specified further (unreachable with a booted server).
 
 ### 2.5 In-memory OAuth session store & login endpoints
 
-Session store (evidence: `internal/api/handlers/management/oauth_sessions.go`): keyed by state; TTL 30 min pending (covers xAI 30m / Kimi 15m device flows), 1 min after completion; purge on access; state validation as above; provider normalized lowercase. `Cancel` only removes still-pending sessions. Callback-file handshake: login goroutines poll every 500 ms for file `.oauth-<provider>-<state>.oauth` in the auth dir; the file is JSON `{code, state, error}` written atomically; waiters treat "session no longer pending" as a silent abort (no credential save). Before saving credentials, waiters re-check the session is still pending (cancel race guard).
+Session store (evidence: `internal/api/handlers/management/oauth_sessions.go`): keyed by state; TTL 30 min pending (covers xAI 30m / Kimi 15m device flows), 1 min after completion; purge on access; state validation as above; provider normalized lowercase. `Cancel` only removes still-pending sessions. `SetError` extends the failing session's TTL by the full 30 min and never touches completed sessions (empty message defaults to `Authentication failed`). A bulk-complete helper closes every still-pending session of one provider (used when a device flow finishes out-of-band). Callback-file handshake: login goroutines poll every 500 ms for file `.oauth-<provider>-<state>.oauth` in the auth dir; the file is JSON `{code, state, error}` written atomically; waiters treat "session no longer pending" as a silent abort (no credential save). Before saving credentials, waiters re-check the session is still pending (cancel race guard).
 
 Login-URL endpoints (all `GET`, management key required, listed in 2.2's pipeline; evidence: `internal/api/handlers/management/auth_files_provider_oauth.go`):
 | Endpoint | Effect | 200 body (map-serialized; key set as shown, order alphabetical per Go JSON map marshaling — recorded fixture is authoritative) |
@@ -203,7 +207,8 @@ Login-URL endpoints (all `GET`, management key required, listed in 2.2's pipelin
 | `/v0/management/kimi-auth-url` | Starts LIVE Kimi device flow (network to auth.kimi.com) | `{"expires_in":<s>,"flow":"device","state":"kmi-<unixns>","status":"ok","url":<verification uri>,"user_code":<code>}` |
 | `/v0/management/xai-auth-url` | LIVE xAI OIDC discovery + device flow | same shape, `state":"xai-<unixns>"` |
 | `/v0/management/meta-auth-url` | LIVE Meta device flow | same shape, `state":"meta-<unixns>"` |
-Notes (recorded): ALL these JSON bodies serialize keys alphabetically, including nested objects (Go map marshaling), e.g. `{"error":"...","status":"error"}`, `{"cancelled":true,"status":"ok"}` — the recorded fixtures are byte-authoritative. `&` characters inside JSON string values (the `url` query separator) are emitted as `\u0026` (Go `encoding/json` HTML escaping) — byte-relevant for the rewrite's JSON encoder. State values for device flows embed the current Unix nanoseconds (`kmi-` for Kimi — not `kimi-`). `expires_in` falls back to the provider's max poll duration (xAI 1800, Kimi 900, Meta 900) when the device response omits it. `is_webui` query (`1|true|yes|on`) additionally starts a loopback forwarder binding the provider's fixed port (54545/1455/51121) which forwards browser callbacks to the main-port route — OPTIONAL in the serverless rewrite (runtime adapter concern).
+Notes (recorded): ALL these JSON bodies serialize keys alphabetically, including nested objects (Go map marshaling), e.g. `{"error":"...","status":"error"}`, `{"cancelled":true,"status":"ok"}` — the recorded fixtures are byte-authoritative. `&` characters inside JSON string values (the `url` query separator) are emitted as `\u0026` (Go `encoding/json` HTML escaping) — byte-relevant for the rewrite's JSON encoder. State values for device flows embed the current Unix nanoseconds (`kmi-` for Kimi — not `kimi-`). `expires_in` is emitted only when the device response provides it for Kimi (NO fallback branch — the key is omitted entirely), while xAI falls back to 1800 (its max poll duration) and Meta to 900. `is_webui` query (`1|true|yes|on`) additionally starts a loopback forwarder binding the provider's fixed port (54545/1455/51121) which forwards browser callbacks to the main-port route — OPTIONAL in the serverless rewrite (runtime adapter concern).
+Egress-blocked failure mode (recorded): when the vendor endpoint is unreachable, the device login-URL endpoints fail fast with `500` — Kimi `{"error":"failed to generate authorization url"}`, xAI `{"error":"failed to start device authorization flow"}`, Meta `{"error":"failed to start device authorization flow"}` — deterministic bodies, recorded as goldens. The remaining `500` strings (`failed to generate PKCE codes`, `failed to generate state parameter`, `failed to generate authorization url`, `callback server unavailable`, `failed to start callback server`) apply to the code-flow endpoints.
 Failure mode: any local URL-building error → `500` `{"error":"failed to generate PKCE codes"|"failed to generate state parameter"|"failed to generate authorization url"|"callback server unavailable"|"failed to start callback server"}`.
 
 Status & cancel:
@@ -249,7 +254,7 @@ Scheduling rule (`shouldRefresh`): never for API-key credentials; skip if a per-
 Refresh-on-401 (evidence: `conductor_refresh.go` `tryRefreshAfterUnauthorized`): during request execution, an upstream error is unauthorized if its status code is 401 or its text contains `status 401`/`401 unauthorized`. If unauthorized and the credential has a `refresh_token` (or, for Meta only, a `dca_token`):
 1. Request-scoped errors do NOT trigger refresh (a direct upstream 401 body mapped as request-scoped is surfaced, not retried).
 2. At most one synchronous refresh per request (`alreadyTried`).
-3. Per-credential mutex; concurrent requests reuse a newer token when the failed access token already differs from the current one.
+3. Refresh-credential detection reads `refresh_token` OR `refreshToken` (camelCase) from metadata; Meta instead uses `dca_token` (metadata or attributes). Per-credential mutex; concurrent requests reuse a newer token when the failed access token already differs from the current one.
 4. Refresh failure with 401 → credential marked `unavailable`, status `error`, status message `unauthorized`, `NextRefreshAfter` zeroed — excluded from scheduling and selection until a successful login/refresh; other failures → backoff 5 min while retaining the credential if its access token is still valid.
 5. Success → `LastRefreshedAt = now`, backoff cleared, previous error cleared, `status = active`, unauthorized model states cleared, and the updated auth persisted through the Store.
 
@@ -277,7 +282,7 @@ Store rules (evidence: `sdk/auth/filestore.go`): recursive walk; loads `*.json` 
 | `meta` | `auth_kind:"oauth"`, `access_token`, `dca_token?`, `api_key?`, `token_type?`, `expires_in?`, `expired?`, `dca_expired?`, `dca_expires_at?`, `last_refresh?`, `base_url?`, `email?`, `name?` — persisted 2-space-indented with trailing newline via atomic temp-file rename; credential fields are never restored from stale metadata | `meta-<sanitized email>-<8-hex>.json` (see upstream `CredentialFileName`) |
 | `antigravity` | `type`, `access_token`, `refresh_token`, `expires_in`, `timestamp` (unix ms), `expired` (RFC3339), `email?`, `project_id?` | `antigravity[-<email>].json` |
 | `devin` | `type`, `api_key` (= session token), `session_token`, `user_name?`, `user_id?`, `org_id?`, `auth_kind:"oauth"`, `email?`, `plan?` | `devin-<sanitized id>.json` |
-OAuth callback handshake files: `.oauth-<provider>-<state>.oauth`, JSON `{code, state, error}`, atomic publish, removed after consumption; `.oauth-*` naming keeps them out of the `*.json` walk.
+OAuth callback handshake files: `.oauth-<provider>-<state>.oauth`, JSON `{code, state, error}`, atomic publish, removed after consumption; `.oauth-*` naming keeps them out of the `*.json` walk. The `gemini` skip is case-insensitive (`type: "Gemini"` is skipped too). There is NO `vertex` auth-file type: vertex credentials are config-managed API-key entries (`vertex-api-key`; service-account import via `POST /v0/management/vertex/import` -> S5/S6).
 
 ### 3.3 Login-URL response schema
 `{"status":"ok","url":string,"state":string}` (+`"flow":"device"`, `"user_code":string`, `"expires_in":number` for device flows). `state` is the session key used by `get-auth-status` / `oauth-session` / `oauth-callback`.
@@ -290,9 +295,10 @@ None of the S3 surfaces produce SSE. Auth-related HTTP responses are single-shot
 |---|---|---|---|
 | `/v1*`,`/v1beta*`,`/openai/v1*`,`/backend-api/codex*` | no credential anywhere | 401 | `{"error":"Missing API key"}` |
 | same | credential present, no match | 401 | `{"error":"Invalid API key"}` |
-| same | template api-key safe mode | 403 | `{"error":"unsafe_example_api_key","message":...}` + `X-CPA-SAFE-MODE: example-api-key` |
-| realtime group | auth failure | 401 | OpenAI-shaped `authentication_error`/`invalid_api_key` (§2.1) |
-| `/v0/management/*` | routes not enabled (no secret) | 404 | empty (R-404) |
+| same | template api-key safe mode | 403 | `{"error":"unsafe_example_api_key","message":...}` + `X-Cpa-Safe-Mode: example-api-key` |
+| realtime group | API-key auth failure | 401 | OpenAI-shaped `authentication_error`/`invalid_api_key` (§2.1) |
+| realtime group (`realtimeAuthMiddleware` routes) | `ek_`-prefixed Bearer that is unknown/expired | 401 | OpenAI-shaped `invalid_request_error`/`invalid_realtime_client_secret`, message `Realtime client secret is invalid or expired` (§2.1) |
+| `/v0/management/*` | routes not enabled (no secret) | 404 | empty (R-404); CORS block only — NO `X-Cpa-*` headers (middleware never runs) |
 | same | banned IP | 403 | `IP banned due to too many failed attempts. Try again in <duration>` |
 | same | remote client, allow-remote false | 403 | `remote management disabled` |
 | same | no key presented | 401 | `missing management key` |
@@ -300,7 +306,7 @@ None of the S3 surfaces produce SSE. Auth-related HTTP responses are single-shot
 | `/anthropic|codex|antigravity/callback` | any query | 200 | success HTML (write failures ignored) |
 | `/callback`,`/devin/callback` | no code+error | 400 | `{"error":"code or error is required"}` |
 | same | no pending session | 400 | `{"error":"invalid or expired OAuth callback"}` |
-| `/v0/management/oauth-callback` | see §2.4 ladder | 400/404/409/200 | `{"status":"error","error":...}` / `{"status":"ok"}` |
+| `/v0/management/oauth-callback` | see §2.4 ladder (invalid body/redirect_url/state, missing code, provider mismatch → 400; unknown state → 404; completed/status/not-pending → 409; persist failure → 500) | 400/404/409/500/200 | `{"error":...,"status":"error"}` / `{"status":"ok"}` |
 | `get-auth-status` | per §2.5 | 200/400 | `{"status":...}` |
 | `oauth-session` DELETE | per §2.5 | 200/400 | `{"status":...,"cancelled":...}` |
 | login-URL endpoints | local build failure | 500 | `{"error":"failed to ..."}` |
@@ -335,7 +341,9 @@ Recorded confirmations folded into §2: alphabetical JSON key order everywhere (
 
 **Replay caveat (ban pair):** the per-IP failure counter is cumulative for the server instance lifetime. The goldens were recorded with the reset case immediately followed by the ban case in ONE fresh instance, so the 4 counted failures of the reset case's step 3 carry over: `s3-mgmt-ban-after-5-invalid` records `[401, 403, 403, 403, 403, 403]` — its first request is cumulative failure #5 (that request is still answered 401; the ban applies to subsequent requests). Replay both fixtures in this order and this instance discipline, or a standalone replay of the ban case on a fresh counter would yield `[401×5, 403]`. `s3-mgmt-ban-reset-on-success` records `[401×4, 200, 401×4]` (9 responses) and never bans in-case.
 
-FIXTURE-DEFERRED (10, see `spec/recordings/S3.cases.json` for reasons): `s3-def-{claude-token-exchange, claude-refresh, codex-token-exchange, antigravity-exchange, kimi-device-flow, xai-device-flow, meta-device-flow, devin-exchange, device-auth-url-endpoints, refresh-on-401}`.
+**Round 2 (gate round 1, `reports/adversary/S3.md`):** 7 new/changed recordings requested from oracle-runner-4 — `s3-realtime-ek-invalid-secret` (B1: `ek_` garbage → 401 `invalid_realtime_client_secret`), `s3-mgmt-oauth-callback-invalid-redirect-url` (B2: 400 `invalid redirect_url`), `s3-mgmt-oauth-callback-persist-fail` (B2: read-only auth dir → 500 `failed to persist oauth callback`), `s3-device-auth-url-egress-blocked-{kimi,xai,meta}` (B5: fast 500s, vendor egress blocked), and `s3-mgmt-remote-disabled` RE-RECORDED with explicit `X-Forwarded-For` headers (B6: 10.0.0.99 → 403 remote-disabled; 127.0.0.1 → 200) so the golden is byte-replayable from any topology and pins the trust-all-proxies XFF contract. Target: 44 recorded cases once round 2 lands.
+
+FIXTURE-DEFERRED (10, see `spec/recordings/S3.cases.json` for reasons): `s3-def-{claude-token-exchange, claude-refresh, codex-token-exchange, antigravity-exchange, kimi-device-flow, xai-device-flow, meta-device-flow, devin-exchange, device-auth-url-endpoints, refresh-on-401}`. `s3-def-device-auth-url-endpoints` is RESCOPED: only the live-vendor 200 shape (nondeterministic `user_code`) stays deferred; its egress-blocked 500 error paths are recorded (B5).
 
 ## 7. Open questions and intentional non-equivalences
 - O-1: Inbound API-key comparison is a plain map lookup (not constant-time). Mirror for behavioral equality, or register a security non-equivalence? Default: mirror; timing is not observable in wire goldens.

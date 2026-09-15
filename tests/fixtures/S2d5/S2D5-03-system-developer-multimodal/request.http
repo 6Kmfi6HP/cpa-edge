@@ -1,0 +1,13 @@
+# Exact downstream requests, in order (R1..Rn)
+
+### R1: POST /v1/chat/completions
+POST /v1/chat/completions HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-local-key-1
+Content-Type: application/json
+Content-Length: 358
+
+
+{"model": "cx", "messages": [{"role": "system", "content": "You are a terse assistant."}, {"role": "user", "content": [{"type": "text", "text": "Describe this image."}, {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo=", "detail": "high"}}, {"type": "file", "file": {"file_data": "SGVsbG8gZmlsZQ==", "filename": "notes.txt"}}]}]}

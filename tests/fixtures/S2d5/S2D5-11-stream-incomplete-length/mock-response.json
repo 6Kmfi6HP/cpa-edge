@@ -1,0 +1,132 @@
+{
+  "control_file": {
+    "mode": "happy",
+    "script": "s2d5-incomplete-length"
+  },
+  "script": "s2d5-incomplete-length",
+  "script_events": [
+    {
+      "event": "response.created",
+      "data": {
+        "type": "response.created",
+        "response": {
+          "id": "resp_mock_inc_01",
+          "object": "response",
+          "created_at": 1770000300,
+          "status": "in_progress",
+          "model": "gpt-mock-codex",
+          "output": [],
+          "usage": {
+            "input_tokens": 8,
+            "output_tokens": 5,
+            "total_tokens": 13
+          }
+        }
+      }
+    },
+    {
+      "event": "response.output_item.added",
+      "data": {
+        "type": "response.output_item.added",
+        "output_index": 0,
+        "item": {
+          "type": "message",
+          "id": "msg_mock_03",
+          "role": "assistant",
+          "status": "in_progress",
+          "content": []
+        }
+      }
+    },
+    {
+      "event": "response.content_part.added",
+      "data": {
+        "type": "response.content_part.added",
+        "item_id": "msg_mock_03",
+        "output_index": 0,
+        "content_index": 0,
+        "part": {
+          "type": "output_text",
+          "text": "",
+          "annotations": []
+        }
+      }
+    },
+    {
+      "event": "response.output_text.delta",
+      "data": {
+        "type": "response.output_text.delta",
+        "item_id": "msg_mock_03",
+        "output_index": 0,
+        "content_index": 0,
+        "delta": "Partial answ"
+      }
+    },
+    {
+      "event": "response.output_text.done",
+      "data": {
+        "type": "response.output_text.done",
+        "item_id": "msg_mock_03",
+        "output_index": 0,
+        "content_index": 0,
+        "text": "Partial answ"
+      }
+    },
+    {
+      "event": "response.output_item.done",
+      "data": {
+        "type": "response.output_item.done",
+        "output_index": 0,
+        "item": {
+          "type": "message",
+          "id": "msg_mock_03",
+          "role": "assistant",
+          "status": "incomplete",
+          "content": [
+            {
+              "type": "output_text",
+              "text": "Partial answ",
+              "annotations": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "event": "response.incomplete",
+      "data": {
+        "type": "response.incomplete",
+        "response": {
+          "id": "resp_mock_inc_01",
+          "object": "response",
+          "created_at": 1770000300,
+          "status": "incomplete",
+          "model": "gpt-mock-codex",
+          "incomplete_details": {
+            "reason": "max_output_tokens"
+          },
+          "output": [
+            {
+              "type": "message",
+              "id": "msg_mock_03",
+              "role": "assistant",
+              "status": "incomplete",
+              "content": [
+                {
+                  "type": "output_text",
+                  "text": "Partial answ",
+                  "annotations": []
+                }
+              ]
+            }
+          ],
+          "usage": {
+            "input_tokens": 8,
+            "output_tokens": 5,
+            "total_tokens": 13
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+### Attempt 1 (wrong key)
+GET /v0/management/config HTTP/1.1
+Host: 127.0.0.1:18317
+X-Management-Key: wrong-key-01
+
+
+### Attempt 2 (wrong key)
+GET /v0/management/config HTTP/1.1
+Host: 127.0.0.1:18317
+X-Management-Key: wrong-key-02
+
+
+### Attempt 3 (wrong key)
+GET /v0/management/config HTTP/1.1
+Host: 127.0.0.1:18317
+X-Management-Key: wrong-key-03
+
+
+### Attempt 4 (wrong key)
+GET /v0/management/config HTTP/1.1
+Host: 127.0.0.1:18317
+X-Management-Key: wrong-key-04
+
+
+### Attempt 5 (wrong key)
+GET /v0/management/config HTTP/1.1
+Host: 127.0.0.1:18317
+X-Management-Key: wrong-key-05
+
+
+### Attempt 6 (VALID key)
+GET /v0/management/config HTTP/1.1
+Host: 127.0.0.1:18317
+X-Management-Key: oracle-mgmt-key-1
+

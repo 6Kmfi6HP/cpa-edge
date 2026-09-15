@@ -25,9 +25,9 @@
 | S2d10 | spec: Antigravity redirect rules | 1 | spec-s2d10-antigravity | spec | 0 |  |
 | S3 | spec: auth flows | 1 | spec-s3-auth | spec-fix | 1 | R1: adv-spec-2 FAIL (B1-B6: realtime ek_ shape, callback paths, antigravity secret, kimi expires_in, egress 500s, XFF topology); follow-ups -> worker-4 |
 | S4 | spec: scheduling | 1 | spec-s4-scheduling | spec-adv | 0 | section+20 goldens done; review pending assignment |
-| S5 | spec: management API | 1 | spec-s5-mgmt | spec | 0 |  |
+| S5 | spec: management API | 1 | spec-s5-mgmt | spec-adv | 0 | section+22 goldens finalized; review assigned adv-spec-3 (GET/config secrets = mirror per S7-N2 ruling) |
 | S6 | spec: state & storage schemas | 1 | spec-s6-state | spec | 0 |  |
-| S7 | spec: platform degradation matrix | 1 | spec-s7-platform | spec-adv | 0 | section+15 goldens done; R-S7-A/B/C ruled; review assigned adv-spec-3 |
+| S7 | spec: platform degradation matrix | 1 | spec-s7-platform | spec-fix | 1 | R1: adv-spec-3 FAIL (B1 TLS row; B2 usage-RESP contradiction w/ S6 -> node EQUIVALENT ruling; B3 device-flow substrate MUSTs) |
 | I-core | packages/core: scheduling algorithms | 2 | — | pending | 0 |  |
 | I-auth | packages/auth: OAuth/device/refresh | 2 | — | pending | 0 |  |
 | I-tr-S2d1 | packages/translators: OpenAI→Gemini | 2 | — | pending | 0 |  |

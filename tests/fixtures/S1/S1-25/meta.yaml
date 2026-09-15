@@ -1,0 +1,332 @@
+{
+ "id": "S1-25",
+ "purpose": "Gate round-1 follow-up batch (adversary authorization): pin the realtime capability stubs, sideband 426, client_secrets/hangup bodies, the N1 pinning-gap list, config-variant behaviors (empty api-keys, example-key safe mode), management 403s, and the S1-21 HEAD re-record.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+ "recorded_at": "2026-09-16T00:28:28",
+ "record": "response (per request: status + headers + exact body)",
+ "config_variants": {
+  "baseline": "S1 baseline (api-keys: [oracle-local-key-1], allow-remote: true)",
+  "V1": "api-keys: [] (empty)",
+  "V2": "api-keys: [\"your-api-key-1\"] (safe mode)",
+  "V3": "remote-management.allow-remote: false (secret-key still set)",
+  "V4": "baseline in a fresh container; ran LAST; container discarded after. Includes mgmt-ip-ban (single wrong-key probe) and mgmt-ip-ban-threshold (5x wrong + 1x valid, 401x5 -> 403)."
+ },
+ "requests": [
+  {
+   "name": "rt-translations-get",
+   "group": "A-capability-stubs",
+   "config_variant": "baseline",
+   "method": "GET",
+   "path": "/v1/realtime/translations",
+   "http_status": "501"
+  },
+  {
+   "name": "rt-translations-post",
+   "group": "A-capability-stubs",
+   "config_variant": "baseline",
+   "method": "POST",
+   "path": "/v1/realtime/translations",
+   "http_status": "501"
+  },
+  {
+   "name": "rt-translations-client-secrets",
+   "group": "A-capability-stubs",
+   "config_variant": "baseline",
+   "method": "POST",
+   "path": "/v1/realtime/translations/client_secrets",
+   "http_status": "501"
+  },
+  {
+   "name": "rt-transcription-sessions",
+   "group": "A-capability-stubs",
+   "config_variant": "baseline",
+   "method": "POST",
+   "path": "/v1/realtime/transcription_sessions",
+   "http_status": "501"
+  },
+  {
+   "name": "rt-sip-accept",
+   "group": "A-capability-stubs",
+   "config_variant": "baseline",
+   "method": "POST",
+   "path": "/v1/realtime/calls/call-0000/accept",
+   "http_status": "501"
+  },
+  {
+   "name": "rt-sip-reject",
+   "group": "A-capability-stubs",
+   "config_variant": "baseline",
+   "method": "POST",
+   "path": "/v1/realtime/calls/call-0000/reject",
+   "http_status": "501"
+  },
+  {
+   "name": "rt-sip-refer",
+   "group": "A-capability-stubs",
+   "config_variant": "baseline",
+   "method": "POST",
+   "path": "/v1/realtime/calls/call-0000/refer",
+   "http_status": "501"
+  },
+  {
+   "name": "rt-sideband-callid",
+   "group": "B-sideband-ws",
+   "config_variant": "baseline",
+   "method": "GET",
+   "path": "/v1/realtime?call_id=call-0000",
+   "http_status": "426"
+  },
+  {
+   "name": "rt-calls-sideband-nows",
+   "group": "B-sideband-ws",
+   "config_variant": "baseline",
+   "method": "GET",
+   "path": "/v1/realtime/calls/call-0000",
+   "http_status": "426"
+  },
+  {
+   "name": "rt-client-secrets-badjson",
+   "group": "B-sideband-ws",
+   "config_variant": "baseline",
+   "method": "POST",
+   "path": "/v1/realtime/client_secrets",
+   "http_status": "400"
+  },
+  {
+   "name": "rt-hangup-invalid-id",
+   "group": "C-hangup",
+   "config_variant": "baseline",
+   "method": "POST",
+   "path": "/v1/realtime/calls/bad%20id/hangup",
+   "http_status": "400"
+  },
+  {
+   "name": "rt-hangup-unknown",
+   "group": "C-hangup",
+   "config_variant": "baseline",
+   "method": "POST",
+   "path": "/v1/realtime/calls/call-unknown-0000/hangup",
+   "http_status": "404"
+  },
+  {
+   "name": "image-only-503",
+   "group": "D-pin-gaps",
+   "config_variant": "baseline",
+   "method": "POST",
+   "path": "/v1/chat/completions",
+   "http_status": "503"
+  },
+  {
+   "name": "images-invalid-json",
+   "group": "D-pin-gaps",
+   "config_variant": "baseline",
+   "method": "POST",
+   "path": "/v1/images/generations",
+   "http_status": "400"
+  },
+  {
+   "name": "images-missing-prompt",
+   "group": "D-pin-gaps",
+   "config_variant": "baseline",
+   "method": "POST",
+   "path": "/v1/images/generations",
+   "http_status": "400"
+  },
+  {
+   "name": "images-unsupported-model",
+   "group": "D-pin-gaps",
+   "config_variant": "baseline",
+   "method": "POST",
+   "path": "/v1/images/generations",
+   "http_status": "400"
+  },
+  {
+   "name": "interactions-invalid-json",
+   "group": "D-pin-gaps",
+   "config_variant": "baseline",
+   "method": "POST",
+   "path": "/v1beta/interactions",
+   "http_status": "400"
+  },
+  {
+   "name": "interactions-both",
+   "group": "D-pin-gaps",
+   "config_variant": "baseline",
+   "method": "POST",
+   "path": "/v1beta/interactions",
+   "http_status": "400"
+  },
+  {
+   "name": "interactions-neither",
+   "group": "D-pin-gaps",
+   "config_variant": "baseline",
+   "method": "POST",
+   "path": "/v1beta/interactions",
+   "http_status": "400"
+  },
+  {
+   "name": "interactions-stream-nonbool",
+   "group": "D-pin-gaps",
+   "config_variant": "baseline",
+   "method": "POST",
+   "path": "/v1beta/interactions",
+   "http_status": "400"
+  },
+  {
+   "name": "gemini-empty-action",
+   "group": "D-pin-gaps",
+   "config_variant": "baseline",
+   "method": "POST",
+   "path": "/v1beta/models/",
+   "http_status": "404"
+  },
+  {
+   "name": "gemini-no-slash",
+   "group": "D-pin-gaps",
+   "config_variant": "baseline",
+   "method": "POST",
+   "path": "/v1beta/models",
+   "http_status": "307"
+  },
+  {
+   "name": "mgmt-callback-no-state",
+   "group": "D-pin-gaps",
+   "config_variant": "baseline",
+   "method": "GET",
+   "path": "/v0/management/oauth-callback?provider=codex&code=x",
+   "http_status": "400"
+  },
+  {
+   "name": "zstd-garbage",
+   "group": "D-pin-gaps",
+   "config_variant": "baseline",
+   "method": "POST",
+   "path": "/v1/chat/completions",
+   "http_status": "400"
+  },
+  {
+   "name": "rererecord-healthz-get",
+   "group": "F-s1-21-rerecord",
+   "config_variant": "baseline",
+   "method": "GET",
+   "path": "/healthz",
+   "http_status": "200"
+  },
+  {
+   "name": "rererecord-healthz-head",
+   "group": "F-s1-21-rerecord",
+   "config_variant": "baseline",
+   "method": "HEAD",
+   "path": "/healthz",
+   "http_status": "200"
+  },
+  {
+   "name": "rererecord-root-head",
+   "group": "F-s1-21-rerecord",
+   "config_variant": "baseline",
+   "method": "HEAD",
+   "path": "/",
+   "http_status": "404"
+  },
+  {
+   "name": "rererecord-keepalive",
+   "group": "F-s1-21-rerecord",
+   "config_variant": "baseline",
+   "method": "GET",
+   "path": "/keep-alive",
+   "http_status": "404"
+  },
+  {
+   "name": "mgmt-remote-disabled",
+   "group": "D-pin-gaps",
+   "config_variant": "V3",
+   "method": "GET",
+   "path": "/v0/management/config",
+   "http_status": "403"
+  },
+  {
+   "name": "emptykeys-models-noauth",
+   "group": "E-config-variants",
+   "config_variant": "V1",
+   "method": "GET",
+   "path": "/v1/models",
+   "http_status": "200"
+  },
+  {
+   "name": "emptykeys-chat-noauth",
+   "group": "E-config-variants",
+   "config_variant": "V1",
+   "method": "POST",
+   "path": "/v1/chat/completions",
+   "http_status": "400"
+  },
+  {
+   "name": "safemode-root",
+   "group": "E-config-variants",
+   "config_variant": "V2",
+   "method": "GET",
+   "path": "/",
+   "http_status": "200"
+  },
+  {
+   "name": "safemode-proxy-gate",
+   "group": "E-config-variants",
+   "config_variant": "V2",
+   "method": "GET",
+   "path": "/v1/models",
+   "http_status": "403"
+  },
+  {
+   "name": "safemode-proxy-noauth",
+   "group": "E-config-variants",
+   "config_variant": "V2",
+   "method": "POST",
+   "path": "/v1/chat/completions",
+   "http_status": "403"
+  },
+  {
+   "name": "safemode-mgmt-html",
+   "group": "E-config-variants",
+   "config_variant": "V2",
+   "method": "GET",
+   "path": "/management.html",
+   "http_status": "200"
+  },
+  {
+   "name": "safemode-options",
+   "group": "E-config-variants",
+   "config_variant": "V2",
+   "method": "OPTIONS",
+   "path": "/v1/models",
+   "http_status": "204"
+  },
+  {
+   "name": "mgmt-ip-ban",
+   "group": "D-pin-gaps",
+   "config_variant": "V4",
+   "method": "GET",
+   "path": "/v0/management/config",
+   "http_status": "401"
+  },
+  {
+   "name": "mgmt-ip-ban-threshold",
+   "group": "D-pin-gaps",
+   "config_variant": "V4",
+   "method": "GET",
+   "path": "/v0/management/config",
+   "http_status": "401 x5 then 403",
+   "note": "5 wrong management keys (401 invalid management key each), then 1 VALID key -> 403 IP banned (ban precedes key validation). Duration '30m0s' masked as dynamic. Fresh container, discarded after."
+  }
+ ],
+ "dynamic_fields": [
+  "Date",
+  "X-Cpa-Trace-Id"
+ ],
+ "notes": [
+  "All requests use the baseline config from S1 (BOOTSTRAP.md section 3) unless a 'config_variant' is given; provider attachment NOT needed - every probe fails before any upstream call.",
+  "Config variant runs required: (V1) api-keys: [] ; (V2) api-keys: ['your-api-key-1'] (safe mode activates; template values per internal/safemode/example_api_keys.go) ; (V3) remote-management.allow-remote: false (secret still set) ; (V4) fresh container, IP-ban probes run LAST and container discarded after.",
+  "Source IP note: requests via the published docker port arrive from the bridge gateway (not loopback), so the remote-disabled 403 is recordable as-is.",
+  "Sub-item intentionally NOT probed: 'remote management key not set' 403 is TUI-embed-only (server mode without a secret does not register the routes at all) - stays documented in section 4.3.",
+  "VERIFY-AND-REPORT items are marked; report actual bytes and I will reconcile the section."
+ ]
+}

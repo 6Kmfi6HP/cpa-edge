@@ -1,0 +1,14 @@
+# Exact downstream requests, in order (R1..Rn)
+
+### R1: POST /v1/chat/completions
+POST /v1/chat/completions HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-local-key-1
+Content-Type: application/json
+Session-Id: 11111111-2222-3333-4444-555555555555
+Content-Length: 71
+
+
+{"model": "cx", "messages": [{"role": "user", "content": "Say hello"}]}

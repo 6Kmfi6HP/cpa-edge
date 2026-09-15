@@ -1,0 +1,7 @@
+{
+  "control_file": {
+    "mode": "disconnect",
+    "after": 5
+  },
+  "behavior": "default canned stream, hard TCP close after 5 events, no chunked terminator"
+}

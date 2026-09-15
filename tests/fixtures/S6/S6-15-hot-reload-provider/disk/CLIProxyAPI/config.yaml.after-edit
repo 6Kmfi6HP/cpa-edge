@@ -21,13 +21,13 @@ openai-compatibility:
     models:
       - name: "mock-gpt-model"
         alias: "mock-model"
-    - name: "mock-hot"
-      base-url: "http://host.docker.internal:19999/v1"
-      api-key-entries:
-        - api-key: "mock-upstream-key"
-      models:
-        - name: "mock-gpt-model"
-          alias: "hot-model"
+  - name: "mock-hot"
+    base-url: "http://host.docker.internal:19999/v1"
+    api-key-entries:
+      - api-key: "mock-upstream-key"
+    models:
+      - name: "mock-gpt-model"
+        alias: "hot-model"
 gemini-api-key:
   - api-key: "mock-gem-key"
     base-url: "http://host.docker.internal:20001"

@@ -24,7 +24,9 @@
     "safemode": "same as default but api-keys: [\"your-api-key-1\"] (template-value instance)",
     "no-mgmt-secret": "same as default but the whole remote-management block removed",
     "mgmt-local-only": "same as default but remote-management.allow-remote: false",
-    "fresh-ban": "same as default, started FRESH immediately before the ban cases (per-IP failure counter must start at 0)"
+    "fresh-ban": "same as default, started FRESH immediately before the ban cases (per-IP failure counter must start at 0)",
+    "default-readonly-authdir": "default config with the mounted auth dir read-only (ro mount or chmod 555; server does not write the auth dir at boot with no credentials present)",
+    "egress-blocked": "default config + vendor domains resolving to a dead end in-container (suggested --add-host auth.kimi.com/auth.x.ai/api.x.ai/auth.meta.com/api.meta.ai -> 127.0.0.1); server reachable locally as usual"
   },
   "secrets_note": "Request headers below use <api-key> = oracle-local-key-1 and <mgmt-key> = oracle-mgmt-key-1 from your config template; do not copy other secrets. <port> = 18317.",
   "mock_upstream": "None needed for S3: no provider credentials are in scope. The reference binary itself on 127.0.0.1:18317 is the target. mock-upstream mode flags (happy/upstream-error/slow-chunks/disconnect-mid-stream) do not apply to S3 cases.",
@@ -973,6 +975,197 @@
       ],
       "mock_upstream_mode": "none",
       "notes": ""
+    },
+    {
+      "id": "s3-realtime-ek-invalid-secret",
+      "classification": "RECORDABLE-LOCALLY",
+      "round": 2,
+      "purpose": "B1: ek_-prefixed garbage Bearer on a realtimeAuthMiddleware route -> 401 {\"error\":{\"code\":\"invalid_realtime_client_secret\",\"message\":\"Realtime client secret is invalid or expired\",\"param\":null,\"type\":\"invalid_request_error\"}}. No client-secret issuance needed; the middleware aborts before the websocket handler (S3 r2 §2.1).",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v1/realtime",
+          "headers": {
+            "Authorization": "Bearer ek_00000000000000000000000000000000000000000000"
+          }
+        }
+      ],
+      "record": "status + headers + body",
+      "dynamic_fields": [
+        "Date"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-mgmt-oauth-callback-invalid-redirect-url",
+      "classification": "RECORDABLE-LOCALLY",
+      "round": 2,
+      "purpose": "B2: unparseable redirect_url -> 400 {\"error\":\"invalid redirect_url\",\"status\":\"error\"} (checked before state handling, S3 r2 §2.4 step 2).",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "POST",
+          "path": "/v0/management/oauth-callback",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": "{\"redirect_url\":\"http://%zz\",\"state\":\"0123456789abcdef0123456789abcdef\",\"code\":\"x\"}"
+        }
+      ],
+      "record": "status + headers + body",
+      "dynamic_fields": [
+        "Date",
+        "X-CPA-* build headers"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-mgmt-oauth-callback-persist-fail",
+      "classification": "RECORDABLE-LOCALLY",
+      "round": 2,
+      "purpose": "B2: callback file write fails (read-only auth dir) -> 500 {\"error\":\"failed to persist oauth callback\",\"status\":\"error\"} (S3 r2 §2.4 step 12). Step 1 registers the pending session normally (no auth-dir write); step 2 hits the failing write.",
+      "instance": "default-readonly-authdir",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v0/management/anthropic-auth-url",
+          "headers": {
+            "X-Management-Key": "<mgmt-key>"
+          },
+          "capture": "state -> $S"
+        },
+        {
+          "step": 2,
+          "method": "POST",
+          "path": "/v0/management/oauth-callback",
+          "headers": {
+            "X-Management-Key": "<mgmt-key>",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"provider\":\"anthropic\",\"state\":\"$S\",\"code\":\"x\"}"
+        }
+      ],
+      "record": "status + headers + body for both steps",
+      "dynamic_fields": [
+        "Date",
+        "$S",
+        "X-CPA-* build headers"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": "Instance: default config but the mounted auth dir is READ-ONLY (mount :ro or in-container chmod 555 — your choice; the server never writes the auth dir at boot when no credentials are present). The step-2 response must be the 500 persist-failure. Background waiter then times out after 5 min; do not wait."
+    },
+    {
+      "id": "s3-device-auth-url-egress-blocked-kimi",
+      "classification": "RECORDABLE-LOCALLY",
+      "round": 2,
+      "purpose": "B5: kimi-auth-url with vendor egress blocked -> fast 500 {\"error\":\"failed to generate authorization url\"} (S3 r2 §2.5 egress-blocked failure mode).",
+      "instance": "egress-blocked",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v0/management/kimi-auth-url",
+          "headers": {
+            "X-Management-Key": "<mgmt-key>"
+          }
+        }
+      ],
+      "record": "status + headers + body",
+      "dynamic_fields": [
+        "Date",
+        "X-CPA-* build headers"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": "Egress block suggestion: --add-host auth.kimi.com:127.0.0.1 (in-container 127.0.0.1:443 closed -> immediate connection refused). If your recording shows a nondeterministic body (e.g. timeout text leaking into the JSON), record it anyway and flag it; the contract will fall back to deferring with your evidence."
+    },
+    {
+      "id": "s3-device-auth-url-egress-blocked-xai",
+      "classification": "RECORDABLE-LOCALLY",
+      "round": 2,
+      "purpose": "B5: xai-auth-url with vendor egress blocked (OIDC discovery fails) -> 500 {\"error\":\"failed to start device authorization flow\"}.",
+      "instance": "egress-blocked",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v0/management/xai-auth-url",
+          "headers": {
+            "X-Management-Key": "<mgmt-key>"
+          }
+        }
+      ],
+      "record": "status + headers + body",
+      "dynamic_fields": [
+        "Date",
+        "X-CPA-* build headers"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": "Egress block suggestion: --add-host auth.x.ai:127.0.0.1 and api.x.ai:127.0.0.1."
+    },
+    {
+      "id": "s3-device-auth-url-egress-blocked-meta",
+      "classification": "RECORDABLE-LOCALLY",
+      "round": 2,
+      "purpose": "B5: meta-auth-url with vendor egress blocked -> 500 {\"error\":\"failed to start device authorization flow\"}.",
+      "instance": "egress-blocked",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v0/management/meta-auth-url",
+          "headers": {
+            "X-Management-Key": "<mgmt-key>"
+          }
+        }
+      ],
+      "record": "status + headers + body",
+      "dynamic_fields": [
+        "Date",
+        "X-CPA-* build headers"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": "Egress block suggestion: --add-host auth.meta.com:127.0.0.1 and api.meta.ai:127.0.0.1."
+    },
+    {
+      "id": "s3-mgmt-remote-disabled",
+      "classification": "RECORDABLE-LOCALLY",
+      "round": 2,
+      "purpose": "B6 RE-RECORD (replaces round-1 fixture): pin trust-all-proxies XFF semantics. Step 1: valid key + X-Forwarded-For: 10.0.0.99 -> client resolves REMOTE -> 403 {\"error\":\"remote management disabled\"}. Step 2: valid key + X-Forwarded-For: 127.0.0.1 -> client resolves LOCAL -> 200 {\"api-keys\":[...]}. Byte-replayable from ANY network topology (S3 r2 §2.2 step 2).",
+      "instance": "mgmt-local-only",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v0/management/api-keys",
+          "headers": {
+            "X-Management-Key": "<mgmt-key>",
+            "X-Forwarded-For": "10.0.0.99"
+          }
+        },
+        {
+          "step": 2,
+          "method": "GET",
+          "path": "/v0/management/api-keys",
+          "headers": {
+            "X-Management-Key": "<mgmt-key>",
+            "X-Forwarded-For": "127.0.0.1"
+          }
+        }
+      ],
+      "record": "status + headers + body for both steps",
+      "dynamic_fields": [
+        "Date",
+        "X-CPA-* build headers"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": "Explicit X-Forwarded-For headers make both responses deterministic regardless of the docker bridge IP. Neither branch counts a ban failure (remote-disabled does not count; success resets). Fixture REPLACES the round-1 s3-mgmt-remote-disabled directory (delete or overwrite it).",
+      "replaces": "s3-mgmt-remote-disabled (round 1)"
     }
   ],
   "fixture_deferred": [
@@ -1019,7 +1212,7 @@
     {
       "id": "s3-def-device-auth-url-endpoints",
       "behavior": "GET /v0/management/{kimi,xai,meta}-auth-url 200 bodies (flow:device, user_code, expires_in, state prefixes kmi-/xai-/meta-)",
-      "reason": "Endpoint itself needs no credentials, but it performs a LIVE vendor device-code request; the response embeds a live user_code and is nondeterministic. Deferred rather than recorded. Contract: response field set only (S3 §2.5)."
+      "reason": "Happy-path responses remain CREDENTIALED-ONLY/nondeterministic: the endpoint performs a LIVE vendor device-code request and the 200 body embeds a live user_code. RESCOPED (round 2): the egress-blocked error paths ARE deterministic and are now recorded as goldens (s3-device-auth-url-egress-blocked-{kimi,xai,meta}); only the live 200 shape stays deferred. Contract for the 200: field set only (S3 §2.5)."
     },
     {
       "id": "s3-def-refresh-on-401",
@@ -1041,6 +1234,31 @@
       "all mgmt JSON bodies serialize keys alphabetically (Go map marshaling), nested included",
       "'&' inside url JSON values emitted as \\u0026 (Go json HTML escaping)"
     ],
-    "recorded_request_files": 47
+    "recorded_request_files": 47,
+    "round2_status": "in flight (oracle-runner-4)"
+  },
+  "round2": {
+    "review": "reports/adversary/S3.md (gate round 1, verdict FAIL)",
+    "blocking_fixes": [
+      "B1 realtime ek_ middleware + 401 shape + golden",
+      "B2 invalid-redirect_url golden + persist-fail 500 golden + 409/provider-default docs",
+      "B3 client_secret inlined in section",
+      "B4 Kimi expires_in omits (no fallback)",
+      "B5 egress-blocked device-auth 500 goldens kimi/xai/meta",
+      "B6 remote-disabled re-record with explicit XFF + pinned trust-all semantics"
+    ],
+    "nonblocking_fixes": [
+      "N1 X-Cpa-Safe-Mode casing",
+      "N2 unconfigured-404 no X-Cpa-* note",
+      "N3 vertex pointer (S6 delegation)",
+      "N5 SetError TTL + bulk-complete",
+      "N6 HEAD warning pages",
+      "N7 gemini skip case-insensitive + refreshToken camelCase",
+      "N8 XFF pinning (=B6)",
+      "N9 ws-auth pointer",
+      "N10 unreachable 500 noted as omitted"
+    ],
+    "new_case_count": 7,
+    "recording_routing": "oracle-runner-4"
   }
 }

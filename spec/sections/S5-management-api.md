@@ -76,7 +76,7 @@ All paths are prefixed `/v0/management`. Unless noted, the two `oauth-callback` 
 |---|---|---|---|
 | GET | `/config` | 200 | Full effective config JSON (see §3.1) |
 | GET | `/config.yaml` | 200 | Raw config.yaml bytes, `Content-Type: application/yaml; charset=utf-8`, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`; 404 `{"error":"not_found","message":"config file not found"}` |
-| PUT | `/config.yaml` | 200 `{"ok":true,"changed":["config"]}` | Body = raw YAML; 400 `invalid_yaml` (+`message`) on YAML parse failure; 422 `invalid_config` (+`message`) when parsed config fails validation; writes body verbatim and hot-reloads |
+| PUT | `/config.yaml` | 200 `{"changed":["config"],"ok":true}` (recorded; gin.H → keys alphabetical) | Body = raw YAML; 400 `invalid_yaml` (+`message`) on YAML parse failure; 422 `invalid_config` (+`message`) when parsed config fails validation; writes body verbatim and hot-reloads |
 | GET | `/latest-version` | 200 `{"latest-version":"<tag>"}` | Queries GitHub releases API; 500/502 shapes in §5. EXTERNAL — see §8 |
 
 **Scalar toggles/fields** (each: GET returns `{"<key>":<value>}`; PUT/PATCH body `{"value":<value>}`; invalid/non-JSON body or missing `value` → 400 `{"error":"invalid body"}`)
@@ -136,14 +136,14 @@ Weight validation (all provider lists): `weight` is optional; `null`/absent = de
 | Method | Path | Contract |
 |---|---|---|
 | GET | `/auth-files` | 200 `{"observed_at":<RFC3339>,"files":[...]}` (§3.4); optional filters `?name=`, `?auth_index=` |
-| GET | `/auth-files/models` | `?name=` required → 400 `{"error":"name is required"}`; 200 `{"models":[{"id",...}]}` |
-| GET | `/auth-files/download` | `?name=<file.json>`; 400 `{"error":"invalid name"}` (empty or path separators), 400 `{"error":"name must end with .json"}`; 404 `{"error":"file not found"}`; success: 200, `Content-Type: application/json`, `Content-Disposition: attachment; filename="<name>"`, raw bytes |
+| GET | `/auth-files/models` | `?name=` required → 400 `{"error":"name is required"}` (recorded); 200 `{"models":[...]}` — for a provider with a static catalog this returns the FULL catalog (recorded for a `kimi` file: `{"display_name":"Kimi K2","id":"kimi-k2","owned_by":"moonshot","type":"kimi"}` and every other static kimi model, alphabetical key order) |
+| GET | `/auth-files/download` | `?name=<file.json>`; 400 `{"error":"invalid name"}` (empty or path separators), 400 `{"error":"name must end with .json"}`; 404 `{"error":"file not found"}`; success: 200, `Content-Type: application/json`, `Content-Disposition: attachment; filename="<name>"`, raw bytes of the PERSISTED file — which the reference CANONICALIZES: keys alphabetical, `disabled` flag persisted, fields written by `PATCH /auth-files/fields` included (recorded download bytes: `{"disabled":false,"email":"s5@example.com","note":"s5-note-value","priority":7,"type":"kimi"}`) |
 | POST | `/auth-files` | Either raw JSON body + `?name=<file.json>` (same 400s as download; 500 on write errors), or `multipart/form-data` (any field names, sorted; single file → 200 `{"status":"ok"}`; multiple → 200 `{"status":"ok","uploaded":N,"files":[...]}` or 207 `{"status":"partial","uploaded":N,"files":[...],"failed":[{"name","error"}]}`); non-`.json` filenames → 400 `{"error":"file must be .json"}` (multipart) / `{"error":"name must end with .json"}` (query); empty multipart → 400 `{"error":"no files uploaded"}` |
 | DELETE | `/auth-files` | `?name=` (repeatable), JSON body `{"name":..}`/`{"names":[..]}`/`["a","b"]`, or `?all=true|1|*`; single → 200 `{"status":"ok"}`; multi → 200 `{"status":"ok","deleted":N,"files":[...]}` or 207 partial; all → 200 `{"status":"ok","deleted":N}`; unknown name → 404 `{"error":"auth file not found"}`; unsafe name → 400 `{"error":"invalid name"}`; plugin virtual auth → 409 `{"error":"plugin virtual auth cannot be modified directly; edit or delete the source auth file"}` |
-| PATCH | `/auth-files/status` | Body `{"name","auth_index"?,"disabled":bool}`; 400 `{"error":"name is required"}` / `{"error":"disabled is required"}` / `{"error":"invalid request body"}`; 404 `{"error":"auth file not found"}`; success 200 `{"status":"ok","disabled":<bool>}`; config-derived api-key auths are disabled via the config instead → 200 adds `"via":"config:excluded-models","excluded_pattern":"*"`; plugin virtual auth → 409 (same message as DELETE) |
+| PATCH | `/auth-files/status` | Body `{"name","auth_index"?,"disabled":bool}`; 400 `{"error":"name is required"}` / `{"error":"disabled is required"}` / `{"error":"invalid request body"}`; 404 `{"error":"auth file not found"}`; success 200 `{"disabled":<bool>,"status":"ok"}` (alphabetical; recorded); config-derived api-key auths are disabled via the config instead → 200 adds `"via":"config:excluded-models","excluded_pattern":"*"`; plugin virtual auth → 409 (same message as DELETE) |
 | PATCH | `/auth-files/fields` | Body: `{"name":.., "<field>":<value>, ...}` plus optional `request_retry`; updates metadata fields on the auth file; 400 `{"error":"invalid request body"}`, `{"error":"name is required"}`, `{"error":"no fields to update"}`, `{"error":"field name is required"}`, `{"error":"invalid field <field>"}`, `{"error":"weight must be an integer"}`, `{"error":"weight does not support nested fields"}`, `{"error":"request_retry must be an integer or null"}`, `{"error":"request_retry does not support nested fields"}`, `{"error":"auth file fields \"a\" and \"b\" refer to the same field"}`; 404 `{"error":"auth file not found"}`; 409 plugin virtual; success 200 `{"status":"ok"}` |
 | POST | `/auth-files/refresh` | Query or JSON `{"name","auth_index","all"}`; 400 `{"error":"name or all=true is required"}`, `{"error":"invalid request body: ..."}`; 404 `{"error":"auth file not found"}`; `all=true` → 200 `{"ok":true,"results":[...]}`; single → 200 `{"ok":true,"auth":{...}}` (success path EXTERNAL — see §8) |
-| POST | `/vertex/import` | multipart field `file` = service-account JSON, optional `location` (form/query; default `us-central1`); 400 `{"error":"file required"}`, `{"error":"invalid json","message":...}`, `{"error":"invalid service account","message":...}`, `{"error":"project_id missing"}`; success 200 `{"status":"ok","auth-file":"<path>","project_id":...,"email":...,"location":...}`; persisted file name `vertex-<sanitized project_id>.json` |
+| POST | `/vertex/import` | multipart field `file` = service-account JSON, optional `location` (form/query; default `us-central1`). Validation order: missing file → 400 `{"error":"file required"}` (recorded); non-JSON → 400 `{"error":"invalid json","message":...}` (recorded: `invalid character 'o' in literal null (expecting 'u')`); `private_key` is parsed as a REAL PEM (RSA/PKCS#8) BEFORE the project_id check — a fake private_key → 400 `{"error":"invalid service account","message":"private_key is not valid pem: missing pem markers"}` (recorded; raw probe preserved at `_cpa_edge_ref/run4/probes/S5/S5-vertex-import-drafted-content/`); valid PEM but no `project_id` → 400 `{"error":"project_id missing"}` (recorded). Success 200, keys alphabetical: `{"auth-file":"<path>","email":...,"location":...,"project_id":...,"status":"ok"}` (recorded); persisted file name `vertex-<sanitized project_id>.json` (the fixture embeds a synthetic RSA-2048 PKCS#8 PEM) |
 
 **Usage / telemetry**
 
@@ -154,7 +154,7 @@ Weight validation (all provider lists): `weight` is optional; `null`/absent = de
 | POST | `/reset-quota` | Body `{"auth_index":"..."}`; 400 `{"error":"invalid request body"}` / `{"error":"auth_index is required"}`; 404 `{"error":"auth not found"}`; 200 `{"status":"ok","auth_index":"<idx>","models":[...]}` |
 | GET | `/quota/providers` | 200 `{"providers":[...]}` (empty when no plugin quota providers) |
 | POST | `/quota/fetch` | Body `{"auth_index":..,"provider"?,"plugin_id"?}`; 400 `{"error":"invalid request body"}` / `{"error":"auth_index is required"}`; 404 `{"error":"auth not found"}`; 501 `{"error":"no quota provider available for credential"}`; 502 `{"error":"failed to fetch quota: ..."}` |
-| POST | `/quota/reset` | Same selectors; 501 `{"error":"plugin host unavailable"}` / `{"error":"no quota provider available for credential to reset"}`; 404 `{"error":"quota provider not found for plugin"}`; 200 `{"status":"ok","auth_index":...,"message"?}` |
+| POST | `/quota/reset` | Same selectors; auth resolution PRECEDES the provider check: unknown `auth_index` → 404 `{"error":"auth not found"}` (recorded); with the plugin host absent and a real auth → 501 `{"error":"plugin host unavailable"}`; with a plugin host but no provider → 501 `{"error":"no quota provider available for credential to reset"}` / 404 `{"error":"quota provider not found for plugin"}`; success 200 `{"auth_index":...,"message"?,"status":"ok"}` |
 
 **Logs**
 
@@ -164,7 +164,7 @@ Weight validation (all provider lists): `weight` is optional; `null`/absent = de
 | DELETE | `/logs` | Same 400; 404 `{"error":"log directory not found"}`; 200 `{"success":true,"message":"Logs cleared successfully","removed":<n>}` (rotated files removed, `main.log` truncated) |
 | GET | `/request-error-logs` | 200 `{"files":[{"name","size","modified"}...]}` sorted by `modified` desc; `{"files":[]}` when `request-log` is enabled or the dir is missing |
 | GET | `/request-error-logs/:name` | Only `error-*.log` names; otherwise 404 `{"error":"log file not found"}`; `/` or `\` in name → 400 `{"error":"invalid log file name"}`; success streams the file as attachment |
-| GET | `/request-log-by-id/:id` | Suffix match `*-<requestID>.log`; missing id → 400 `{"error":"missing request ID"}`; `/`/`\` in id → 400 `{"error":"invalid request ID"}`; no match → 404 `{"error":"log file not found for the given request ID"}`; success streams the file as attachment |
+| GET | `/request-log-by-id/:id` | Suffix match `*-<requestID>.log`; missing id → 400 `{"error":"missing request ID"}`; `/`/`\` in id → 400 `{"error":"invalid request ID"}`; with `logging-to-file:false` and no log directory present → 404 `{"error":"log directory not found"}` (RECORDED); with a log directory present but no matching file → 404 `{"error":"log file not found for the given request ID"}`; success streams the file as attachment |
 
 **Plugins** (HTTP envelopes only; plugin runtime out of scope)
 
@@ -185,21 +185,27 @@ Weight validation (all provider lists): `weight` is optional; `null`/absent = de
 | Method | Path | Contract |
 |---|---|---|
 | GET | `/anthropic-auth-url`, `/codex-auth-url`, `/antigravity-auth-url`, `/kimi-auth-url`, `/xai-auth-url`, `/devin-auth-url`, `/meta-auth-url` | 200 `{"status":"ok","url":"<vendor authorize URL>","state":"<random>"}`; spawns a background wait (success path CREDENTIALED-ONLY — see §8); 500 `{"error":"failed to generate PKCE codes"}` etc. on internal failures |
-| GET | `/get-auth-status` | `?state=`; empty/missing state → 200 `{"status":"ok"}`; invalid state → 400 `{"status":"error","error":"invalid state"}`; unknown/expired → **200** `{"status":"error","error":"unknown or expired state"}`; pending → 200 `{"status":"wait"}`; completed → 200 `{"status":"ok"}`; errored session → 200 `{"status":"error","error":"<session message>"}` |
-| DELETE | `/oauth-session` | `?state=` required; missing → 400 `{"status":"error","error":"missing state"}`; invalid → 400 `{"status":"error","error":"invalid state"}`; success 200 `{"status":"ok","cancelled":<bool>}` (false when unknown/expired/completed) |
-| GET/POST | `/oauth-callback` | **No management key required** (availability middleware only). POST body `{"provider"?,"redirect_url"?,"code"?,"state"?,"error"?}`; GET equivalent query params (`error` falls back to `error_description`; `redirect_url` is parsed for `state`/`code`/`error` when direct fields are empty). 400 `{"status":"error","error":"invalid body"}` / `"state is required"` / `"invalid state"` / `"code or error is required"` / `"unsupported provider"` / `"provider does not match state"`; 404 `{"status":"error","error":"unknown or expired state"}`; 409 `{"status":"error","error":"oauth flow is already completed"}` / `"<session error message>"` / `"oauth flow is not pending"`; success 200 `{"status":"ok"}` |
+| GET | `/get-auth-status` | `?state=`; empty/missing state → 200 `{"status":"ok"}` (recorded, STEP 1); invalid state (path separator, >128 chars, bad charset) → 400 `{"error":"invalid state","status":"error"}` (recorded, STEPS 3-4); unknown/expired → **HTTP 200** `{"error":"unknown or expired state","status":"error"}` (recorded, STEP 2); pending → 200 `{"status":"wait"}`; completed → 200 `{"status":"ok"}`; errored session → 200 `{"error":"<session message>","status":"error"}` |
+| DELETE | `/oauth-session` | `?state=` required; missing → 400 `{"error":"missing state","status":"error"}` (recorded, STEP 5); invalid → 400 `{"error":"invalid state","status":"error"}`; success 200 `{"cancelled":<bool>,"status":"ok"}` (recorded, STEP 6: `{"cancelled":false,"status":"ok"}` for an unknown state) |
+| GET/POST | `/oauth-callback` | **No management key required** (availability middleware only). POST body `{"provider"?,"redirect_url"?,"code"?,"state"?,"error"?}`; GET equivalent query params (`error` falls back to `error_description`; `redirect_url` is parsed for `state`/`code`/`error` when direct fields are empty). NON-JSON body → 400 `{"error":"invalid body","status":"error"}` (recorded, STEP 12); a valid-JSON but state-less body (e.g. `{}` or `{"code":"x"}`) → 400 `{"error":"state is required","status":"error"}` (recorded, STEPS 8-9); state present but no code/error → 400 `{"error":"code or error is required","status":"error"}` (recorded, STEP 11). Other 400s: `"invalid state"`, `"unsupported provider"`, `"provider does not match state"`. 404 `{"error":"unknown or expired state","status":"error"}` (recorded, STEP 7); 409 `"oauth flow is already completed"` / `"<session error message>"` / `"oauth flow is not pending"`; success 200 `{"status":"ok"}`. All envelope bodies marshal gin.H keys ALPHABETICALLY (`error` before `status`). |
 
 **Misc**
 
 | Method | Path | Contract |
 |---|---|---|
-| POST | `/api-call` | Body `{"auth_index"? ("authIndex"/"AuthIndex" aliases),"method","url","proxy_url"?,"header"?,"data"?}`; 400 `{"error":"invalid body"}`, `{"error":"missing method"}`, `{"error":"missing url"}`, `{"error":"invalid url"}`, `{"error":"invalid proxy_url"}`, `{"error":"auth token not found"}`, `{"error":"auth token refresh failed"}`; 502 `{"error":"request failed"}`, `{"error":"failed to read response"}`; success 200 `{"status_code":<int>,"header":{<response headers>},"body":"<string>"}`. `$TOKEN$` in header values / body is substituted from the selected credential (access_token → api_key → token/id_token/cookie). Default timeout 60 s. Proxy precedence: request `proxy_url` > credential proxy > global `proxy-url` > direct. Header key `host` (any case) sets the request Host instead of a header. |
+| GET | `/model-definitions/:channel` | ONLY this path form is registered. `GET /model-definitions` — with or without `?channel=` — matches NO route and returns **404 with an empty body** (R-404; recorded, STEPS 1-2). An unknown `:channel` in the path → 400 `{"channel":"<channel>","error":"unknown channel"}` (recorded, STEP 5). A known channel → 200 `{"channel":"<lowercased channel>","models":[<static catalog>]}` where each model entry has keys `display_name`/`id`/`owned_by`/`type` in alphabetical order (recorded for `kimi`: the FULL static catalog). Supported channels (source: `internal/registry/model_definitions.go` `GetStaticModelDefinitionsByChannel`): `claude`, `gemini`, `gemini-interactions`, `vertex`, `aistudio`, `codex`, `kimi`, `antigravity`, `xai`/`x-ai`/`grok`, `devin`, `meta`/`muse`. The handler's query-param fallback and its `{"error":"channel is required"}` branch are unreachable on the anchored binary (the route requires `:channel`). |
+| POST | `/api-call` | Body `{"auth_index"? ("authIndex"/"AuthIndex" aliases),"method","url","proxy_url"?,"header"?,"data"?}`; 400 `{"error":"invalid body"}`, `{"error":"missing method"}`, `{"error":"missing url"}`, `{"error":"invalid url"}`, `{"error":"invalid proxy_url"}`, `{"error":"auth token not found"}`, `{"error":"auth token refresh failed"}`; 502 `{"error":"request failed"}`, `{"error":"failed to read response"}`; success 200 `{"status_code":<int>,"header":{<name>:["<value>",...]},"body":"<string>"}` — `header` is a Go multi-map: every value is an ARRAY of strings (recorded: `{"Content-Length":["100"],"Content-Type":["application/json"],"Date":[...],"Server":[...]}`); `body` preserves the upstream bytes verbatim as a string. `$TOKEN$` in header values / body is substituted from the selected credential (access_token → api_key → token/id_token/cookie); with NO `auth_index` selected, `$TOKEN$` passes through VERBATIM (recorded on the wire: `X-S5-Token: Bearer $TOKEN$`). Upstream requests are sent with `User-Agent: Go-http-client/1.1`. Default timeout 60 s. Proxy precedence: request `proxy_url` > credential proxy > global `proxy-url` > direct. Header key `host` (any case) sets the request Host instead of a header. |
 
 There is NO restart endpoint. Config mutations hot-reload in place (save + async reload; evidence: `internal/api/handlers/management/handler.go` `persistLocked`/`reloadConfigAfterManagementSaveAsync`). `POST /api-call` is the only outbound-proxy helper.
 
 ---
 
 ## 3. Schemas
+
+**JSON marshaling regimes (byte-exact contract material; confirmed by recordings):**
+- Bodies built as Go maps (`gin.H`) marshal keys **ALPHABETICALLY** — e.g. `{"cancelled":false,"status":"ok"}`, `{"changed":["config"],"ok":true}`, `{"disabled":true,"status":"ok"}`, every error body `{"error":"...","message"?}`.
+- Bodies built from structs marshal in **struct field-declaration order** — e.g. provider list entries (`{"api-key":...,"base-url":...,"models":[...],"auth-index":...}`), the `GET /config` object, and api-key-usage entries (`success`,`failed`,`recent_requests`).
+- Contract tests must compare the recorded byte order for each body.
 
 ### 3.1 `GET /config` — effective config object
 
@@ -248,7 +254,7 @@ Common fields (JSON names; evidence: `internal/config/config_types.go`):
 - `VertexCompatKey`: `api-key`, `priority`?, `weight`?, `prefix`?, `base-url`?, `proxy-url`?, `headers`?, `models`?, `excluded-models`?, `disable-cooling`?, `request-retry`?.
 - `OpenAICompatibility`: `name`, `priority`?, `disabled`, `prefix`?, `base-url`, `api-key-entries`? `[{api-key,weight?,proxy-url?}]`, `models` `[{name,alias,display-name?,max-context-length?,force-mapping?,image?,input-modalities?,output-modalities?,is-compat?,thinking?}]`, `headers`?, `support-prompt-cache-key`?, `disable-cooling`?, `request-retry`?, `request-scoped-errors`?.
 
-GET responses wrap each entry with an additional `"auth-index"` field (runtime credential index; empty string when the credential is not live). PATCH partial bodies touch only supplied fields (`weight` accepts integer or `null` to clear; `disable-cooling` accepts boolean or `null` — other types → 400 `{"error":"disable-cooling must be a boolean or null"}`).
+GET responses wrap each entry with an additional `"auth-index"` field (runtime credential index). Recorded facts: single-key providers (gemini/claude/codex/xai/meta/vertex/interactions) carry a real entry-level `auth-index` when the credential is live; for `openai-compatibility` entries that define `api-key-entries`, the ENTRY-level `auth-index` is empty (omitted from JSON) and EACH api-key entry carries its own real `auth-index` (recorded: `{"api-key":"s5-mock-key","auth-index":"1152a183f8c6a0c6"}`). Provider entries marshal in STRUCT order (name, disabled, base-url, api-key-entries, models — not alphabetical). PATCH partial bodies touch only supplied fields (`weight` accepts integer or `null` to clear; `disable-cooling` accepts boolean or `null` — other types → 400 `{"error":"disable-cooling must be a boolean or null"}`).
 
 PATCH selector rules (evidence: `config_lists.go`):
 - `index` used when in range; else `match` (api-key string; gemini/interactions additionally narrow with `?base-url=`; more than one match → 400 `{"error":"multiple items match; index is required"}`); openai-compatibility uses `name` instead of `match`.
@@ -257,27 +263,43 @@ PATCH selector rules (evidence: `config_lists.go`):
 
 ### 3.4 `GET /auth-files` entry
 
+The entry object is a `gin.H` map → all keys marshal ALPHABETICALLY. Recorded entry for an uploaded `{"type":"kimi","email":"s5@example.com"}` file (dynamic values masked):
+
 ```json
-{"id":"<auth id>","auth_index":"<short hash>","name":"<file.json>","type":"<provider>",
-"provider":"<provider>","label":"<label>","status":"active|disabled|...","status_message":"",
-"disabled":false,"unavailable":false,"runtime_only":false,"source":"file|memory",
-"size":<bytes>,"success":0,"failed":0,"recent_requests":[...],"cooldowns":null,
-"quota":{"observed_at":...,"signals":{}},"email":"...","priority":0,"note":"...",
-"path":"<abs path>","created_at":...,"modtime":...,"updated_at":...}
+{"account":"s5@example.com","account_type":"oauth","auth_index":"<16-hex>",
+"cooldowns":[],"created_at":"<LOCAL RFC3339>","disabled":false,"email":"s5@example.com",
+"failed":0,"id":"s5-kimi.json","label":"s5@example.com","last_refresh":"<LOCAL RFC3339>",
+"modtime":"<LOCAL RFC3339>","name":"s5-kimi.json","note":"s5-note-value",
+"path":"/root/.cli-proxy-api/s5-kimi.json","priority":7,"provider":"kimi",
+"quota":{"signals":{}},"recent_requests":[{"time":"HH:MM-HH:MM","success":0,"failed":0}, ...20 buckets...],
+"runtime_only":false,"size":<bytes>,"source":"file","status":"active","status_message":"",
+"success":0,"type":"kimi","unavailable":false,"updated_at":"<LOCAL RFC3339>"}
 ```
-Optional keys appear only when applicable: `model_quotas`, `supports_quota`, `quota_provider`, `quota_probe`, `project_id`, `account_type`, `account`, `last_refresh`, `next_retry_after`, `id_token` (codex claims: `chatgpt_account_id`, `plan_type`, ...), `weight`, `websockets`, `request_retry`.
-List-level envelope: `{"observed_at":"<RFC3339>","files":[...]}`; `files` is sorted case-insensitively by `name`.
+
+Recorded field semantics:
+- `cooldowns` is an EMPTY ARRAY `[]` when no cooldowns are active (Home mode disabled) — not null.
+- `quota` is `{"signals":{}}` when nothing has been observed; `observed_at` appears inside `quota` only after an observation.
+- `recent_requests` is a fixed array of 20 ten-minute WALL-CLOCK buckets `{"time":"HH:MM-HH:MM","success":n,"failed":n}` (bucket labels are recording-time dynamic fields).
+- `created_at`/`modtime`/`updated_at`/`last_refresh` serialize the server's LOCAL time zone offset (recorded: `+08:00`), while the envelope `observed_at` is UTC (`Z`). Contract tests mask timestamps but MAY assert the presence of an offset in entry fields.
+- `note` and `priority` appear after `PATCH /auth-files/fields`; `account`/`account_type`/`project_id` appear per provider (vertex entries carry `project_id`; email-based providers carry `account`/`account_type:"oauth"`).
+- `size` is the byte size of the persisted file on disk.
+- `id` equals the file name for file-backed credentials (`s5-kimi.json`); `path` is the absolute in-container path (masked).
+- Other optional keys appear only when applicable: `model_quotas`, `supports_quota`, `quota_provider`, `quota_probe`, `next_retry_after`, `id_token` (codex claims: `chatgpt_account_id`, `plan_type`, ...), `weight`, `websockets`, `request_retry`.
+
+List-level envelope (gin.H, alphabetical): `{"files":[...],"observed_at":"<UTC RFC3339>"}`; `files` is sorted case-insensitively by `name`.
+
+The persisted auth FILE itself is canonicalized by the reference (recorded download bytes): `{"disabled":false,"email":"s5@example.com","note":"s5-note-value","priority":7,"type":"kimi"}` — alphabetical keys, `disabled` flag always persisted, patched fields included.
 
 
 ### 3.5 `GET /api-key-usage` / `GET /usage-queue`
 
-- `api-key-usage`: object; first level keyed by provider (lowercased; `compat_name` attribute wins for openai-compatibility entries), second level keyed by the composite string `"<base_url>|<api_key>"`; entries: `{"success":int,"failed":int,"recent_requests":[...]}`. `recent_requests` is a fixed bucket array (dynamic timestamps).
-- `usage-queue`: JSON array; each element is the raw queued usage record object (verbatim JSON), or a JSON string when the record bytes are not valid JSON. Records are POPPED (destructive read), oldest first.
+- `api-key-usage`: object; first level keyed by provider, second level keyed by the composite string `"<base_url>|<api_key>"`; entries (struct order): `{"success":int,"failed":int,"recent_requests":[...]}`. Recorded facts on the fleet config with zero traffic: provider keys are `claude`, `codex`, `gemini`, `gemini-interactions`, `meta`, `mock-openai`, `vertex`, `xai` — openai-compatibility entries key under the provider NAME (`compat_name`), and the interactions provider keys as `gemini-interactions`; the composite key keeps the FULL configured base-url including any path suffix (recorded: `http://host.docker.internal:21999/v1|mock-upstream-key`); `recent_requests` is the same fixed 20-bucket wall-clock array as the auth-files entry.
+- `usage-queue`: JSON array; each element is the raw queued usage record object (verbatim JSON), or a JSON string when the record bytes are not valid JSON. Records are POPPED (destructive read), oldest first. Recorded empty state: `[]` (any `count`).
 
 ### 3.6 OAuth session payloads
 
 - auth-url endpoints: `{"status":"ok","url":"<authorize URL with PKCE/state>","state":"<state>"}`.
-- `get-auth-status` / `oauth-session` / `oauth-callback`: envelope `{"status":"ok"|"wait"|"error","error"?:string,"cancelled"?:bool}` — note `status:"error"` responses still use HTTP 200 on `get-auth-status`, but 400/404/409 on `oauth-callback` and 400 on `oauth-session`.
+- `get-auth-status` / `oauth-session` / `oauth-callback`: envelope `{"status":"ok"|"wait"|"error","error"?:string,"cancelled"?:bool}` with gin.H keys marshaled ALPHABETICALLY on the wire (recorded: `{"cancelled":false,"status":"ok"}`, `{"error":"state is required","status":"error"}`). `status:"error"` responses still use HTTP 200 on `get-auth-status`, but 400/404/409 on `oauth-callback` and 400 on `oauth-session`.
 - State validation: trimmed, non-empty, ≤128 chars, no `/`, no `\`, no `..`, printable ASCII letters/digits only (evidence: `internal/api/handlers/management/oauth_sessions.go` `ValidateOAuthState`).
 
 ---
@@ -297,7 +319,7 @@ Common shape: `{"error":"<message>"}` — a single string field. Some endpoints 
 
 | Status | Producers |
 |---|---|
-| 400 | Malformed JSON bodies (`invalid body` family), missing selectors (`missing index or value`, `missing api-key or index`, `missing name or index`, `missing provider`, `missing channel`, `name is required`, `channel is required`, `auth_index is required`, `count must be a positive integer`, `invalid strategy`, `invalid name`, `name must end with .json`, `file must be .json`, `no files uploaded`, `invalid body`, `invalid_yaml`, `invalid url`, `missing method`, `missing url`, `missing state`, `invalid state`, `invalid plugin_id`, `weight must not exceed 1000000`, ...) |
+| 400 | Malformed JSON bodies (`invalid body` family), missing selectors (note: the model-definitions `channel is required` branch is DEAD CODE on the anchored binary — see §8.9) (`missing index or value`, `missing api-key or index`, `missing name or index`, `missing provider`, `missing channel`, `name is required`, `auth_index is required`, `count must be a positive integer`, `invalid strategy`, `invalid name`, `name must end with .json`, `file must be .json`, `no files uploaded`, `invalid body`, `invalid_yaml`, `invalid url`, `missing method`, `missing url`, `missing state`, `invalid state`, `invalid plugin_id`, `weight must not exceed 1000000`, ...) |
 | 401 | Missing/invalid management key (§2.2) |
 | 403 | Remote management disabled; no secret; IP ban (§2.2) |
 | 404 | Unknown route or wrong method (EMPTY body, R-404); `item not found` (provider list PATCH/DELETE); `provider not found` / `channel not found` (oauth maps); `auth file not found`; `auth not found` (quota/reset-quota); `file not found` (download); `not_found` (config.yaml GET); `plugin_not_found`; `log file not found`; `unknown or expired state` (oauth-callback) |
@@ -305,7 +327,7 @@ Common shape: `{"error":"<message>"}` — a single string field. Some endpoints 
 | 409 | `oauth flow is already completed` / session error replay (oauth-callback); plugin virtual auth conflict |
 | 422 | `invalid_config` (+`message`) on PUT `/config.yaml` |
 | 500 | Save/persist failures (`failed to save config: ...`), internal generation errors, `handler unavailable`/`handler not initialized` |
-| 501 | `no quota provider available for credential` (POST `/quota/fetch`, `/quota/reset`) |
+| 501 | `no quota provider available for credential` (POST `/quota/fetch` with a resolved auth — recorded); `/quota/reset` variants `plugin host unavailable` / `no quota provider available for credential to reset` (only after auth resolution) |
 | 502 | `request failed` / `failed to read response` (api-call transport errors); `latest-version` upstream failures; `failed to fetch quota: ...` |
 | 503 | `core auth manager unavailable` (auth-file POST/DELETE/refresh/status/fields, api-key-usage, reset-quota); `configuration unavailable`; `Codex auth manager unavailable` style errors |
 
@@ -339,16 +361,18 @@ Recording environment (@oracle-runner-4 stack): reference on `127.0.0.1:8407`, m
 | S5-auth-files-roundtrip | auth-files list/upload/status/fields/download/delete | `tests/fixtures/S5/S5-auth-files-roundtrip/` | Date, observed_at, auth_index, created_at/modtime/updated_at, recent_requests, quota, cooldowns, path |
 | S5-auth-files-errors | auth-files validation and 404 error family | `tests/fixtures/S5/S5-auth-files-errors/` | Date, observed_at, auth_index, timestamps |
 | S5-usage-telemetry | api-key-usage {}, usage-queue [], count validation | `tests/fixtures/S5/S5-usage-telemetry/` | Date |
-| S5-quota-endpoints | quota providers/fetch/reset on empty state | `tests/fixtures/S5/S5-quota-endpoints/` | Date |
-| S5-logs-disabled | logs endpoints in logging-disabled state + request-log toggle | `tests/fixtures/S5/S5-logs-disabled/` | Date |
-| S5-model-definitions | channel catalog + unknown channel errors | `tests/fixtures/S5/S5-model-definitions/` | Date |
-| S5-oauth-session | get-auth-status / oauth-session cancel / oauth-callback errors (no key needed for oauth-callback) | `tests/fixtures/S5/S5-oauth-session/` | Date |
+| S5-quota-endpoints | quota providers/fetch/reset on empty quota-provider state (incl. 501 with a real auth_index via AUX GET /gemini-api-key) | `tests/fixtures/S5/S5-quota-endpoints/` | Date, auth_index values |
+| S5-logs-disabled | logs endpoints in logging-disabled state + request-log toggle (recorded request-log-by-id variant: `log directory not found`) | `tests/fixtures/S5/S5-logs-disabled/` | Date |
+| S5-model-definitions | :channel catalog (kimi full static list), unknown-channel 400, and the 404-empty query-form route gap | `tests/fixtures/S5/S5-model-definitions/` | Date |
+| S5-oauth-session | get-auth-status / oauth-session cancel / oauth-callback error family incl. non-JSON body `invalid body` (no key needed for oauth-callback) | `tests/fixtures/S5/S5-oauth-session/` | Date |
 | S5-api-call-mock | api-call against local mock + url/method validation | `tests/fixtures/S5/S5-api-call-mock/` | Date, upstream header map (Date/Content-Length of mock reply) |
-| S5-vertex-import | vertex service-account import + cleanup + error paths | `tests/fixtures/S5/S5-vertex-import/` | Date, auth-file path, auth dir paths, observed_at/auth_index/timestamps in list |
+| S5-vertex-import | vertex service-account import (synthetic RSA-2048 PKCS#8 PEM embedded) + cleanup + error paths incl. PEM validation | `tests/fixtures/S5/S5-vertex-import/` | Date, auth-file path, auth dir paths, observed_at/auth_index/timestamps/size in list |
 | S5-config-yaml | config.yaml GET raw bytes + PUT validation/round trip | `tests/fixtures/S5/S5-config-yaml/` | Date, bcrypt secret-key hash in YAML bytes |
 | S5-plugins-list | plugins list empty state + invalid id + enabled validation | `tests/fixtures/S5/S5-plugins-list/` | Date |
 
-Case definitions with exact requests: `spec/recordings/S5.cases.json`. (Counts updated by @oracle-runner recording results.)
+Case definitions with exact requests: `spec/recordings/S5.cases.json`.
+
+**Recording status (2026-09-16, @oracle-runner-4):** all 22 cases RECORDED — 22 fixture directories, 167 request/response steps (166 declared + 1 declared optional that was executed + 1 AUX helper step; includes the 2-step addendum appended to S5-model-definitions and S5-oauth-session). Zero cases skipped; the 6 `fixture_deferred` behaviors remain unrecorded by design. 17/22 cases matched the source-derived predictions byte-exactly; 5 deviations (model-definitions query-form 404-empty, quota/reset auth-first ordering, oauth-callback `{}` semantics, request-log-by-id variant, gin.H alphabetical key order) are folded into §2.3/§3 above and carried as recorded bytes in the fixtures. Raw evidence: `_cpa_edge_ref/run4/probes/S5/` (boot logs, exact request bytes, structured responses, and the `S5-vertex-import-drafted-content` side recording). Each fixture `meta.yaml` lists per-step `http_status`, `expect_status`, mismatch verdicts, and the masked dynamic fields.
 
 ---
 
@@ -368,11 +392,14 @@ FIXTURE-DEFERRED (specified, not recorded; reasons):
 
 ## 8. Open questions and intentional non-equivalences
 
-1. `get-auth-status` returns HTTP 200 with `{"status":"error",...}` for failed flows (quirk); upstream clients poll this endpoint. CPA-Edge MUST mirror the 200-with-error-body behavior (testable via S5-oauth-session golden? no — the error states for unknown state are 200 and recorded; keep).
+1. `get-auth-status` returns HTTP 200 with `{"error":...,"status":"error"}` for failed flows (quirk); upstream clients poll this endpoint. CPA-Edge MUST mirror the 200-with-error-body behavior — recorded in S5-oauth-session STEP 2 (unknown state → 200 `{"error":"unknown or expired state","status":"error"}`).
 2. The upstream server HASHES the plaintext `secret-key` in the mounted config file on startup (bcrypt) and hot-reloads `config.yaml` on change. Whether CPA-Edge persists the same bcrypt normalization is a runtime/store concern (S6); S5 requires only that the PLAINTEXT value remains the accepted key after any in-place mutation, and that `GET /config` never exposes `remote-management`.
 3. `GET /config` exposes the full effective config INCLUDING all provider API keys (secrets in the response). This is upstream behavior; CPA-Edge mirrors it for compatibility (management key required). Non-equivalence candidate for S7 (degradation: mask secrets) — flagged, not decided.
-4. `GET /config` for `claude-api-key` etc. returns `null` (not `[]`) when the list is empty, while `GET /claude-api-key` (the list endpoint) returns `[]`-shaped arrays (`{"claude-api-key":[]}` since Go nil slices marshal as `null` too — observed value in the oracle config: `null`). Contract tests must accept the recorded form (`null`) — verification deferred to oracle recording of S5-gemini-key-crud (empty-state GET).
+4. RESOLVED by recording: an empty provider list returns `{"<path>":[]}` from the list endpoints (S5-gemini-key-crud STEP 14: `{"gemini-api-key":[]}`) while `GET /config` shows the same lists as `null` when unset (bootstrap probe 13). Both forms are contract-testable against their respective goldens.
 5. `PATCH /auth-files/fields` accepts arbitrary metadata keys; the full normalization/canonicalization matrix (e.g. `model_aliases` vs `model-aliases`) is only partly covered here; S6 owns the auth-file schema.
 6. The IP-ban window (5 failures / 30 min) is part of the auth contract (S3); S5 records only the 401 paths to avoid leaving the oracle banned. The ban message format is specified but the golden is not recorded (non-deterministic duration).
 7. `usage-queue` pops records destructively; repeated GETs return different arrays. Golden recorded only for the empty/validated state. A seeded-queue golden would need a deterministic producer; deferred as a S6 concern.
-8. `PUT /config.yaml` accepts any YAML that parses and validates; the recorded golden uses the exact oracle config template with a changed `request-retry`. Whether CPA-Edge accepts byte-identical YAML (comment preservation) is a store concern (S6).
+8. `PUT /config.yaml` accepts any YAML that parses and validates; the recorded golden uses the exact oracle fleet config with a changed `request-retry` (success body `{"changed":["config"],"ok":true}`). Whether CPA-Edge accepts byte-identical YAML (comment preservation) is a store concern (S6).
+9. `/model-definitions/:channel` exists ONLY in path form; the query-param fallback and its `channel is required` 400 are dead code on the anchored binary (query-form requests 404 empty). CPA-Edge registers the route the same way; the dead branches are OPTIONAL to implement but, if present, must not be reachable.
+10. `PATCH /auth-files/fields` persists a canonicalized JSON file (alphabetical keys, `disabled` flag, patched fields) — recorded via the download golden. Whether CPA-Edge persists the caller's exact uploaded bytes instead is an intentional non-equivalence candidate; the wire-visible list/download contract is what the goldens pin.
+11. Entry timestamps in `GET /auth-files` serialize the server's LOCAL UTC offset while the envelope `observed_at` is UTC. CPA-Edge may emit a fixed-offset form; contract tests mask timestamps, but the offset format (`±HH:MM`) must be present if the field is emitted at all.

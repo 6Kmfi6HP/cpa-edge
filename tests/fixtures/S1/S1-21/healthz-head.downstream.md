@@ -1,24 +1,19 @@
-# S1-21 / healthz-head — downstream response (exact bytes)
+# healthz-head (config variant: baseline)
 
-## Status + response headers (received order)
+## Status + response headers
 ```
 HTTP/1.1 200 OK
 Access-Control-Allow-Headers: *
 Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS
 Access-Control-Allow-Origin: *
 Access-Control-Expose-Headers: X-CPA-TRACE-ID, X-CPA-VERSION, X-CPA-COMMIT, X-CPA-BUILD-DATE, X-CPA-SUPPORT-PLUGIN, X-CPA-HOME-VERSION, X-CPA-HOME-BUILD-DATE, X-SERVER-VERSION, X-SERVER-BUILD-DATE, Location, Retry-After, X-Request-Id, OpenAI-Request-Id
-Date: Tue, 15 Sep 2026 16:46:48 GMT
+Date: Tue, 15 Sep 2026 17:28:23 GMT
 
 ```
 
-## Body (stdout)
+## Body (HEAD request: empty by definition)
 ```
-HTTP/1.1 200 OK
-Access-Control-Allow-Headers: *
-Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS
-Access-Control-Allow-Origin: *
-Access-Control-Expose-Headers: X-CPA-TRACE-ID, X-CPA-VERSION, X-CPA-COMMIT, X-CPA-BUILD-DATE, X-CPA-SUPPORT-PLUGIN, X-CPA-HOME-VERSION, X-CPA-HOME-BUILD-DATE, X-SERVER-VERSION, X-SERVER-BUILD-DATE, Location, Retry-After, X-Request-Id, OpenAI-Request-Id
-Date: Tue, 15 Sep 2026 16:46:48 GMT
+
 ```
 
 HTTP status: 200

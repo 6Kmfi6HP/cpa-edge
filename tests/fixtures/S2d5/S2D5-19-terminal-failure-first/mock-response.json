@@ -1,0 +1,23 @@
+{
+  "control_file": {
+    "mode": "happy",
+    "script": "s2d5-fail-first"
+  },
+  "script": "s2d5-fail-first",
+  "script_events": [
+    {
+      "event": "response.failed",
+      "data": {
+        "type": "response.failed",
+        "response": {
+          "id": "resp_mock_fail_02",
+          "error": {
+            "code": "server_error",
+            "message": "upstream mock failed before any output"
+          },
+          "status": "failed"
+        }
+      }
+    }
+  ]
+}

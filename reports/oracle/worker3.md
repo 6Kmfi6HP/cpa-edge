@@ -104,3 +104,24 @@ NONE in request/response semantics. Two non-deviation observations:
 Send cases files + target fixture dirs per the RECIPES contract in `BOOTSTRAP.md` §7. I record
 into `tests/fixtures/<step>/<case>/` only when a mission assigns that dir; I never approximate
 a mode/behavior I cannot reproduce — I say so explicitly instead.
+
+## Recording missions completed (2026-09-16)
+
+All against the v7.3.4 anchor on the worker-3 stack; fixtures in RECIPES layout; raw transcripts
+under `_cpa_edge_ref/run3/probes/<step>/`; drivers under `_cpa_edge_ref/run3/tools/record_*.py`.
+
+| Step | Cases | Fixture dir | Mock extensions in run3/mock (mine only) | Key deviations recorded |
+|---|---|---|---|---|
+| S7 | 15 (+S7-16 deferred, not recorded) | `tests/fixtures/S7/` | none | ws-auth unset => auth REQUIRED (S7-01 401); logs land under AUTH DIR (S7-10); /v1/models non-empty on fleet config (S7-14); forwarder 302 port = config port (S7-13) |
+| S2d7 | 25 (23 + 2 follow-up valid-args) | `tests/fixtures/S2d7/` | mock_claude.py: control `variant` tool/errstream/maxtokens/tool-valid | verbatim model name does NOT resolve on /v1beta; cooldown surfaces 429 (not 500); invalid input_json_delta spliced RAW (invalid-JSON frame, top-level finishReason, duplicate usageMetadata) — valid args confirm clean-shape hypothesis |
+| S2d2 | 20 | `tests/fixtures/S2d2/` | mock_openai.py: control `scenario` (7 byte-exact scripts) + mocklib raw-string error_body | thinkingLevel auto -> reasoning_effort medium (no passthrough); cooldown 429 + reset 4s + Retry-After 4; models/-prefixed single-model GET 404s |
+| S2d5 | 24 | `tests/fixtures/S2d5/` | responses_common.py: control `script` (9 scripts via s2d5_scripts.json) + mocklib x-mock-script | cooldown pair: R2 429 (not 500), reset 4/4s, last_upstream_error VERBATIM body (codex keeps raw, unlike openai-compat summary); rate-limit window outlasts the reported 1s — leave >=5s between error cases |
+
+Operational notes for future missions on this stack:
+- Rate-limit cooldowns are NOT disabled by `transient-error-cooldown-seconds: -1` and outlast the
+  reported reset tail (1s reported, ~4s effective for codex/openai-compat). Wait >= 5s between
+  error-mode cases; fire cooldown-pair B within <1s of A.
+- The server persists management PUTs into config.yaml (e.g. `ws-auth: false` appears in the echo);
+  reset config from `run3/run/config.pristine.yaml` between container sessions.
+- Enabling logging-to-file also revealed: per-request error dumps (`error-*.log`) are written under
+  the AUTH DIR even while logging is off (see S7-10/logs.md + aux copies in probes/S7/aux-logs/).

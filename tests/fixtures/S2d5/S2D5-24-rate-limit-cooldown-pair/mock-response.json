@@ -1,0 +1,16 @@
+{
+  "control_file": {
+    "mode": "error",
+    "status": 429
+  },
+  "reply": {
+    "status": 429,
+    "body": {
+      "error": {
+        "message": "mock rate limit",
+        "type": "rate_limit_exceeded",
+        "code": "rate_limit_exceeded"
+      }
+    }
+  }
+}

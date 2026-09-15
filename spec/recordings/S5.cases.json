@@ -1378,8 +1378,8 @@
             "Authorization: Bearer oracle-mgmt-key-1"
           ],
           "body": "{\"auth_index\":\"x\",\"plugin_id\":\"nope\"}",
-          "note": "unknown plugin id but auth must resolve first; use auth_index of a real provider list entry to expose the quota-provider-not-found family if convenient",
-          "optional": true
+          "note": "executed with a real auth_index from AUX-1 GET /gemini-api-key (openai-compat entry has an empty entry-level auth-index; the gemini entry carries a real one)",
+          "optional": false
         },
         {
           "seq": 5,
@@ -1415,18 +1415,19 @@
           200,
           400,
           404,
-          "see-note",
           501,
+          404,
           400,
           404
         ],
         "body_notes": [
           "step 1: {\"providers\":[]}",
           "step 2: {\"error\":\"auth_index is required\"}",
-          "step 3/5/7: {\"error\":\"auth not found\"}",
-          "step 6: {\"error\":\"auth_index is required\"}",
-          "step 4 optional: with a real auth_index (from a provider list GET) expect 501 {\"error\":\"no quota provider available for credential\"} (plugin host absent in the oracle env, no quota_probe metadata)"
-        ]
+          "step 3/5/7: {\"error\":\"auth not found\"} — auth resolution PRECEDES the quota-provider check (recorded)",
+          "step 4 (executed with a real auth_index fetched via AUX GET /gemini-api-key): 501 {\"error\":\"no quota provider available for credential\"} (RECORDED)",
+          "step 6: {\"error\":\"auth_index is required\"}"
+        ],
+        "aux_note": "AUX-1 GET /v0/management/gemini-api-key supplies a real auth-index for step 4; the openai-compatibility entry exposes an EMPTY entry-level auth-index while its api-key-entries carry real ones"
       },
       "dynamic_fields": [
         "Date",
@@ -1552,7 +1553,7 @@
           "step 3/7: {\"files\":[]}",
           "step 4: {\"request-log\":false} step 6: true step 9: false",
           "step 10: {\"error\":\"log file not found\"}",
-          "step 11: {\"error\":\"log file not found for the given request ID\"} OR {\"error\":\"log directory not found\"} — record whichever the binary returns"
+          "step 11 (RECORDED): {\"error\":\"log directory not found\"} (logging-to-file:false and no log dir present)"
         ]
       },
       "dynamic_fields": [
@@ -1598,20 +1599,30 @@
             "Authorization: Bearer oracle-mgmt-key-1"
           ],
           "note": "channel is case-normalized in the response"
+        },
+        {
+          "seq": 5,
+          "method": "GET",
+          "path": "/v0/management/model-definitions/unknown",
+          "headers": [
+            "X-Management-Key: oracle-mgmt-key-1"
+          ],
+          "note": "ADDENDUM step recorded after the main batch: path-form unknown channel -> 400 {\"channel\":\"unknown\",\"error\":\"unknown channel\"}"
         }
       ],
       "record": "status+headers+body for all 4",
       "expect": {
         "statuses": [
-          400,
-          400,
+          404,
+          404,
           200,
-          200
+          200,
+          400
         ],
         "body_notes": [
-          "step 1: {\"error\":\"channel is required\"}",
-          "step 2: {\"error\":\"unknown channel\",\"channel\":\"unknown\"}",
-          "step 3/4: {\"channel\":\"kimi\",\"models\":[...static kimi catalog...]}; step 4 body channel value is lowercased"
+          "steps 1-2: 404 with EMPTY body — the route is /model-definitions/:channel only; the query form matches no route (RECORDED)",
+          "step 3/4: {\"channel\":\"kimi\",\"models\":[...full static kimi catalog...]}; step 4 body channel value is lowercased",
+          "step 5 (ADDENDUM, recorded): GET /model-definitions/unknown -> 400 {\"channel\":\"unknown\",\"error\":\"unknown channel\"} (gin.H alphabetical)"
         ]
       },
       "dynamic_fields": [
@@ -1711,6 +1722,16 @@
           "headers": [],
           "body": "{\"state\":\"abc\"}",
           "note": "state but no code and no error"
+        },
+        {
+          "seq": 12,
+          "method": "POST",
+          "path": "/v0/management/oauth-callback",
+          "headers": [
+            "Content-Type: application/json"
+          ],
+          "body": "not json",
+          "note": "ADDENDUM step recorded after the main batch: non-JSON body -> 400 {\"error\":\"invalid body\",\"status\":\"error\"} (no management key needed)"
         }
       ],
       "record": "status+headers+body for all 11",
@@ -1730,15 +1751,15 @@
         ],
         "body_notes": [
           "step 1: {\"status\":\"ok\"}",
-          "step 2: {\"status\":\"error\",\"error\":\"unknown or expired state\"} (HTTP 200)",
-          "step 3/4: {\"status\":\"error\",\"error\":\"invalid state\"}",
-          "step 5: {\"status\":\"error\",\"error\":\"missing state\"}",
-          "step 6: {\"status\":\"ok\",\"cancelled\":false}",
-          "step 7: {\"status\":\"error\",\"error\":\"unknown or expired state\"} (404)",
-          "step 8: {\"status\":\"error\",\"error\":\"invalid body\"}",
-          "step 9: {\"status\":\"error\",\"error\":\"state is required\"}",
-          "step 10: {\"status\":\"error\",\"error\":\"invalid state\"}",
-          "step 11: {\"status\":\"error\",\"error\":\"code or error is required\"}"
+          "step 2: {\"error\":\"unknown or expired state\",\"status\":\"error\"} (HTTP 200; gin.H keys alphabetical)",
+          "step 3/4: {\"error\":\"invalid state\",\"status\":\"error\"}",
+          "step 5: {\"error\":\"missing state\",\"status\":\"error\"}",
+          "step 6: {\"cancelled\":false,\"status\":\"ok\"}",
+          "step 7: {\"error\":\"unknown or expired state\",\"status\":\"error\"} (404)",
+          "step 8/9: {\"error\":\"state is required\",\"status\":\"error\"} — a valid-JSON body without state fails the STATE check, not binding (RECORDED)",
+          "step 10: {\"error\":\"invalid state\",\"status\":\"error\"}",
+          "step 11: {\"error\":\"code or error is required\",\"status\":\"error\"}",
+          "step 12 (ADDENDUM, recorded): POST /oauth-callback with body \"not json\" -> 400 {\"error\":\"invalid body\",\"status\":\"error\"}"
         ]
       },
       "dynamic_fields": [
@@ -1876,7 +1897,7 @@
             "Content-Type: multipart/form-data; boundary=X"
           ],
           "body": "multipart/form-data; field 'file' = file part 'sa.json' with content {\"type\":\"service_account\",\"project_id\":\"s5-project\",\"client_email\":\"s5@fixture.iam.gserviceaccount.com\",\"private_key\":\"mock\"}",
-          "note": "import"
+          "note": "import — ATTENTION: private_key is validated as a REAL PEM (RSA/PKCS#8) before project_id; the recording embeds a locally generated synthetic RSA-2048 PKCS#8 PEM in the multipart file part (see meta.yaml adaptations). The originally drafted fake private_key \"mock\" yields 400 {\"error\":\"invalid service account\",\"message\":\"private_key is not valid pem: missing pem markers\"} (raw probe preserved at _cpa_edge_ref/run4/probes/S5/S5-vertex-import-drafted-content/)"
         },
         {
           "seq": 2,
@@ -1929,7 +1950,7 @@
             "Content-Type: multipart/form-data; boundary=X"
           ],
           "body": "same as step 1 but with an additional form field location=us-east1",
-          "note": "location override"
+          "note": "same as step 1 (with the embedded PEM) but with an additional form field location=us-east1"
         },
         {
           "seq": 7,
@@ -2066,7 +2087,7 @@
           "step 1: raw YAML bytes, headers application/yaml + no-store + nosniff (contains the bcrypt hash)",
           "step 2: {\"error\":\"invalid_yaml\",\"message\":\"...\"}",
           "step 3: {\"error\":\"invalid_config\",\"message\":\"gemini-api-key[0].weight: weight must not exceed 1000000\"}",
-          "step 4: {\"ok\":true,\"changed\":[\"config\"]}",
+          "step 4: {\"changed\":[\"config\"],\"ok\":true} (gin.H alphabetical)",
           "step 5: {\"request-retry\":2} step 7: {\"request-retry\":0}"
         ]
       },
@@ -2247,5 +2268,23 @@
     "vertex_import": "internal/api/handlers/management/vertex_import.go (ImportVertexCredential); internal/config/vertex_compat.go (VertexCompatKey)",
     "model_definitions": "internal/registry/model_definitions.go (GetStaticModelDefinitionsByChannel channel list); internal/api/handlers/management/model_definitions.go",
     "recorded_probes": "reports/oracle/BOOTSTRAP.md §4 probes 11-15 (mgmt auth failures, api-keys GET, unknown sub-route 404 empty, config GET 200 body)"
+  },
+  "recording_result": {
+    "recorded_by": "oracle-runner-4 (CLIProxyAPI v7.3.4 @ 8335eac, image sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266)",
+    "recorded_at": "2026-09-16",
+    "fixture_dir": "tests/fixtures/S5/",
+    "cases_recorded": 22,
+    "cases_skipped": 0,
+    "steps_recorded": 167,
+    "steps_note": "166 case steps + 1 AUX helper step (S5-quota-endpoints AUX-1); includes the 2-step addendum appended to S5-model-definitions and S5-oauth-session",
+    "deviations_from_predictions": [
+      "model-definitions steps 1-2: query-form requests 404 with EMPTY body (route is path-form only)",
+      "quota/reset with unknown auth_index: 404 auth not found (auth resolution precedes provider check)",
+      "oauth-callback {} body: state is required (not invalid body); invalid body only for non-JSON",
+      "request-log-by-id with logs disabled: log directory not found",
+      "gin.H bodies marshal keys alphabetically (config-yaml success, oauth envelopes, status toggles)"
+    ],
+    "byte_order_rule": "gin.H/map bodies alphabetical; struct bodies keep declaration order",
+    "raw_evidence": "_cpa_edge_ref/run4/probes/S5/ (+ S5-vertex-import-drafted-content/ side probe)"
   }
 }

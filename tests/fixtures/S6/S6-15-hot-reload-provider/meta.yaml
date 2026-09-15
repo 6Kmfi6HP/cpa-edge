@@ -2,7 +2,7 @@
   "case": "S6-15-hot-reload-provider",
   "purpose": "Config file edit is hot-reloaded: new openai-compatibility provider appears in /v1/models without restart (B22, section 3.3.4).",
   "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image eceasy/cli-proxy-api:v7.3.4 (digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266)",
-  "recorded_at": "2026-09-15T17:26:22.355321+00:00",
+  "recorded_at": "2026-09-15T17:29:57.386932+00:00",
   "client_protocol": "raw HTTP/1.1 over TCP socket; User-Agent: oracle-s3-probe/1.0; Connection: close",
   "upstream_provider": "none (management/config surface only)",
   "stream": false,
@@ -56,5 +56,5 @@
   ],
   "notes": [],
   "expect_note": "expect entries in the cases file are predictions; recorded bytes are authoritative",
-  "hot_model_visible": false
+  "hot_model_visible": true
 }

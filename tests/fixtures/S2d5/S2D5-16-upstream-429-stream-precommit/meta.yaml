@@ -1,0 +1,40 @@
+{
+  "case": "S2D5-16-upstream-429-stream-precommit",
+  "recorded_at": "2026-09-15T17:27:40Z",
+  "recorder": "oracle-runner-3",
+  "version": {
+    "image": "eceasy/cli-proxy-api:v7.3.4",
+    "digest": "sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+    "commit": "8335eac731946bd4eff18f500653f93736df53d6",
+    "binary_self_report": "CLIProxyAPI Version: v7.3.4, Commit: 8335eac, BuiltAt: 2026-09-15T14:07:06Z"
+  },
+  "client_protocol": "openai chat completions (/v1/chat/completions, Bearer)",
+  "upstream_provider_type": "codex-api-key (mock_codex.py, worker-3 port 21003)",
+  "stream": true,
+  "base_url": "http://127.0.0.1:8397",
+  "port_adaptation": "cases file 18317->8397 (downstream); upstream mock 19003->21003 (worker-3)",
+  "purpose": "Stream client + upstream 429 before any chunk → pre-commit error response (no SSE headers, no [DONE]).",
+  "dynamic_fields": [
+    "X-Cpa-Trace-Id (response header)",
+    "Date (response header)",
+    "Session-Id / prompt_cache_key derived session UUID (upstream header + body; mask per-case when derived, keep when fixed by the case)",
+    "Host, Content-Length, Accept-Encoding (transport-level headers in the upstream wire log)",
+    "upstream Host port (21003)",
+    "mock wire log ts"
+  ],
+  "upstream_wire_delta_lines": 1,
+  "upstream_wire_lines_per_request": [
+    1
+  ],
+  "layout": "request.http: R1..Rn blocks; downstream.md: ## R1..Rn sections; upstream.jsonl: entries in request order",
+  "notes": [
+    "upstream wire entries per request: [1]"
+  ],
+  "files": [
+    "meta.yaml",
+    "request.http",
+    "downstream.md",
+    "upstream.jsonl",
+    "mock-response.json"
+  ]
+}

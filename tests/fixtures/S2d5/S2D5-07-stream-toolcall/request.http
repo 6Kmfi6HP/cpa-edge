@@ -1,0 +1,13 @@
+# Exact downstream requests, in order (R1..Rn)
+
+### R1: POST /v1/chat/completions
+POST /v1/chat/completions HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-local-key-1
+Content-Type: application/json
+Content-Length: 353
+
+
+{"model": "cx", "messages": [{"role": "user", "content": "Book a table for two near the office."}], "tools": [{"type": "function", "function": {"name": "mcp__atlassian__jira_search_issues_with_advanced_filters_and_pagination_options", "description": "Search", "parameters": {"type": "object", "properties": {"q": {"type": "string"}}}}}], "stream": true}

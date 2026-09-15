@@ -1400,7 +1400,7 @@
             "Content-Type": "application/json"
           },
           "body": "not json",
-          "expected": "400 invalid_request_error; exact message VERIFY-AND-REPORT (read-error text)"
+          "expected": "400 {\"error\":{\"message\":\"invalid JSON body\",\"type\":\"invalid_request_error\"}} (RECORDED)"
         },
         {
           "name": "interactions-both",
@@ -1454,7 +1454,7 @@
             "Content-Type": "application/json"
           },
           "body": "{}",
-          "expected": "404 {\"error\":{\"message\":\"/v1beta/models/ not found.\",\"type\":\"invalid_request_error\"}} (VERIFY-AND-REPORT - corrected derivation from round 1)"
+          "expected": "404 {\"error\":{\"message\":\"/v1beta/models/ not found.\",\"type\":\"invalid_request_error\"}} (RECORDED - derived value confirmed)"
         },
         {
           "name": "gemini-no-slash",
@@ -1466,7 +1466,7 @@
             "Content-Type": "application/json"
           },
           "body": "{}",
-          "expected": "404 empty (no route; no redirect because no POST route at trimmed path) (VERIFY-AND-REPORT)"
+          "expected": "307 Temporary Redirect + Location: /v1beta/models/, empty body, no CORS (RECORDED OUTCOME - section corrected)"
         },
         {
           "name": "mgmt-callback-no-state",
@@ -1487,7 +1487,7 @@
             "Content-Encoding": "zstd"
           },
           "body": "<<raw non-zstd bytes: send literal garbage>>",
-          "expected": "400 'Invalid request: <decoder error>' (invalid_request_error; exact message VERIFY-AND-REPORT)"
+          "expected": "400 'Invalid request: failed to decode zstd request body: invalid input: magic number mismatch' (RECORDED)"
         },
         {
           "name": "mgmt-remote-disabled",
@@ -1510,7 +1510,7 @@
             "Authorization": "Bearer wrong-key-01"
           },
           "repeat_times": 6,
-          "expected": "First five: 401 {\"error\":\"invalid management key\"}. Sixth: 403 {\"error\":\"IP banned due to too many failed attempts. Try again in <duration>\"} - duration is dynamic, mask it. Run this LAST in a fresh container and discard the container after."
+          "expected": "RECORDED (threshold follow-up): 5x wrong key -> 401 invalid management key; 6th with VALID key -> 403 IP banned ('Try again in <dynamic duration>'; ban check precedes key validation)."
         },
         {
           "name": "emptykeys-models-noauth",
@@ -1628,6 +1628,18 @@
           },
           "expected": "404 empty"
         }
+      ],
+      "recorded": "2026-09-15 (38 requests incl. mgmt-ip-ban-threshold follow-up; 80 files at tests/fixtures/S1/S1-25/)",
+      "recording_outcomes": [
+        "gemini-no-slash: 307 + Location: /v1beta/models/ (derived 404-empty was WRONG; section reconciled - trailing-slash redirect fires in the no-slash direction because the wildcard POST route exists).",
+        "gemini-empty-action: 404 JSON /v1beta/models/ not found. (derived value CONFIRMED).",
+        "zstd-garbage: 400 message 'Invalid request: failed to decode zstd request body: invalid input: magic number mismatch'.",
+        "interactions-invalid-json: 400 message 'invalid JSON body' (distinct phrasing from the images surface).",
+        "Sideband 426s (both ?call_id= and /calls/:id): code realtime_request_failed, consistent with the no-call_id websocket_upgrade_required pin from S1-19.",
+        "safemode: X-Cpa-Safe-Mode wire casing recorded; 403 gate identical with/without credentials; OPTIONS 204 unaffected.",
+        "emptykeys (V1): open gate confirmed - 200 without any credential; routing still returns 400 model_not_found.",
+        "mgmt-remote-disabled (V3): 403 {\"error\":\"remote management disabled\"} with a valid key from the non-loopback bridge gateway.",
+        "mgmt-ip-ban-threshold (follow-up probe, fresh container): attempts 1-5 with wrong keys -> 401 invalid management key; attempt 6 with the VALID key -> 403 {\"error\":\"IP banned due to too many failed attempts. Try again in 30m0s\"} (duration dynamic; ban check precedes key validation). S1-21 group-F re-records swapped into tests/fixtures/S1/S1-21/ (artifact gone)."
       ]
     }
   ],

@@ -1,5 +1,15 @@
-[2026-09-16 01:26:11] [--------] [info ] [server_management.go:22] management routes registered after secret key configuration
+[2026-09-16 01:29:55] [--------] [info ] [server_management.go:22] management routes registered after secret key configuration
 server clients and configuration updated: 8 clients (0 auth entries + 1 Gemini API keys + 1 Interactions API keys + 1 Claude API keys + 1 Codex keys + 1 xAI keys + 1 Meta API keys + 1 Vertex-compat + 1 OpenAI-compat)
-[2026-09-16 01:26:11] [--------] [info ] [service_lifecycle.go:204] file watcher started for config and auth directory changes
-[2026-09-16 01:26:11] [--------] [info ] [config_reload.go:72] config file changed, reloading: /CLIProxyAPI/config.yaml
-[2026-09-16 01:26:11] [--------] [error] [config_reload.go:94] failed to reload config: failed to parse config file: yaml: line 16: did not find expected key
+[2026-09-16 01:29:55] [--------] [info ] [service_lifecycle.go:204] file watcher started for config and auth directory changes
+[2026-09-16 01:29:56] [--------] [info ] [config_reload.go:72] config file changed, reloading: /CLIProxyAPI/config.yaml
+[2026-09-16 01:29:56] [--------] [info ] [config_reload.go:128] config changes detected:
+[2026-09-16 01:29:56] [--------] [info ] [config_reload.go:130]   codex.live-media-relay.ice-servers: updated (0 -> 0 entries, credentials redacted)
+[2026-09-16 01:29:56] [--------] [info ] [config_reload.go:130]   payload.default: updated (0 -> 0 rules)
+[2026-09-16 01:29:56] [--------] [info ] [config_reload.go:130]   payload.default-raw: updated (0 -> 0 rules)
+[2026-09-16 01:29:56] [--------] [info ] [config_reload.go:130]   payload.override: updated (0 -> 0 rules)
+[2026-09-16 01:29:56] [--------] [info ] [config_reload.go:130]   payload.override-raw: updated (0 -> 0 rules)
+[2026-09-16 01:29:56] [--------] [info ] [config_reload.go:130]   payload.filter: updated (0 -> 0 rules)
+[2026-09-16 01:29:56] [--------] [info ] [config_reload.go:130]   openai-compatibility:
+[2026-09-16 01:29:56] [--------] [info ] [config_reload.go:130]     provider added: mock-hot (api-keys=1, models=1)
+[2026-09-16 01:29:56] [--------] [info ] [config_reload.go:141] config successfully reloaded, triggering client reload
+server clients and configuration updated: 9 clients (0 auth entries + 1 Gemini API keys + 1 Interactions API keys + 1 Claude API keys + 1 Codex keys + 1 xAI keys + 1 Meta API keys + 1 Vertex-compat + 2 OpenAI-compat)
