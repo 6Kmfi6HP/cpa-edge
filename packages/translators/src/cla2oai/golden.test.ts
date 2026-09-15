@@ -129,7 +129,11 @@ function scriptedByteStream(
 
 /** Normalizes one scripted stream entry: a [delay, value] pair or a bare chunk. */
 function streamEntryValue(entry: unknown): unknown {
-  if (Array.isArray(entry) && entry.length === 2 && typeof entry[0] !== 'object') {
+  if (
+    Array.isArray(entry) &&
+    entry.length === 2 &&
+    (entry[0] === null || typeof entry[0] === 'number')
+  ) {
     return entry[1]
   }
   return entry
@@ -315,6 +319,7 @@ describe('S2d4 golden replay — service-level', () => {
         return buildMockResponse(caseId)
       }
 
+      let seedCalls = 0
       if (caseId === 'S2d4-cooldown-second') {
         // Seed the rate-limit window exactly like the recording did: the
         // S2d4-error-429 exchange arms the cooldown, then this case's
@@ -326,7 +331,8 @@ describe('S2d4 golden replay — service-level', () => {
           return buildMockResponse('S2d4-error-429')
         }
         await service.handleV1Messages(seedRequest, seed)
-        expect(captured.length, 'cooldown seed reached the upstream once').toBe(1)
+        seedCalls = captured.length
+        expect(seedCalls, 'cooldown seed reached the upstream once').toBe(1)
         clockMs += 100
       }
 
@@ -335,15 +341,11 @@ describe('S2d4 golden replay — service-level', () => {
       await assertDownstream(response, caseId)
 
       const upstreams = readRecordedUpstreams(caseId)
-      const expectedCalls =
-        caseId === 'S2d4-cooldown-second' ? captured.length - 1 : upstreams.length
-      expect(captured.length, `${caseId}: upstream call count`).toBe(expectedCalls)
-      if (caseId === 'S2d4-cooldown-second') {
-        // The recorded wire slice of this case is EMPTY: the request
-        // never left the gateway.
-        expect(upstreams.length, `${caseId}: recorded slice is empty`).toBe(0)
-        return
-      }
+      // The recorded wire slice of the cooldown case is EMPTY: the
+      // request never left the gateway (the seed exchange is the only
+      // upstream call).
+      expect(captured.length - seedCalls, `${caseId}: upstream call count`).toBe(upstreams.length)
+      for (let i = 0; i < upstreams.length; i++) {
       for (let i = 0; i < upstreams.length; i++) {
         const expected = upstreams[i]
         const actual = captured[i]

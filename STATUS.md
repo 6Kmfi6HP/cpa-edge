@@ -37,7 +37,7 @@
 | I-tr-S2d5 | packages/translators: OpenAI→Codex/Responses | 2 | — | merged | 1 | MERGED: oai2codex PASS round 1. 89 module + contract 25/25 live. Ledger: N1 E8/401 interplay (spec ruling if ever recorded), N3 usage_limit type-only, N5 dup-key first-vs-last, N6 pattern-strip blacklist-vs-whitelist, N8 fleet cooldown candidate order (S4), N12 text-object presence (D2). |
 | I-tr-S2d6 | packages/translators: Responses→OpenAI chat | 2 | — | merged | 1 | MERGED: res2oai PASS-WITH-NONBLOCKING round 1. 107 module + 29 contract live. Ledger: N1 depth-cap (T1 uniform hardening), N2-N4 unpinned corners (spec notes), N5 auth-transport (route layer owns), N6/N7 trivia. |
 | I-tr-S2d7 | packages/translators: Gemini→Claude | 2 | — | merged | 2 | MERGED: gem2cla complete (spec 2 rounds, impl gate 2 rounds incl. S2d7-31 recorded ruling). 108 module + 33 contract green. |
-| I-tr-S2d8 | packages/translators: Claude→Gemini | 2 | impl-i-tr-s2d8 | fix | 1 | adv-impl-3 R1: FAIL (B1 cooldown read fail-open; B2 enum-hint encoding); fixer dispatched B1/B2/N3/N7 |
+| I-tr-S2d8 | packages/translators: Claude→Gemini | 2 | impl-i-tr-s2d8 | impl-adv-r2 | 1 | fix round verified mid-session (83/83 + 22/22 incl S2d8-21); round-2 running on adv-impl-3 |
 | I-tr-S2d9 | packages/translators: Codex passthrough | 2 | impl-i-tr-s2d9 | impl | 0 |  |
 | I-tr-S2d10 | packages/translators: Antigravity redirect | 2 | — | pending | 0 |  |
 | I-exec-openai | packages/executors: openai executor | 2 | — | merged | 0 | SATISFIED via direction modules per R-EXECS |
@@ -57,5 +57,3 @@
 
 ## Verdict / escalation log
 (appended by orchestrator)
-- 2026-09-16 06:4x gem2cla open-when-unconfigured micro-fix ACCEPTED without re-gate (4-line mirror of the reviewed gem2oai pattern; S1-25 cited; contract 33/33 + package green). Fixture-ownership audit: clean (fixer misread implementer WIP).
-- 2026-09-16 06:3x I-tr-S2d5 MERGED (impl gate PASS round 1). oai2codex complete: 6 modules merged (5 directions + auth). 4 directions remain: cla2gem (fix round), codex-passthrough + cla2oai + oai2gem (implementing).

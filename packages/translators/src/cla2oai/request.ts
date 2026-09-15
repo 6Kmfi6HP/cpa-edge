@@ -412,12 +412,13 @@ function emitAssistantMessage(
     if (type === 'tool_use') {
       const name = rawStringMember(block, 'name')
       const id = rawStringMember(block, 'id')
-      const argumentsRaw =
-        rawValueAt(rawBody, [...blockPath, 'input']) ?? '{}'
+      // The RAW input bytes travel as a JSON STRING value (recorded:
+      // "arguments":"{\"city\":\"Paris\"}"); an absent input is "{}".
+      const argumentsRaw = rawValueAt(rawBody, [...blockPath, 'input']) ?? '{}'
       // Sorted-map entry key order (recorded, informative per 4.5):
       // function{arguments,name}, id, type.
       toolCalls.push({
-        function: { arguments: new RawJson(argumentsRaw), name },
+        function: { arguments: argumentsRaw, name },
         id,
         type: 'function',
       })
@@ -504,7 +505,6 @@ function emitUserMessage(
     toolMessages.length > 0 || relayParts.length > 0 || parts.length > 0
   if (!produced) return
 
-  outputs.push(...toolMessages)
   outputs.push(...toolMessages)
   if (relayParts.length > 0 && parts.length === 0) {
     outputs.push({ role: 'user', content: [noticePart(), ...relayParts] })

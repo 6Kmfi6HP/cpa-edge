@@ -1087,6 +1087,10 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
     if (method === 'PATCH') {
       const record = await readJsonObject(request)
       if (record === undefined) return ginError(400, 'invalid body')
+      // Read the list after the body await: a request that finished while
+      // this body was still streaming must not be clobbered by the copy
+      // captured at handler entry.
+      const current = readList()
       const index = record['index']
       const match = record['match']
       const name = record['name']
@@ -1133,6 +1137,9 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
     }
 
     if (method === 'DELETE') {
+      // No body await happens before the mutation below, so this snapshot is
+      // already the newest state the store can hold.
+      const current = readList()
       const apiKeyParam = query.get('api-key')
       const indexParam = query.get('index')
       const nameParam = query.get('name')
