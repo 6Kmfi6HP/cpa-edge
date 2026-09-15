@@ -10,8 +10,8 @@
 00000030  6d 65 73 73 61 67 65 0d 0a 24 36 0d 0a 65 72 72  |message..$6..err|
 00000040  6f 72 73 0d 0a 24 37 36 31 0d 0a 7b 22 74 69 6d  |ors..$761..{"tim|
 00000050  65 73 74 61 6d 70 22 3a 22 32 30 32 36 2d 30 39  |estamp":"2026-09|
-00000060  2d 31 36 54 30 31 3a 31 37 3a 31 34 2e 39 35 39  |-16T01:17:14.959|
-00000070  35 34 35 34 36 35 2b 30 38 3a 30 30 22 2c 22 70  |545465+08:00","p|
+00000060  2d 31 36 54 30 31 3a 32 30 3a 32 35 2e 38 33 37  |-16T01:20:25.837|
+00000070  39 34 31 30 39 35 2b 30 38 3a 30 30 22 2c 22 70  |941095+08:00","p|
 00000080  72 6f 76 69 64 65 72 22 3a 22 6f 70 65 6e 61 69  |rovider":"openai|
 00000090  2d 63 6f 6d 70 61 74 69 62 6c 65 2d 6d 6f 63 6b  |-compatible-mock|
 000000a0  2d 6f 70 65 6e 61 69 22 2c 22 6d 6f 64 65 6c 22  |-openai","model"|
@@ -60,5 +60,5 @@
 ```
 literal (escaped):
 ```
-+OK\r\n*3\r\n$9\r\nsubscribe\r\n$6\r\nerrors\r\n:1\r\n*3\r\n$7\r\nmessage\r\n$6\r\nerrors\r\n$761\r\n{"timestamp":"2026-09-16T01:17:14.959545465+08:00","provider":"openai-compatible-mock-openai","model":"mock-model","auth_id":"openai-compatibility:mock-openai:484455246a84","auth_index":"478b008489538d28","status_code":500,"body":"{\"error\": {\"message\": \"mock rate limit\", \"type\": \"rate_limit_exceeded\", \"code\": \"rate_limit_exceeded\"}}","auth_status":{"status":"error","status_message":"{\"error\": {\"message\": \"mock rate limit\", \"type\": \"rate_limit_exceeded\", \"code\": \"rate_limit_exceeded\"}}","disabled":false,"unavailable":false,"model":{"name":"mock-model","status":"error","status_message":"{\"error\": {\"message\": \"mock rate limit\", \"type\": \"rate_limit_exceeded\", \"code\": \"rate_limit_exceeded\"}}","unavailable":false}}}\r\n+OK\r\n
++OK\r\n*3\r\n$9\r\nsubscribe\r\n$6\r\nerrors\r\n:1\r\n*3\r\n$7\r\nmessage\r\n$6\r\nerrors\r\n$761\r\n{"timestamp":"2026-09-16T01:20:25.837941095+08:00","provider":"openai-compatible-mock-openai","model":"mock-model","auth_id":"openai-compatibility:mock-openai:484455246a84","auth_index":"478b008489538d28","status_code":500,"body":"{\"error\": {\"message\": \"mock rate limit\", \"type\": \"rate_limit_exceeded\", \"code\": \"rate_limit_exceeded\"}}","auth_status":{"status":"error","status_message":"{\"error\": {\"message\": \"mock rate limit\", \"type\": \"rate_limit_exceeded\", \"code\": \"rate_limit_exceeded\"}}","disabled":false,"unavailable":false,"model":{"name":"mock-model","status":"error","status_message":"{\"error\": {\"message\": \"mock rate limit\", \"type\": \"rate_limit_exceeded\", \"code\": \"rate_limit_exceeded\"}}","unavailable":false}}}\r\n+OK\r\n
 ```

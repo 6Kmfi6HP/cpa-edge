@@ -1,0 +1,10 @@
+PATCH /v0/management/auth-files/fields HTTP/1.1
+Host: 127.0.0.1:8387
+Authorization: Bearer oracle-mgmt-key-1
+User-Agent: oracle-s3-probe/1.0
+Accept: */*
+Connection: close
+Content-Type: application/json
+Content-Length: 19
+
+{"note": "no name"}

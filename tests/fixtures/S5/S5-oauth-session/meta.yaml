@@ -124,6 +124,16 @@
    "aux": false,
    "http_status": 400,
    "expect_status": 400
+  },
+  {
+   "seq": 12,
+   "label": "STEP 12 \u2014 POST /v0/management/oauth-callback",
+   "method": "POST",
+   "path": "/v0/management/oauth-callback",
+   "note": "addendum step appended at the spec-writer request",
+   "aux": false,
+   "http_status": 400,
+   "expect_status": 400
   }
  ],
  "mismatches": [
@@ -182,5 +192,13 @@
    "field": "body_key_order"
   }
  ],
- "upstream_file": null
+ "upstream_file": null,
+ "addendum": [
+  {
+   "step": 12,
+   "recorded_at": "2026-09-16T00:23:40",
+   "reason": "appended per spec-s5-mgmt addendum request; executed on its own fresh container (boot log at probes/S5/S5-oauth-session/boot-addendum.log); expectation source-derived, recorded bytes authoritative",
+   "mismatch": "none \u2014 matches expectation byte-exactly"
+  }
+ ]
 }

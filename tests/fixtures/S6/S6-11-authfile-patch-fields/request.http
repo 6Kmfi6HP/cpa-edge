@@ -1,0 +1,10 @@
+POST /v0/management/auth-files?name=s6-test-claude.json HTTP/1.1
+Host: 127.0.0.1:8387
+Authorization: Bearer oracle-mgmt-key-1
+User-Agent: oracle-s3-probe/1.0
+Accept: */*
+Connection: close
+Content-Type: application/json
+Content-Length: 190
+
+{"type": "claude", "access_token": "s6-fake-access", "refresh_token": "s6-fake-refresh", "email": "s6@example.com", "last_refresh": "2026-01-01T00:00:00Z", "expired": "2099-01-01T00:00:00Z"}

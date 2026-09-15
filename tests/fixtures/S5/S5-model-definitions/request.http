@@ -29,3 +29,10 @@ User-Agent: curl/8.7.1
 Accept: */*
 Authorization: Bearer oracle-mgmt-key-1
 
+### S5-model-definitions STEP 5 — GET /v0/management/model-definitions/unknown
+GET /v0/management/model-definitions/unknown HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+

@@ -54,6 +54,16 @@
    "aux": false,
    "http_status": 200,
    "expect_status": 200
+  },
+  {
+   "seq": 5,
+   "label": "STEP 5 \u2014 GET /v0/management/model-definitions/unknown",
+   "method": "GET",
+   "path": "/v0/management/model-definitions/unknown",
+   "note": "addendum step appended at the spec-writer request",
+   "aux": false,
+   "http_status": 400,
+   "expect_status": 400
   }
  ],
  "mismatches": [
@@ -82,5 +92,13 @@
    "field": "body"
   }
  ],
- "upstream_file": null
+ "upstream_file": null,
+ "addendum": [
+  {
+   "step": 5,
+   "recorded_at": "2026-09-16T00:23:40",
+   "reason": "appended per spec-s5-mgmt addendum request; executed on its own fresh container (boot log at probes/S5/S5-model-definitions/boot-addendum.log); expectation source-derived, recorded bytes authoritative",
+   "mismatch": "none \u2014 matches expectation byte-exactly"
+  }
+ ]
 }

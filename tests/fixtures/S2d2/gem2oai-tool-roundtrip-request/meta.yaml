@@ -28,7 +28,8 @@
   ],
   "layout": "request.http: R1..Rn blocks; downstream.md: ## R1..Rn sections; upstream.jsonl: entries in request order",
   "notes": [
-    "upstream wire entries per request: [1]"
+    "upstream wire entries per request: [1]",
+    "OBSERVATION: upstream body carries, besides the two FIFO-paired role:'tool' messages, a TRAILING empty {\"role\":\"function\",\"content\":\"\"} message emitted for the function-role turn itself."
   ],
   "files": [
     "meta.yaml",

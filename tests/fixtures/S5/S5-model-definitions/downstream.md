@@ -1,4 +1,4 @@
-# S5-model-definitions downstream (exact bytes, 4 steps)
+# S5-model-definitions downstream (exact bytes, 5 steps)
 
 ## STEP 1 — GET /v0/management/model-definitions
 
@@ -95,3 +95,28 @@ Transfer-Encoding: chunked
 ```
 
 HTTP status: 200
+
+## STEP 5 — GET /v0/management/model-definitions/unknown
+
+### Status + response headers (received order)
+```
+HTTP/1.1 400 Bad Request
+Access-Control-Allow-Headers: *
+Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS
+Access-Control-Allow-Origin: *
+Access-Control-Expose-Headers: X-CPA-TRACE-ID, X-CPA-VERSION, X-CPA-COMMIT, X-CPA-BUILD-DATE, X-CPA-SUPPORT-PLUGIN, X-CPA-HOME-VERSION, X-CPA-HOME-BUILD-DATE, X-SERVER-VERSION, X-SERVER-BUILD-DATE, Location, Retry-After, X-Request-Id, OpenAI-Request-Id
+Content-Type: application/json; charset=utf-8
+X-Cpa-Build-Date: 2026-09-15T14:07:06Z
+X-Cpa-Commit: 8335eac
+X-Cpa-Support-Plugin: 1
+X-Cpa-Version: v7.3.4
+Date: Tue, 15 Sep 2026 17:23:05 GMT
+Content-Length: 47
+```
+
+### Body
+```
+{"channel":"unknown","error":"unknown channel"}
+```
+
+HTTP status: 400

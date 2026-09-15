@@ -29,7 +29,8 @@
   ],
   "layout": "request.http: R1..Rn blocks; downstream.md: ## R1..Rn sections; upstream.jsonl: entries in request order",
   "notes": [
-    "upstream wire entries per request: [1, 0]"
+    "upstream wire entries per request: [1, 0]",
+    "DEVIATION (R2): cooldown surfaces as HTTP 429 (not the expected 500) with a Retry-After: 4 header, and reset_seconds/reset_time are 4/4s (not 1/1s). Body otherwise as predicted: alphabetical keys, last_upstream_error 'rate_limit_exceeded: mock rate limit' (summary form), model 'mock-model', provider 'openai-compatible-mock-openai'. R1 fired the 429; R2 ~0.1s later caught the window (upstream delta 1: only R1 reached the mock)."
   ],
   "files": [
     "meta.yaml",

@@ -31,7 +31,8 @@
   ],
   "layout": "request.http: R1..Rn blocks; downstream.md: ## R1..Rn sections; upstream.jsonl: entries in request order",
   "notes": [
-    "upstream wire entries per request: [0, 0, 0, 0]"
+    "upstream wire entries per request: [0, 0, 0, 0]",
+    "DEVIATION (R3): single-model GET with the models/-prefixed id does NOT resolve: 404 {\"error\":{\"message\":\"Not Found\",\"type\":\"not_found\"}}. Only the bare id works (R2 200; the response body itself carries the prefixed name 'models/mock-model')."
   ],
   "files": [
     "meta.yaml",

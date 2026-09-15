@@ -164,3 +164,16 @@ NOT recorded (CREDENTIALED-ONLY / external, per the cases file).
 - Teardown after the mission verified again: no cpa-oracle-4 container, no run4 mock
   processes, ports 8407/21999/22001-22007 free, config byte-identical to pristine,
   auth dir empty.
+
+### S5 addendum (2026-09-16)
+
+Appended two steps at @spec-s5-mgmt's request (each executed on its own fresh container;
+boot logs at probes/S5/<case>/boot-addendum.log; metas carry an `addendum` provenance block):
+- tests/fixtures/S5/S5-model-definitions/ STEP 5 — GET /model-definitions/unknown -> 400
+  `{"channel":"unknown","error":"unknown channel"}` (path-form matches the :channel route,
+  unlike the 404-empty query form; matches the source-derived expectation byte-exactly).
+- tests/fixtures/S5/S5-oauth-session/ STEP 12 — POST /oauth-callback body "not json"
+  (Content-Type: application/json, no management key) -> 400
+  `{"error":"invalid body","status":"error"}` (non-JSON fails binding before the state check;
+  matches byte-exactly).
+Stack torn down and verified clean after the addendum.

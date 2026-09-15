@@ -30,7 +30,8 @@
   ],
   "layout": "request.http: R1..Rn blocks; downstream.md: ## R1..Rn sections; upstream.jsonl: entries in request order",
   "notes": [
-    "upstream wire entries per request: [1, 1, 1]"
+    "upstream wire entries per request: [1, 1, 1]",
+    "DEVIATION (R3): thinkingLevel 'auto' maps to reasoning_effort 'medium' upstream — NO 'auto' passthrough on this build. R1 'high'->'high' and R2 budget 2048->'medium' as expected."
   ],
   "files": [
     "meta.yaml",

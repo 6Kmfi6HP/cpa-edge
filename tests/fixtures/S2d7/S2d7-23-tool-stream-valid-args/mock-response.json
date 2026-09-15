@@ -1,0 +1,89 @@
+{
+  "control_file": {
+    "mode": "happy",
+    "variant": "tool-valid"
+  },
+  "script_sse": [
+    [
+      "message_start",
+      {
+        "type": "message_start",
+        "message": {
+          "id": "msg_mock_04",
+          "type": "message",
+          "role": "assistant",
+          "model": "claude-mock-model",
+          "content": [],
+          "stop_reason": null,
+          "stop_sequence": null,
+          "usage": {
+            "input_tokens": 11,
+            "output_tokens": 1
+          }
+        }
+      }
+    ],
+    [
+      "content_block_start",
+      {
+        "type": "content_block_start",
+        "index": 0,
+        "content_block": {
+          "type": "tool_use",
+          "id": "toolu_mock04",
+          "name": "get_weather",
+          "input": {}
+        }
+      }
+    ],
+    [
+      "content_block_delta",
+      {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "input_json_delta",
+          "partial_json": "{\"city\":\"Par"
+        }
+      }
+    ],
+    [
+      "content_block_delta",
+      {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "input_json_delta",
+          "partial_json": "is\"}"
+        }
+      }
+    ],
+    [
+      "content_block_stop",
+      {
+        "type": "content_block_stop",
+        "index": 0
+      }
+    ],
+    [
+      "message_delta",
+      {
+        "type": "message_delta",
+        "delta": {
+          "stop_reason": "tool_use",
+          "stop_sequence": null
+        },
+        "usage": {
+          "output_tokens": 12
+        }
+      }
+    ],
+    [
+      "message_stop",
+      {
+        "type": "message_stop"
+      }
+    ]
+  ],
+  "variant": "tool-valid"
+}

@@ -88,3 +88,12 @@ Accept: */*
 Content-Length: 15
 
 {"state":"abc"}
+### S5-oauth-session STEP 12 — POST /v0/management/oauth-callback
+POST /v0/management/oauth-callback HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Type: application/json
+Content-Length: 8
+
+not json

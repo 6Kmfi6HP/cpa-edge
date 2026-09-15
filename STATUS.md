@@ -19,11 +19,11 @@
 | S2d4 | spec: Claude client → OpenAI upstream | 1 | spec-s2d4-cla2oai | spec | 0 |  |
 | S2d5 | spec: OpenAI client → Codex/Responses upstream | 1 | spec-s2d5-oai2codex | spec | 0 |  |
 | S2d6 | spec: Responses client → OpenAI chat upstream | 1 | spec-s2d6-res2oai | spec | 0 |  |
-| S2d7 | spec: Gemini client → Claude upstream | 1 | spec-s2d7-gem2cla | spec | 0 |  |
+| S2d7 | spec: Gemini client → Claude upstream | 1 | spec-s2d7-gem2cla | spec-adv | 0 | section+25 goldens done; review assigned adv-spec-2 (spec-reviewer; impl-review must differ) |
 | S2d8 | spec: Claude client → Gemini upstream | 1 | spec-s2d8-cla2gem | spec | 0 | section+18 cases done; rulings sent; recording queued w5 |
 | S2d9 | spec: Codex/Responses passthrough semantics | 1 | spec-s2d9-codex | spec | 0 |  |
 | S2d10 | spec: Antigravity redirect rules | 1 | spec-s2d10-antigravity | spec | 0 |  |
-| S3 | spec: auth flows | 1 | spec-s3-auth | spec-adv | 0 | section+38 goldens finalized; spec-review assigned to adv-spec-2 |
+| S3 | spec: auth flows | 1 | spec-s3-auth | spec-fix | 1 | R1: adv-spec-2 FAIL (B1-B6: realtime ek_ shape, callback paths, antigravity secret, kimi expires_in, egress 500s, XFF topology); follow-ups -> worker-4 |
 | S4 | spec: scheduling | 1 | spec-s4-scheduling | spec-adv | 0 | section+20 goldens done; review pending assignment |
 | S5 | spec: management API | 1 | spec-s5-mgmt | spec | 0 |  |
 | S6 | spec: state & storage schemas | 1 | spec-s6-state | spec | 0 |  |

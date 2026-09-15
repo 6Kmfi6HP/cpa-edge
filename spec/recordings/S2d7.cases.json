@@ -20,9 +20,10 @@
   },
   "mock_control": "mock/control/claude.json (re-read per request). X-Mock-* headers do NOT traverse the gateway; use the control file.",
   "mock_extensions_required": [
-    "variant 'tool': tool_use SSE block (see S2d7-13 variant_events)",
-    "variant 'errstream': message_start + text delta + type:error event (see S2d7-14 variant_events)",
-    "variant 'maxtokens': happy events with message_delta stop_reason max_tokens (see S2d7-15)"
+    "variant 'tool': tool_use SSE block with INVALID-args fragments (see S2d7-13; recorded)",
+    "variant 'tool-valid': tool_use SSE block with VALID fragments '{\"city\":\"Par' + 'is\"}' (see S2d7-23)",
+    "variant 'errstream': message_start + text delta + type:error event (see S2d7-14; recorded)",
+    "variant 'maxtokens': happy events with message_delta stop_reason max_tokens (see S2d7-15; recorded)"
   ],
   "ordering_constraints": "Run S2d7-10 then S2d7-19 back-to-back (<1s gap), then wait >=1s. All other cases are order-independent; reset control file to happy (or delete it) between cases.",
   "dynamic_fields_masked": [
@@ -1000,6 +1001,168 @@
       ],
       "deterministic": "fixed inputs",
       "fixture": "tests/fixtures/S2d7/S2d7-22-verbatim-model/"
+    },
+    {
+      "id": "S2d7-23-tool-stream-valid-args",
+      "purpose": "Valid-args tool_use SSE -> Gemini functionCall chunk: args spliced as VALID JSON ({\"city\":\"Paris\"}), so the chunk stays well-formed and finishReason lands INSIDE candidates[0] (after content), then the STOP+usage frame. Companion to S2d7-13 (invalid-args cascade).",
+      "client_protocol": "gemini",
+      "upstream_provider_type": "claude-api-key",
+      "stream": true,
+      "mock": {
+        "mode": "happy",
+        "variant": "tool-valid",
+        "control_file": {
+          "mode": "happy",
+          "variant": "tool-valid"
+        },
+        "variant_events": [
+          [
+            "message_start",
+            {
+              "type": "message_start",
+              "message": {
+                "id": "msg_mock_04",
+                "type": "message",
+                "role": "assistant",
+                "model": "<echo body model>",
+                "content": [],
+                "stop_reason": null,
+                "stop_sequence": null,
+                "usage": {
+                  "input_tokens": 11,
+                  "output_tokens": 1
+                }
+              }
+            }
+          ],
+          [
+            "content_block_start",
+            {
+              "type": "content_block_start",
+              "index": 0,
+              "content_block": {
+                "type": "tool_use",
+                "id": "toolu_mock04",
+                "name": "get_weather",
+                "input": {}
+              }
+            }
+          ],
+          [
+            "content_block_delta",
+            {
+              "type": "content_block_delta",
+              "index": 0,
+              "delta": {
+                "type": "input_json_delta",
+                "partial_json": "{\"city\":\"Par"
+              }
+            }
+          ],
+          [
+            "content_block_delta",
+            {
+              "type": "content_block_delta",
+              "index": 0,
+              "delta": {
+                "type": "input_json_delta",
+                "partial_json": "is\"}"
+              }
+            }
+          ],
+          [
+            "content_block_stop",
+            {
+              "type": "content_block_stop",
+              "index": 0
+            }
+          ],
+          [
+            "message_delta",
+            {
+              "type": "message_delta",
+              "delta": {
+                "stop_reason": "tool_use",
+                "stop_sequence": null
+              },
+              "usage": {
+                "output_tokens": 12
+              }
+            }
+          ],
+          [
+            "message_stop",
+            {
+              "type": "message_stop"
+            }
+          ]
+        ],
+        "note": "fragments concatenate to VALID JSON {\"city\":\"Paris\"}; use a distinct tool id (toolu_mock04) and message id (msg_mock_04) so the fixture is unambiguous"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/cm:streamGenerateContent?alt=sse",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Call the get_weather tool for Paris\"}]}]}",
+          "curl": "curl -sS -N -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/cm:streamGenerateContent?alt=sse' -H 'x-goog-api-key: oracle-local-key-1' -H 'Content-Type: application/json' -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Call the get_weather tool for Paris\"}]}]}'"
+        }
+      ],
+      "record": "downstream verbose + full SSE bytes; upstream wire request; mock variant script as mock-response.json",
+      "expect_downstream": {
+        "status": "recorded",
+        "body_hint": "frame 1: data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"functionCall\":{\"name\":\"get_weather\",\"args\":{\"city\":\"Paris\"},\"id\":\"toolu_mock04\"}}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"trafficType\":\"PROVISIONED_THROUGHPUT\"},\"modelVersion\":\"claude-mock-model\",\"createTime\":\"<DYNAMIC>\",\"responseId\":\"msg_mock_04\"}\\n\\n frame 2: data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"trafficType\":\"PROVISIONED_THROUGHPUT\",\"promptTokenCount\":0,\"candidatesTokenCount\":12,\"totalTokenCount\":12},...}\\n\\n — NON-NORMATIVE HINT (fixture is truth): with valid args the finishReason set should stay nested; confirm"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "createTime"
+      ],
+      "deterministic": "fixed variant SSE",
+      "fixture": "tests/fixtures/S2d7/S2d7-23-tool-stream-valid-args/"
+    },
+    {
+      "id": "S2d7-24-tool-nonstream-valid-args",
+      "purpose": "Valid-args tool_use aggregated into the non-stream response: single usageMetadata replaced in place (promptTokenCount/candidatesTokenCount/totalTokenCount then trafficType last, same order as S2d7-01), finishReason inside candidates[0]. Companion to S2d7-21 (duplicate usageMetadata cascade).",
+      "client_protocol": "gemini",
+      "upstream_provider_type": "claude-api-key",
+      "stream": false,
+      "mock": {
+        "mode": "happy",
+        "variant": "tool-valid",
+        "control_file": {
+          "mode": "happy",
+          "variant": "tool-valid"
+        },
+        "note": "same variant as S2d7-23 (valid fragments, toolu_mock04 / msg_mock_04)"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/cm:generateContent",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Call the get_weather tool for Paris\"}]}]}",
+          "curl": "curl -sS -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/cm:generateContent' -H 'x-goog-api-key: oracle-local-key-1' -H 'Content-Type: application/json' -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Call the get_weather tool for Paris\"}]}]}'"
+        }
+      ],
+      "record": "downstream status+headers+body",
+      "expect_downstream": {
+        "status": "recorded",
+        "body_hint": "{\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"functionCall\":{\"name\":\"get_weather\",\"args\":{\"city\":\"Paris\"},\"id\":\"toolu_mock04\"}}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":0,\"candidatesTokenCount\":12,\"totalTokenCount\":12,\"trafficType\":\"PROVISIONED_THROUGHPUT\"},\"modelVersion\":\"claude-mock-model\",\"createTime\":\"<DYNAMIC>\",\"responseId\":\"msg_mock_04\"} — NON-NORMATIVE HINT (fixture is truth)"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "createTime"
+      ],
+      "deterministic": "fixed variant SSE",
+      "fixture": "tests/fixtures/S2d7/S2d7-24-tool-nonstream-valid-args/"
     }
   ]
 }

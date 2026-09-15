@@ -34,7 +34,7 @@ Routes (evidence: `internal/api/server_routes.go` — group `/v1beta` under `Aut
 - `POST /v1beta/models/{model}:generateContent` → 200 JSON, or error status (see §5).
 - `POST /v1beta/models/{model}:streamGenerateContent` → 200 SSE (framing per §4) or error status.
 - `POST /v1beta/models/{model}:countTokens` → 200 JSON.
-- `{model}` is the client-requested model id (alias or provider model name); the gateway resolves it to a provider before this section's logic runs.
+- `{model}` is the client-requested model id. The gateway resolves it to a provider before this section's logic runs. For a config-declared `claude-api-key` model with an `alias`, ONLY the alias is routable: the verbatim upstream model name is NOT registered and yields 400 `{"error":{"message":"unknown provider for model <name>","type":"invalid_request_error","code":"model_not_found","param":"model"}}` with no upstream call (recorded: S2d7-22).
 - Auth: gateway API key via `x-goog-api-key: <key>` OR `Authorization: Bearer <key>` (recorded: BOOTSTRAP §4 probe "v1beta/models"). Missing/invalid key → 401 `{"error":"<message>"}` (S1/S3 shapes; `internal/api/server_middleware.go` `accessAuthMiddleware`).
 - The `alt` query parameter is normalized by `GetAlt` (evidence: `sdk/api/handlers/handlers.go`): absent, empty, or `alt=sse` all yield the SSE framing of §4.1; any other value (e.g. `alt=json`) yields raw-concatenation framing of §4.2. `$alt` is accepted as an alias of `alt`.
 
@@ -100,7 +100,7 @@ MUST rules:
     - other levels → `{"thinking":{"type":"enabled","budget_tokens":B}}` with B from the level map (`minimal`=512, `low`=1024, `medium`=8192, `high`=24576, `xhigh`=32768, `max`=128000) (evidence: `internal/thinking/convert.go`); an UNKNOWN level string produces NO thinking block at all;
     - adaptive-style models (registry-known with levels) map to `{"thinking":{"type":"adaptive"},"output_config":{"effort":<mapped>}}` instead — registry-dependent, see S4.
   - `thinkingConfig.thinkingBudget` or `thinking_budget`: `0` → `{"type":"disabled"}`; `-1` → `{"type":"enabled"}` (no budget); other N → `{"type":"enabled","budget_tokens":N}` (adaptive-capable models: budget→effort mapping, S4).
-  - The final thinking block is then passed through the thinking application layer (`internal/runtime/executor/helps/model_capabilities.go`, `internal/thinking/apply.go`): for models unknown to the registry (user-defined, e.g. mock upstream models) the translated block is applied as-is; for registry-known models it is clamped/validated per S4. Fixtures pin the mock-model behavior.
+  - The final thinking block is then passed through the thinking application layer (`internal/runtime/executor/helps/model_capabilities.go`, `internal/thinking/apply.go`): for config-declared API-key models the layer RESOLVES a model info without thinking metadata and STRIPS the translated thinking block entirely — recorded: S2d7-08 (`thinkingLevel:"low"` reaches NO `thinking` key on the upstream wire). Thinking controls only survive for models the registry knows to be thinking-capable (S4) or models with no resolvable capability info. Fixtures pin the mock-model behavior (strip).
 - `service_tier` (root level, string) → `service_tier` passthrough.
 - Everything else in the Gemini body is ignored (`safetySettings`, `labels`, etc. are not forwarded).
 
@@ -128,7 +128,7 @@ Skeleton (key order observable; golden S2d7-01):
   - `trafficType`: `"PROVISIONED_THROUGHPUT"` always.
   - Key order differs from the streaming path (§4.3).
 - `modelVersion`: the gateway-resolved model name (executor argument), NOT the upstream-echoed `message.model`. For alias-driven requests both are the provider name; they diverge for force-mapped or rewritten models (S4).
-- `responseId`: upstream `message.id` from `message_start`. `createTime`: RFC3339-nano string of the first-event wall-clock second — DYNAMIC (masked in fixtures).
+- `responseId`: upstream `message.id` from `message_start`. `createTime`: RFC3339 formatting of a whole-second wall-clock timestamp — second precision with numeric zone offset, e.g. `2026-09-16T01:04:46+08:00` (the zero sub-second part is dropped entirely; recorded). DYNAMIC (masked in fixtures).
 - The whole upstream stream must contain `message_start` and `message_delta` and at least one `data:` line (§5.2), else 502.
 
 ### 2.5 Token counting (`:countTokens`)
@@ -204,7 +204,8 @@ Per-request FIFO: `toolu_gemini_%016d` ids are allocated in order of appearance 
 
 - `content_block_start` with `content_block.type == "tool_use"` records `name` and `id` by block index; emits nothing.
 - `content_block_delta` with `delta.type == "input_json_delta"` accumulates `delta.partial_json` by index; emits nothing.
-- `content_block_stop` for that index emits the assembled part `{"functionCall":{"name":N,"args":A,"id":I}}` (`A` = concatenated partial_json; `"id"` only when the block carried one) — and the SAME chunk carries `finishReason:"STOP"`. Key order inside `functionCall`: `name`, `args`, `id`.
+- `content_block_stop` for that index emits the assembled part `{"functionCall":{"name":N,"args":A,"id":I}}` (`A` = the accumulated `partial_json` bytes spliced RAW — no re-serialization, no validation; invalid accumulated JSON flows through verbatim; `"id"` only when the block carried one) — and the SAME chunk carries `finishReason:"STOP"`. Key order inside `functionCall`: `name`, `args`, `id`.
+- **Raw-splice cascade (recorded)**: when the spliced `args` bytes are not valid JSON, the chunk itself becomes invalid JSON, and every subsequent structured write on that chunk degrades to a ROOT-LEVEL append: the stream tool chunk's `finishReason:"STOP"` lands at the top level of the chunk object (after `responseId`) instead of inside `candidates[0]` (recorded: S2d7-13 frame 1), and the non-stream aggregation appends a SECOND root-level `usageMetadata` (duplicate key: the skeleton's trafficType-only block stays in place, the token-count block is appended at the end) instead of replacing it (recorded: S2d7-21). With VALID accumulated args the sets land at their nested positions (recorded: S2d7-23, S2d7-24).
 - `text_delta`/`thinking_delta`/`signature_delta` per §2.4. Empty text deltas emit nothing.
 
 ---
@@ -215,13 +216,13 @@ Downstream framing is decided by the handler (`sdk/api/handlers/gemini/gemini_ha
 
 ### 4.1 `streamGenerateContent` with `alt=sse`, `alt=$alt=sse`, or no `alt` (GetAlt → "")
 
-- Status 200. Headers (set before the first data chunk): `Content-Type: text/event-stream`, `Cache-Control: no-cache`, `Connection: keep-alive`, `Access-Control-Allow-Origin: *`, plus the gateway CORS/expose block and `X-Cpa-Trace-Id` (dynamic). Upstream response headers are merged underneath (no overwrites).
+- Status 200. Headers (set before the first data chunk): `Content-Type: text/event-stream`, `Cache-Control: no-cache`, `Connection: keep-alive`, `Access-Control-Allow-Origin: *`, plus the gateway CORS/expose block and `X-Cpa-Trace-Id` (dynamic). With default config (header passthrough disabled) NO upstream response header reaches the client at all — `downstreamHeadersAfterInterceptors` reduces to an empty diff (`sdk/api/handlers/handlers_interceptors.go`); every header the client sees is gateway-set. Recorded: S2d7-02/S2d7-13.
 - Each translated chunk C is emitted as the frame: `data: ` + C + `\n\n`. No `event:` lines. No `[DONE]` marker. No trailing bytes after the last chunk. No keep-alive comments by default (interval 0; `StreamingKeepAliveInterval`).
 - Header commit happens only when the FIRST chunk is ready: if the upstream fails before any chunk would be produced, the response is a normal error status (§5.1), not a 200 stream.
 
 ### 4.2 `streamGenerateContent?alt=json` (or any alt value other than sse/empty)
 
-- Chunks are written RAW and CONCATENATED with NO separator and no framing. No SSE headers are set by the gateway; the upstream's `Content-Type` (typically `text/event-stream`) is what the client sees. HTTP 200 after first chunk. This mirrors upstream v7.3.4 exactly and is an intentional non-equivalence vs the real Gemini API (§7). Pin: golden S2d7-18.
+- Chunks are written RAW and CONCATENATED with NO separator and no framing (recorded body: three JSON objects back-to-back, no newline between). No SSE headers are set by the gateway, and with default config no upstream header flows downstream either — the client receives Go's sniffed default `Content-Type: text/plain; charset=utf-8` (recorded: S2d7-18). HTTP 200 after first chunk. This mirrors upstream v7.3.4 exactly and is an intentional non-equivalence vs the real Gemini API (§7). Pin: golden S2d7-18.
 
 ### 4.3 Exact chunk sequence for the reference mock's happy stream
 
@@ -269,7 +270,7 @@ The 400/INVALID_ARGUMENT values are fixed regardless of the upstream error type.
 
 - The upstream status code and body are passed downstream VERBATIM (recorded for the gemini fleet; same executor pipeline). The Claude 429 body `{"type":"error","error":{"type":"rate_limit_error","message":"mock rate limit"}}` arrives at the client byte-identical with status 429, `Content-Type: application/json`. Pin: golden S2d7-10.
 - Applies to both `:generateContent` and `:streamGenerateContent` (for streaming, an error before the first chunk never commits SSE headers).
-- 429 also triggers the credential rate-limit cooldown (~1s reset) that `transient-error-cooldown-seconds: -1` does NOT disable (recorded, `_cpa_edge_ref/probes/mocks/README.md` §Error propagation): an immediate follow-up request fails with **HTTP 500** (no `StatusCode()` on the cooldown error → gateway default) and a JSON body `{"error":{"code":"model_cooldown","message":"All credentials for model <m> are cooling down via provider <p> (last error: <summary>)", ...}}` produced by the cooldown error's own marshal (evidence: `sdk/cliproxy/auth/selector.go` `modelCooldownError.Error()` — fields include `code`, `message`, `model`, `provider`, `reset_time`, `reset_seconds`, `last_upstream_error`); exact bytes/field order pinned by fixture S2d7-19 (run immediately after S2d7-10).
+- 429 also triggers the credential rate-limit cooldown (~1s reset) that `transient-error-cooldown-seconds: -1` does NOT disable (recorded, `_cpa_edge_ref/probes/mocks/README.md` §Error propagation): an immediate follow-up request fails with **HTTP 429** — the status is INHERITED from the wrapped upstream error (the cooldown error chains the original rate-limit `statusErr`, and `clienterror.HTTPStatusFromError` unwraps to its 429; a statusless transport-cause would fall back to the 500 gateway default) — and a JSON body `{"error":{"code":"model_cooldown","last_upstream_error":"<verbatim upstream body>","message":"All credentials for model cm are cooling down via provider claude (last error: <verbatim>)","model":"cm","provider":"claude","reset_seconds":1,"reset_time":"1s"}}` produced by the cooldown error's own marshal of a Go map, so the fields appear in ALPHABETICAL order (evidence: `sdk/cliproxy/auth/selector.go` `modelCooldownError.Error()`). Byte-exact shape pinned by fixture S2d7-19 (recorded immediately after S2d7-10; no upstream request is emitted during cooldown).
 - Gateway auth errors (missing/invalid key): 401 `{"error":"..."}` (S1 shapes).
 
 ### 5.2 Upstream stream validation failures (non-stream aggregation path)
@@ -287,7 +288,7 @@ The 400/INVALID_ARGUMENT values are fixed regardless of the upstream error type.
 
 Recorded by @oracle-runner against CLIProxyAPI v7.3.4 (image digest per BOOTSTRAP §2), claude mock upstream (worker copy `run3/mock/mock_claude.py`; recording stack: reference on port 8397, mock on 21002 — port adaptation noted in every `meta.yaml`; config `claude-api-key`, model `claude-mock-model`, alias `cm`). Fixture layout per BOOTSTRAP §7 RECIPES under `tests/fixtures/S2d7/<case-id>/` (`meta.yaml`, `request.http`, `downstream.md`, `upstream.jsonl`, `mock-response.json`).
 
-**Recording status: S2d7-00 … S2d7-22 recorded (23 fixtures, raw transcripts in `_cpa_edge_ref/run3/probes/S2d7/`); S2d7-23/S2d7-24 (valid-args tool variants) requested from @oracle-runner.**
+**Recording status: ALL 25 cases recorded (S2d7-00 … S2d7-24; raw transcripts in `_cpa_edge_ref/run3/probes/S2d7/`). The valid-args companions S2d7-23/24 confirm the non-degraded shapes: finishReason nested inside `candidates[0]` (stream) and a single in-place `usageMetadata` with the S2d7-01 key order (non-stream).**
 
 Requests below use gateway auth `x-goog-api-key: oracle-local-key-1` and the alias model `cm` unless noted. Wire-log secrets are redacted by the mock. Dynamic fields masked: `Date`, `X-Cpa-Trace-Id`, `createTime`, `User-Agent` (caller-controlled, fixed per case by the curl used).
 
@@ -301,21 +302,21 @@ Requests below use gateway auth `x-goog-api-key: oracle-local-key-1` and the ali
 | S2d7-05-system-camel | `systemInstruction` dropped | no | happy |
 | S2d7-06-tools-roundtrip | functionDeclarations→tools, tool_config ANY+1→tool_choice, functionCall/functionResponse→tool_use/tool_result pairing with `toolu_gemini_0000000000000001` | no | happy |
 | S2d7-07-genconfig-sampling | maxOutputTokens override, stop_sequences kept, temperature/topP/topK stripped | no | happy |
-| S2d7-08-thinking-level | thinkingLevel low → enabled+budget 1024 (user-defined model path) | no | happy |
+| S2d7-08-thinking-level | thinkingLevel low → translated block STRIPPED by the thinking layer (API-key model, no thinking metadata): NO thinking key upstream | no | happy |
 | S2d7-09-inline-media | inlineData image + document mapping, part order, cache_control on last part | no | happy |
 | S2d7-10-upstream-429 | 429 body+status VERBATIM downstream | yes | error (status 429) |
 | S2d7-11-disconnect | 2 chunks then `event: error` unexpected-EOF frame, HTTP 200 | alt=sse | disconnect after=4 |
 | S2d7-12-counttokens | local-estimate token count shape; NO upstream request | no | none |
-| S2d7-13-tool-stream | tool_use SSE → functionCall chunk (+STOP) then STOP+usage chunk | alt=sse | variant `tool` |
+| S2d7-13-tool-stream | tool_use SSE → functionCall chunk then STOP+usage chunk; RAW args splice (invalid JSON flows through; finishReason degrades to chunk top level) | alt=sse | variant `tool` (invalid-args fragments) |
 | S2d7-14-errstream | in-stream error event → 400 INVALID_ARGUMENT data frame | alt=sse | variant `errstream` |
 | S2d7-15-maxtokens | stop_reason max_tokens → finishReason STOP (override quirk) | alt=sse | variant `maxtokens` |
 | S2d7-16-roleless-dropped | contents turn without role → upstream `messages:[]` | no | happy |
 | S2d7-17-role-merge | consecutive same-role turns merged; assistant turn separate | no | happy |
-| S2d7-18-alt-json | raw concatenated chunks, upstream Content-Type, no SSE framing | alt=json | happy |
-| S2d7-19-cooldown-after-429 | model_cooldown HTTP 500 shape (code/message/model/provider/reset_time/reset_seconds/last_upstream_error) | yes | happy (post-429, <1s after S2d7-10) |
+| S2d7-18-alt-json | raw concatenated chunks, no framing, sniffed `Content-Type: text/plain; charset=utf-8` | alt=json | happy |
+| S2d7-19-cooldown-after-429 | model_cooldown HTTP 429 (status inherited from the wrapped 429), alphabetical body fields, verbatim last_upstream_error, no upstream call | yes | happy (post-429, <1s after S2d7-10) |
 | S2d7-20-errstream-nonstream | aggregated error event → 502 validator wrap | no | variant `errstream` |
-| S2d7-21-tool-nonstream | functionCall part in non-stream response, same id/name/args | no | variant `tool` |
-| S2d7-22-verbatim-model | `claude-mock-model` (non-alias) resolves identically | no | happy |
+| S2d7-21-tool-nonstream | functionCall part in non-stream response; RAW args splice (duplicate root-level usageMetadata under invalid args) | no | variant `tool` (invalid-args fragments) |
+| S2d7-22-verbatim-model | verbatim provider model name does NOT resolve: 400 model_not_found, no upstream call (only the alias is routable) | no | happy |
 
 Mock extensions required (claude mock, `_cpa_edge_ref/mock/mock_claude.py`, control key `variant`, deterministic canned SSE): `tool` (tool_use block + input_json_delta×2 + stop_reason tool_use), `errstream` (message_start + text delta + `type:"error"` event), `maxtokens` (happy events with stop_reason "max_tokens"). Exact event lists are specified in `spec/recordings/S2d7.cases.json`.
 
