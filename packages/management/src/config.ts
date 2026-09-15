@@ -381,44 +381,6 @@ export function parseDurationMs(text: string): number {
  * come from the reference struct, so `GET /config` shows them even when the
  * file never mentioned them.
  */
-const DEFAULT_CREDENTIAL_IN_FLIGHT: { readonly [key: string]: WireValue } = {
-  'snapshot-interval': '2s',
-  'stale-after': '10s',
-  'max-part-bytes': 262144,
-  'max-part-count': 64,
-  'max-revision-bytes': 16777216,
-  'max-aggregate-groups': 100000,
-  'max-details': 10000,
-  'max-string-bytes': 256,
-  'staging-retention': '1m',
-}
-
-const DEFAULT_CREDENTIAL_CONCURRENCY: { readonly [key: string]: WireValue } = {
-  'lifecycle-config-revision': 0,
-  'observation-barrier-revision': 0,
-  'cpa-heartbeat-timeout': 3000000000,
-  'cpa-cancel-bound': 5000000000,
-  'reclaim-grace': 5000000000,
-  'cleanup-interval': 5000000000,
-  'release-flush-interval': 250000000,
-  'release-max-backoff': 2000000000,
-  'busy-retry-min': 250000000,
-  'busy-retry-max': 1000000000,
-  'max-limit': 1000000,
-}
-
-const DEFAULT_DISCOVERY: { readonly [key: string]: WireValue } = {
-  enabled: false,
-  'service-name': '',
-  'service-type': '_ai-gateway._tcp',
-  subtypes: ['_chat-completions', '_responses', '_messages', '_generate-content', '_interactions'],
-  interfaces: { include: null, exclude: null },
-  'auth-required': null,
-  'advertise-management': false,
-}
-
-const DEFAULT_ROUTING_SUBTYPES = DEFAULT_DISCOVERY['subtypes'] as WireValue
-
 /** Normalizes a routing strategy with the reference alias table. */
 export function normalizeStrategy(raw: string): string | undefined {
   const trimmed = raw.trim().toLowerCase()
@@ -602,6 +564,60 @@ function readHeaderDefaults(record: { [key: string]: JsonValue }): EffectiveConf
 // Serialization shapes
 // ---------------------------------------------------------------------------
 
+/** credential-concurrency block in struct (declaration) order. */
+function credentialConcurrencyWire(record: { readonly [key: string]: JsonValue }): OrderedObject {
+  return ordered([
+    ['lifecycle-config-revision', record['lifecycle-config-revision'] ?? 0],
+    ['observation-barrier-revision', record['observation-barrier-revision'] ?? 0],
+    ['cpa-heartbeat-timeout', record['cpa-heartbeat-timeout'] ?? 3000000000],
+    ['cpa-cancel-bound', record['cpa-cancel-bound'] ?? 5000000000],
+    ['reclaim-grace', record['reclaim-grace'] ?? 5000000000],
+    ['cleanup-interval', record['cleanup-interval'] ?? 5000000000],
+    ['release-flush-interval', record['release-flush-interval'] ?? 250000000],
+    ['release-max-backoff', record['release-max-backoff'] ?? 2000000000],
+    ['busy-retry-min', record['busy-retry-min'] ?? 250000000],
+    ['busy-retry-max', record['busy-retry-max'] ?? 1000000000],
+    ['max-limit', record['max-limit'] ?? 1000000],
+  ])
+}
+
+/** credential-in-flight block in struct order. */
+function credentialInFlightWire(record: { readonly [key: string]: JsonValue }): OrderedObject {
+  return ordered([
+    ['snapshot-interval', record['snapshot-interval'] ?? '2s'],
+    ['stale-after', record['stale-after'] ?? '10s'],
+    ['max-part-bytes', record['max-part-bytes'] ?? 262144],
+    ['max-part-count', record['max-part-count'] ?? 64],
+    ['max-revision-bytes', record['max-revision-bytes'] ?? 16777216],
+    ['max-aggregate-groups', record['max-aggregate-groups'] ?? 100000],
+    ['max-details', record['max-details'] ?? 10000],
+    ['max-string-bytes', record['max-string-bytes'] ?? 256],
+    ['staging-retention', record['staging-retention'] ?? '1m'],
+  ])
+}
+
+/** discovery block in struct order. */
+function discoveryWire(config: EffectiveConfig): OrderedObject {
+  const record = config.discovery
+  return ordered([
+    ['enabled', record['enabled'] ?? false],
+    ['service-name', record['service-name'] ?? ''],
+    ['service-type', record['service-type'] ?? '_ai-gateway._tcp'],
+    [
+      'subtypes',
+      Array.isArray(record['subtypes']) && (record['subtypes'] as JsonValue[]).length > 0
+        ? [...(record['subtypes'] as JsonValue[])]
+        : ['_chat-completions', '_responses', '_messages', '_generate-content', '_interactions'],
+    ],
+    ['interfaces', ordered([
+      ['include', recordOf(record['interfaces'])['include'] ?? null],
+      ['exclude', recordOf(record['interfaces'])['exclude'] ?? null],
+    ])],
+    ['auth-required', record['auth-required'] ?? null],
+    ['advertise-management', record['advertise-management'] ?? false],
+  ])
+}
+
 function modelWire(alias: ModelAlias): OrderedObject {
   const members: Array<[string, WireValue]> = [['name', alias.name], ['alias', alias.alias]]
   if (alias.displayName !== undefined) members.push(['display-name', alias.displayName])
@@ -692,9 +708,6 @@ export function configViewWire(config: EffectiveConfig): OrderedObject {
   if (config.routing.sessionAffinityTtl !== undefined) routingMembers.push(['session-affinity-ttl', config.routing.sessionAffinityTtl])
   if (config.routing.sessionAffinitySubagents !== undefined) routingMembers.push(['session-affinity-subagents', config.routing.sessionAffinitySubagents])
 
-  const discovery = { ...DEFAULT_DISCOVERY, ...config.discovery }
-  if (discovery['subtypes'] === undefined) discovery['subtypes'] = DEFAULT_ROUTING_SUBTYPES
-
   const payloadMembers: Array<[string, WireValue]> = [
     ['default', config.payload['default'] ?? null],
     ['default-raw', config.payload['default-raw'] ?? null],
@@ -713,8 +726,8 @@ export function configViewWire(config: EffectiveConfig): OrderedObject {
     ['passthrough-headers', config.passthroughHeaders],
     ['streaming', Object.keys(config.streaming).length === 0 ? {} : config.streaming],
     ['tls', ordered([['enable', config.tls.enable], ['cert', config.tls.cert], ['key', config.tls.key]])],
-    ['credential-concurrency', { ...DEFAULT_CREDENTIAL_CONCURRENCY, ...recordOf(config.raw['credential-concurrency']) }],
-    ['credential-in-flight', { ...DEFAULT_CREDENTIAL_IN_FLIGHT, ...recordOf(config.raw['credential-in-flight']) }],
+    ['credential-concurrency', credentialConcurrencyWire(recordOf(config.raw['credential-concurrency']))],
+    ['credential-in-flight', credentialInFlightWire(recordOf(config.raw['credential-in-flight']))],
     ['plugins', ordered([
       ['enabled', config.plugins.enabled],
       ['dir', config.plugins.dir],
@@ -722,7 +735,7 @@ export function configViewWire(config: EffectiveConfig): OrderedObject {
     ])],
     ['debug', config.debug],
     ['pprof', ordered([['enable', config.pprof.enable], ['addr', config.pprof.addr]])],
-    ['discovery', discovery],
+    ['discovery', discoveryWire(config)],
     ['commercial-mode', config.commercialMode],
     ['logging-to-file', config.loggingToFile],
     ['logs-max-total-size-mb', config.logsMaxTotalSizeMb],
@@ -770,33 +783,31 @@ export function configViewWire(config: EffectiveConfig): OrderedObject {
   ])
 }
 
-/** Codex block with its recorded defaults filled in. */
+/** Codex block with its recorded defaults filled in, struct order. */
 function codexView(record: { readonly [key: string]: JsonValue }): WireValue {
-  const defaults: { readonly [key: string]: WireValue } = {
-    'identity-confuse': false,
-    'disable-codex-cloaking': false,
-    'stream-bootstrap-buffering': false,
-    'optimize-multi-agent-v2': false,
-    'orphan-delegation-compatibility': false,
-    'model-level-cooling': false,
-    'live-media-relay': {
-      enabled: false,
-      'max-sessions': 0,
-      'disable-private-remote-ips': false,
-      'public-ip': '',
-      'udp-port-min': 0,
-      'udp-port-max': 0,
-      'ice-servers': null,
-    },
-  }
-  const out: { [key: string]: WireValue } = {}
-  for (const [key, value] of Object.entries(defaults)) {
-    out[key] = record[key] ?? value
-  }
+  const relay = recordOf(record['live-media-relay'])
+  const members: Array<[string, WireValue]> = [
+    ['identity-confuse', record['identity-confuse'] ?? false],
+    ['disable-codex-cloaking', record['disable-codex-cloaking'] ?? false],
+    ['stream-bootstrap-buffering', record['stream-bootstrap-buffering'] ?? false],
+    ['optimize-multi-agent-v2', record['optimize-multi-agent-v2'] ?? false],
+    ['orphan-delegation-compatibility', record['orphan-delegation-compatibility'] ?? false],
+    ['model-level-cooling', record['model-level-cooling'] ?? false],
+    ['live-media-relay', ordered([
+      ['enabled', relay['enabled'] ?? false],
+      ['max-sessions', relay['max-sessions'] ?? 0],
+      ['disable-private-remote-ips', relay['disable-private-remote-ips'] ?? false],
+      ['public-ip', relay['public-ip'] ?? ''],
+      ['udp-port-min', relay['udp-port-min'] ?? 0],
+      ['udp-port-max', relay['udp-port-max'] ?? 0],
+      ['ice-servers', relay['ice-servers'] ?? null],
+    ])],
+  ]
+  const known = new Set(members.map(([key]) => key))
   for (const [key, value] of Object.entries(record)) {
-    if (!(key in out)) out[key] = value
+    if (!known.has(key)) members.push([key, value])
   }
-  return out
+  return ordered(members)
 }
 
 /** Serializes provider entries back to raw YAML-shaped JSON (for persistence). */

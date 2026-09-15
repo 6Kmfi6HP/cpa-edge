@@ -251,3 +251,27 @@ the golden; flagged to the spec-writer):
   EOF", byte-exact).
 Raw evidence: `_cpa_edge_ref/run4/probes/S2d4/` (README.md). Teardown verified after the
 mission (no container, no mocks, ports free, auth dir cleaned, fleet config pristine).
+
+### S2d4 round-2 batch (2026-09-16, complete)
+
+Executed @spec-s2d4-cla2oai's gate round-2 batch (12 cases, `round2_batch` in S2d4.cases.json)
+into `tests/fixtures/S2d4/<case-id>/`, same stack as round 1 (fresh container + openai mock,
+happy mode, no control files, config.s2d4.yaml). All 12 recorded with ZERO mismatches vs the
+cases-file expectations:
+
+- Two-stage EFFECTIVE thinking mapping pinned: disabled -> low; budget 0 -> low; budget 300
+  -> low; budget 30000 -> high; adaptive auto -> medium; adaptive max -> high.
+- DISCRIMINATOR S2d4-thinking-adaptive-noeffort: recorded upstream
+  `reasoning_effort: "high"` — the stage-2 clamp of the provisional xhigh (the code trace
+  wins; the gate-ruling "xhigh passes through" parenthetical is disproven by the recording).
+- 400 validation family with EMPTY wire slices confirmed byte-exactly: budget -5
+  ("budget -5 cannot be converted to a valid level"), effort "ultra" ("level \"ultra\" not
+  supported, valid levels: low, medium, high"), and the same -5 error via
+  /v1/messages/count_tokens.
+- S2d4-stream-truthy-null: "stream": null takes the STREAMING path — SSE headers + a canned
+  event stream byte-identical to round-1 S2d4-stream-text; upstream body stream:true +
+  stream_options.include_usage. S2d4-topp-no-temperature: top_p forwarded when temperature
+  is absent.
+
+Raw evidence: `_cpa_edge_ref/run4/probes/S2d4/round2/` (boot log, per-case raw bytes +
+upstream slices). Teardown verified after the batch.
