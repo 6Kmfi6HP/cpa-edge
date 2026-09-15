@@ -1,0 +1,48 @@
+# Exact downstream requests, in order (R1..Rn)
+
+### R1: POST /v1beta/models/mock-model:countTokens
+POST /v1beta/models/mock-model:countTokens HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Type: application/json
+Content-Length: 54
+
+
+{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}
+
+### R2: POST /v1beta/models/mock-model:countTokens
+POST /v1beta/models/mock-model:countTokens HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Type: application/json
+x-goog-api-key: <wrong-key>
+Content-Length: 54
+
+
+{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}
+
+### R3: POST /v1beta/models/mock-model:countTokens
+POST /v1beta/models/mock-model:countTokens HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Type: application/json
+x-goog-api-key: oracle-local-key-1
+Content-Length: 54
+
+
+{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}
+
+### R4: POST /v1beta/models/mock-model:countTokens
+POST /v1beta/models/mock-model:countTokens HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Type: application/json
+Authorization: Bearer oracle-local-key-1
+Content-Length: 54
+
+
+{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}

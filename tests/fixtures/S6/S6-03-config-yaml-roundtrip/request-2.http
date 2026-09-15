@@ -1,0 +1,74 @@
+PUT /v0/management/config.yaml HTTP/1.1
+Host: 127.0.0.1:8387
+Authorization: Bearer oracle-mgmt-key-1
+User-Agent: oracle-s3-probe/1.0
+Accept: */*
+Connection: close
+Content-Type: application/json
+Content-Length: 1888
+
+# S6 recording fleet config (oracle worker-2) — all 8 mock upstreams on run2 ports, NO real credentials.
+# Key conventions per spec/recordings/S6.cases.json; plaintext secret-key (server bcrypt-hashes on startup).
+host: ""
+port: 8387
+remote-management:
+  allow-remote: true
+  secret-key: "$2a$10$jp2soczL86kX4Gz7Ad8fkOFkAI8ygTR4fLnjweg5KM.8uo1TY/FNy"
+  disable-control-panel: true
+auth-dir: "/root/.cli-proxy-api"
+api-keys:
+  - "oracle-local-key-1"
+debug: false
+request-retry: 0
+transient-error-cooldown-seconds: -1
+usage-statistics-enabled: false
+openai-compatibility:
+  - name: "mock-openai"
+    base-url: "http://host.docker.internal:19999/v1"
+    api-key-entries:
+      - api-key: "mock-upstream-key"
+    models:
+      - name: "mock-gpt-model"
+        alias: "mock-model"
+gemini-api-key:
+  - api-key: "mock-gem-key"
+    base-url: "http://host.docker.internal:20001"
+    models:
+      - name: "gemini-mock-model"
+        alias: "gm"
+claude-api-key:
+  - api-key: "mock-claude-key"
+    base-url: "http://host.docker.internal:20002"
+    models:
+      - name: "claude-mock-model"
+        alias: "cm"
+codex-api-key:
+  - api-key: "mock-codex-key"
+    base-url: "http://host.docker.internal:20003"
+    models:
+      - name: "gpt-mock-codex"
+        alias: "cx"
+xai-api-key:
+  - api-key: "mock-xai-key"
+    base-url: "http://host.docker.internal:20004"
+    models:
+      - name: "grok-mock"
+        alias: "xg"
+meta-api-key:
+  - api-key: "mock-meta-key"
+    base-url: "http://host.docker.internal:20005"
+    models:
+      - name: "muse-mock"
+        alias: "mm"
+interactions-api-key:
+  - api-key: "mock-int-key"
+    base-url: "http://host.docker.internal:20006"
+    models:
+      - name: "gemini-mock-model"
+        alias: "im"
+vertex-api-key:
+  - api-key: "mock-vertex-key"
+    base-url: "http://host.docker.internal:20007"
+    models:
+      - name: "vertex-mock-model"
+        alias: "vm"

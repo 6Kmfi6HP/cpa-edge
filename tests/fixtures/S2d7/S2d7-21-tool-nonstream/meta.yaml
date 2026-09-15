@@ -25,7 +25,8 @@
   ],
   "upstream_wire_delta_lines": 1,
   "notes": [
-    "upstream wire entries emitted during this case: 1"
+    "upstream wire entries emitted during this case: 1",
+    "DEVIATION: aggregated nonstream JSON contains the usageMetadata key TWICE (first {\"trafficType\":...} inside the candidate payload, then the full token-count usageMetadata again at the end) — duplicate key in the recorded JSON. Same raw args splice quirk as S2d7-13. finishReason STOP here IS inside candidates[0]."
   ],
   "files": [
     "meta.yaml",

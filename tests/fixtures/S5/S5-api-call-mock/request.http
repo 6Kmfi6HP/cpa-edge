@@ -1,0 +1,79 @@
+### S5-api-call-mock STEP 1 — POST /v0/management/api-call
+POST /v0/management/api-call HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 68
+
+{"method":"GET","url":"http://host.docker.internal:21999/v1/models"}
+
+### S5-api-call-mock STEP 2 — POST /v0/management/api-call
+POST /v0/management/api-call HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 109
+
+{"method":"GET","url":"http://host.docker.internal:21999/v1/models","header":{"X-S5-Token":"Bearer $TOKEN$"}}
+
+### S5-api-call-mock STEP 3 — POST /v0/management/api-call
+POST /v0/management/api-call HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 218
+
+{"method":"POST","url":"http://host.docker.internal:21999/v1/chat/completions","header":{"Content-Type":"application/json"},"data":"{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"}
+
+### S5-api-call-mock STEP 4 — POST /v0/management/api-call
+POST /v0/management/api-call HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 180
+
+{"method":"POST","url":"http://host.docker.internal:21999/v1/chat/completions","header":{"X-Mock-Mode":"error","X-Mock-Status":"500","Content-Type":"application/json"},"data":"{}"}
+
+### S5-api-call-mock STEP 5 — POST /v0/management/api-call
+POST /v0/management/api-call HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 28
+
+{"url":"http://example.com"}
+
+### S5-api-call-mock STEP 6 — POST /v0/management/api-call
+POST /v0/management/api-call HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 16
+
+{"method":"GET"}
+
+### S5-api-call-mock STEP 7 — POST /v0/management/api-call
+POST /v0/management/api-call HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 34
+
+{"method":"GET","url":"not a url"}
+
+### S5-api-call-mock STEP 8 — POST /v0/management/api-call
+POST /v0/management/api-call HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 8
+
+not json

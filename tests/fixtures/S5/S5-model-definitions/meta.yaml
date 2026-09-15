@@ -71,15 +71,15 @@
   },
   {
    "step": 1,
-   "field": "body",
    "expected": "{\"error\":\"channel is required\"}",
-   "actual": ""
+   "actual": "",
+   "field": "body"
   },
   {
    "step": 2,
-   "field": "body",
    "expected": "{\"error\":\"unknown channel\",\"channel\":\"unknown\"}",
-   "actual": ""
+   "actual": "",
+   "field": "body"
   }
  ],
  "upstream_file": null

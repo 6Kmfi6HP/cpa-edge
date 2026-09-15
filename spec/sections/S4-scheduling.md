@@ -63,6 +63,7 @@ Config reload semantics (hot-reload via file watcher):
 - **MUST**: cpa-edge MUST reproduce this ID derivation, because rotation order is defined over ID lexicographic order and is client-observable via which credential serves which request.
 - Rotation order (round-robin and the sort within priority buckets) = ascending auth ID byte order. `sdk/cliproxy/auth/scheduler.go` (`rebuildIndexesLocked` sort, `scheduledSuccessorIndex`).
 - `auth_index` (stable observability identity) = first 8 SHA-256 bytes as hex (16 chars) over a seed: for API-key credentials `<provider-family>:<base-url>+<api-key>` (e.g. `openai-compatibility:<base>+<key>`); for OAuth auth files `<auth-type>:<absolute-file-path>`; plugin-expanded credentials use `auth_index_seed`. `sdk/cliproxy/auth/types.go` (`indexSeed`, `EnsureIndex`, `stableAuthIndex`).
+- Config-synthesis edge (recorded: S4-20): a credential entry with an EMPTY api-key but a non-empty base-url IS synthesized, registered, and scheduled (the synthesizer skips an entry only when both api-key and base-url are empty) — `internal/watcher/synthesizer/config.go`.
 - `auth_index` payload surfaces (S5 owns the routes; S4 owns the field semantics):
   - `GET /v0/management/{gemini-api-key|claude-api-key|codex-api-key|xai-api-key|meta-api-key|vertex-api-key|openai-compatibility|interactions-api-key}`: each entry carries `auth-index` (kebab-case). `internal/api/handlers/management/config_auth_index.go`.
   - `GET /v0/management/auth-files`: each auth file entry carries `auth_index` (snake_case). `management/auth_files_fields.go`.
@@ -192,6 +193,13 @@ Recorded (gemini): P mocks README + wire notes: `{"error":{"code":"model_cooldow
 
 `Result { auth_id, provider, model, route_model, success, error{code,message,retryable,http_status}, retry_after?, credential_scope? }`; executors signal: `StatusCode()`, `RetryAfter()` (parsed from `Retry-After` header; openai-compat adds a 1-minute fallback for `TPMRateLimitExceeded` bodies), `IsCredentialScoped()`, `IsRequestScoped()`, `IsModelCooldown()`. `sdk/cliproxy/executor` interfaces, `internal/runtime/executor/openai_compat_executor.go` (`statusErr`, `openAICompatRetryAfter`).
 
+Error-code classification precedence when a failure is recorded (`conductor_cooldown.go` `resultErrorFromError`):
+1. explicit model-not-found shape → code `model_not_found`;
+2. request-scoped or request-invalid failure (typed `IsRequestScoped`, or a request-fault body per `internal/clienterror`: `error.code` ∈ {`cyber_policy`, `context_length_exceeded`, `message_too_big`, `string_above_max_length`, `invalid_prompt`, `invalid_value`, `unsupported_value`, `invalid_request_error`, `previous_response_not_found`} or `error.type` ∈ {`invalid_request`, `invalid_request_error`, `bad_request_error`, `invalid_prompt`}, or statuses 400/409/413/422 — with 402/429 and authentication-error-401 bodies always kept credential-attributed) → code `request_scoped` (no cooldown, rotation stops at the first failing credential);
+3. connection-lifecycle shape → code `connection_lifecycle` (no cooldown, rotation continues);
+4. pre-HTTP transient transport shape → code `transient_transport` (no cooldown, rotation continues, retry rounds allowed);
+otherwise the raw upstream status drives the §2.4 ladder.
+
 ## 4. Streaming rules (S4-relevant)
 
 1. Non-stream and stream requests use the same scheduling loop; count_tokens (`ExecuteCount`) also failovers.
@@ -210,7 +218,9 @@ Recorded (gemini): P mocks README + wire notes: `{"error":{"code":"model_cooldow
 | … action `stop` / `stop-and-cooldown` | NO | no / 60 s force | NO | upstream status+body VERBATIM |
 | 401 | YES (after one refresh attempt for OAuth; API-keys skip) | 30 min (unauthorized) | NO (401 not retry-round eligible) | upstream 401 VERBATIM; after all-unauthorized → terminal 503 shape (3.2.3) |
 | 402/403 | YES | 30 min (`payment_required`) | 403 YES (retry-round status), 402 NO | upstream VERBATIM |
-| 404 / model_not_found | YES | 12 h (model-scoped, `not_found`/`model_not_supported`) | NO | upstream VERBATIM |
+| 404 carrying request-fault markers (body `error.type` ∈ invalid_request/invalid_request_error/bad_request_error/invalid_prompt, or `error.code` in the request-fault set) | NO (request_scoped stop) | NO | NO | upstream 404 VERBATIM (recorded: S4-20) |
+| 404 model-not-found-shaped (`model_not_found` identifiers) | YES | 12 h (model-scoped, `not_found`/`model_not_supported`) | NO | upstream VERBATIM |
+| 404 otherwise | YES | 12 h (model-scoped `not_found`) | NO | upstream VERBATIM |
 | 429 | YES | quota ladder/floor (2.4) | YES | upstream 429 VERBATIM; all-cooling → 429 model_cooldown (3.2.1) |
 | 408/500/502/503/504 | YES | transient (`transient-error-cooldown-seconds`, 0→60 s; negative → none) | YES | upstream VERBATIM; all-blocked → 503 auth_unavailable (3.2.2) |
 | 520–526 | YES | transient (same rule) | NO (not a retry-round status) | upstream VERBATIM; all-blocked → 503 auth_unavailable (3.2.2) |
@@ -219,9 +229,41 @@ Recorded (gemini): P mocks README + wire notes: `{"error":{"code":"model_cooldow
 
 ## 6. Golden-sample index
 
-Fixtures under `tests/fixtures/S4/<case-id>/` follow the RECIPES layout (`meta.yaml`, `request.http`, `downstream.md`, `upstream.jsonl`, `mock-response.json`; BS §7). Cases defined in `spec/recordings/S4.cases.json`. Wire logs must identify the serving credential: the mock records a `credential` field (the Bearer api-key value) per wire line — synthetic keys only.
+Fixtures under `tests/fixtures/S4/<case-id>/` follow the RECIPES layout (`meta.yaml`, `request.http`, `downstream.md`, `upstream.jsonl` (+ `upstream-openai.jsonl`/`upstream-gemini.jsonl` for the dual-mock case), `mock-response.json`; some cases add `mgmt-listing.json` or log excerpts). Wire log lines carry `credential` (Bearer/x-goog-api-key value — synthetic keys, the observable distinguishing credentials) and `response_status`; `meta.yaml` records the config YAML, control events, sleeps, the auth-ID→key mapping, and the observed credential sequence. Case definitions: `spec/recordings/S4.cases.json`.
 
-Case definitions live in `spec/recordings/S4.cases.json` (19 recordable cases — 18 core + 1 optional — plus 3 FIXTURE-DEFERRED entries: OAuth refresh-on-unauthorized, OAuth token-expiry demotion, Antigravity credits fallback). Recording status per case: **0 recorded so far**; this index is updated by @spec-writer as @oracle-runner delivers fixtures. Wire logs must carry the serving credential (mock extension: `credential` field per wire line, synthetic keys).
+Recorded against: CLIProxyAPI v7.3.4, commit `8335eac731946bd4eff18f500653f93736df53d6` (image digest `sha256:97825d…4266`), 2026-09-16, by @oracle-runner.
+
+Baseline config for all S4 fixtures: 3-key `openai-compatibility` pool (`mock-openai`, keys `s4-oai-key-1/2/3`, base-url `http://host.docker.internal:18999/v1`), `transient-error-cooldown-seconds: 2`, `request-retry: 0`, `max-retry-interval: 10`, `routing.strategy: round-robin`, `routing.session-affinity: false`. Auth-ID order (recorded, `sha256(kind NUL key NUL base NUL)[:12]`): `s4-oai-key-1` (2add2ed9fa51) < `s4-oai-key-3` (922ad5b89d42) < `s4-oai-key-2` (9d9fdb184163).
+
+| case | fixture dir | pins | status |
+|---|---|---|---|
+| S4-01 | `tests/fixtures/S4/S4-01-round-robin-rotation-order/` | RR cycles the 3-key pool in ascending auth-ID order: key-1, key-3, key-2, repeat | recorded |
+| S4-02 | `…/S4-02-fill-first-ordering/` | fill-first pins the smallest-ID credential for every request | recorded |
+| S4-03 | `…/S4-03-weighted-round-robin/` | smooth WRR ratio 3:1 over 8 picks; weight-0 credential never served | recorded |
+| S4-04 | `…/S4-04-fill-first-failover-cooldown-recovery/` | same-request failover (500→200), cooldown skip, recovery to head after 2 s | recorded |
+| S4-05 | `…/S4-05-transient-all-blocked-503/` | R1 = 3×500 relay (last upstream body VERBATIM, 500); R2 = 503 `auth_unavailable` enriched shape | recorded |
+| S4-06 | `…/S4-06-quota-429-cooldown-model-cooldown-recovery/` | 429 relay; all-quota-cooling → 429 `model_cooldown` + `Retry-After: 1`; recovery after 1 s | recorded |
+| S4-07 | `…/S4-07-reset-quota-management-auth-index/` | auth-index mapping via `GET /v0/management/openai-compatibility`; `POST /v0/management/reset-quota` shapes (400/404/200) and immediate schedulability after reset | recorded |
+| S4-08 | `…/S4-08-request-fault-400-stops-rotation/` | exactly ONE upstream hit on request-fault 400; body VERBATIM | recorded |
+| S4-09 | `…/S4-09-request-scoped-errors-continue/` | `request-scoped-errors` action `continue` rotates the full pool on 400 | recorded |
+| S4-10 | `…/S4-10-retry-rounds/` | round 0 (3 keys) + ~2 s wait + round 1 (3 keys) = 6 upstream hits, single 500 response | recorded |
+| S4-11 | `…/S4-11-session-affinity/` | sticky sessions via `X-Session-ID`; sequence key-1, key-3, key-3, key-2, key-1 | recorded |
+| S4-12 | `…/S4-12-stream-disconnect-no-cooldown/` | in-stream `unexpected EOF` frame (HTTP 200); NO cooldown — same credential serves the next request | recorded |
+| S4-13 | `…/S4-13-model-pool-rotation/` | per-credential model-pool rotation: upstream model alternates mock-pool-1 → 2 → 1 | recorded |
+| S4-14 | `…/S4-14-unauthorized-terminal-and-hot-reload/` | 401 relay; terminal 503 `authentication_error` body; 30-min unauthorized cooldown SURVIVES hot-reload | recorded |
+| S4-15 | `…/S4-15-disable-cooling-provider/` | provider `disable-cooling`: every request fails over across the whole pool; never 503 | recorded |
+| S4-16 | `…/S4-16-model-scoped-cooldown-isolation/` | iso-model-1 cooldown (R2 = 503) does NOT block iso-model-2 (R4/R5 = 200) | recorded |
+| S4-17 | `…/S4-17-transient-off-quota-still-cools/` | `transient-error-cooldown-seconds: -1`: 500s never cool; 429 quota cooldown still active (model_cooldown) | recorded |
+| S4-18 | `…/S4-18-mixed-provider-rotation/` | cross-provider mixed rotation: R1 gemini wire (`x-goog-api-key`, `:19001`), R2 openai-compat wire (Bearer, `:18999`) — cursor alternates across provider segments; phase B: gemini 500 → same-request cross-provider failover → openai-mx 200 (client 200); R4 openai-mx 200 while gemini cools | recorded (re-recorded 2026-09-16 with corrected config; first attempt's bytes kept as S4-20) |
+| S4-19 | `…/S4-19-invalid-weight-rejected/` | weight 1,000,001: startup exits; hot-reload to invalid rejected, old config keeps serving | recorded (optional case) |
+| S4-20 | `…/S4-20-notfound-request-fault-stop/` | 404 with request-fault body (`type: invalid_request_error`) stops rotation at the first failing credential, NO cooldown; empty-api-key credential still scheduled; executor wire follows the credential's base-url | recorded |
+
+FIXTURE-DEFERRED (CREDENTIALED-ONLY, documented in §2.4/§2.5 with source evidence, no local golden possible): S4-D1 OAuth refresh-on-unauthorized; S4-D2 OAuth token-expiry demotion; S4-D3 Antigravity credits fallback.
+
+Recorded notes that refine the rules above:
+- S4-18: the mixed pool executes each credential with ITS OWN provider executor (gemini wire for the gemini credential, openai-compat wire for the compat credential); provider segment order = registered-credential count DESC then name ASC ([gemini, openai-compatibility-mock-openai-mx]); the mixed cursor alternates per request; same-request cross-provider failover is hidden from the client.
+- S4-07: steps 7 AND 8 were both served by the reset credential — at step 8 the other two keys were still inside their 1 s quota windows, so the reset (and only ready) credential served again. The fixture bytes are the contract; no cursor anomaly.
+- S4-16: the 503 for the cooled model (R2) confirms per-model state isolation and that the alias-routed pick shard sees the upstream-model-keyed cooldown (scheduler targeted update).
 
 ## 7. Open questions and intentional non-equivalences
 

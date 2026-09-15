@@ -25,7 +25,8 @@
   ],
   "upstream_wire_delta_lines": 0,
   "notes": [
-    "upstream wire entries emitted during this case: 0"
+    "upstream wire entries emitted during this case: 0",
+    "DEVIATION: verbatim provider model name claude-mock-model on /v1beta does NOT resolve: 400 {\"error\":{\"message\":\"unknown provider for model claude-mock-model\",\"type\":\"invalid_request_error\"...}} (no upstream request). Only the alias cm resolves on the gemini surface; expected-identical resolution is wrong."
   ],
   "files": [
     "meta.yaml",

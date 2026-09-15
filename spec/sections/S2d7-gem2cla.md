@@ -135,7 +135,7 @@ Skeleton (key order observable; golden S2d7-01):
 
 MUST (evidence: `internal/runtime/executor/claude_executor_tokens.go`):
 - For non-Anthropic base URLs the gateway does NOT call the upstream `count_tokens` endpoint. It counts locally with an O200kBase tokenizer over the TRANSLATED Claude body (segments: system text blocks, per-message role + content text/tool ids/names/inputs, tool names, tool_choice) and returns a Gemini-shaped body:
-  `{"totalTokens":N,"promptTokensDetails":[{"modality":"TEXT","tokenCount":N}]}` (evidence: `internal/translator/common/bytes.go` `GeminiTokenCountJSON`).
+  `{"totalTokens":N,"promptTokensDetails":[{"modality":"TEXT","tokenCount":N}]}` (evidence: `internal/translator/common/bytes.go` `GeminiTokenCountJSON`). Recorded N for the S2d7-12 request is 4 (O200kBase over segments `["user","Say hello"]` joined with `\n`).
 - No upstream request is emitted for this path. Pin: golden S2d7-12 (upstream wire log stays unchanged).
 - Validation: translated `messages` must be a non-empty array of `user`/`assistant` turns with typed content blocks, else 400 `{"error":{"message":"<validator message>","type":...}}` (§5).
 - The numeric value N is deterministic for a fixed request under the reference tokenizer. Byte-exact reproduction requires an O200k-compatible tokenizer — see §7 open question.
@@ -285,7 +285,9 @@ The 400/INVALID_ARGUMENT values are fixed regardless of the upstream error type.
 
 ## 6. Golden-sample index
 
-Recorded by @oracle-runner against CLIProxyAPI v7.3.4 (image digest per BOOTSTRAP §2), claude mock upstream `_cpa_edge_ref/mock/mock_claude.py` at `http://host.docker.internal:19002` (config `claude-api-key`, model `claude-mock-model`, alias `cm`). Fixture layout per BOOTSTRAP §7 RECIPES under `tests/fixtures/S2d7/<case-id>/` (`meta.yaml`, `request.http`, `downstream.md`, `upstream.jsonl`, `mock-response.json`).
+Recorded by @oracle-runner against CLIProxyAPI v7.3.4 (image digest per BOOTSTRAP §2), claude mock upstream (worker copy `run3/mock/mock_claude.py`; recording stack: reference on port 8397, mock on 21002 — port adaptation noted in every `meta.yaml`; config `claude-api-key`, model `claude-mock-model`, alias `cm`). Fixture layout per BOOTSTRAP §7 RECIPES under `tests/fixtures/S2d7/<case-id>/` (`meta.yaml`, `request.http`, `downstream.md`, `upstream.jsonl`, `mock-response.json`).
+
+**Recording status: S2d7-00 … S2d7-22 recorded (23 fixtures, raw transcripts in `_cpa_edge_ref/run3/probes/S2d7/`); S2d7-23/S2d7-24 (valid-args tool variants) requested from @oracle-runner.**
 
 Requests below use gateway auth `x-goog-api-key: oracle-local-key-1` and the alias model `cm` unless noted. Wire-log secrets are redacted by the mock. Dynamic fields masked: `Date`, `X-Cpa-Trace-Id`, `createTime`, `User-Agent` (caller-controlled, fixed per case by the curl used).
 
@@ -328,8 +330,10 @@ CREDENTIALED-ONLY (FIXTURE-DEFERRED, per R-FIXTURE): Claude OAuth upstream behav
 3. **Role-less `contents` turns are dropped** although the real Gemini API defaults them to `user`. Mirrored; a client relying on that default silently loses the turn. Golden S2d7-16 pins it.
 4. **`promptTokenCount` is 0 unless `message_delta.usage.input_tokens` exists** — real Anthropic streams put input tokens in `message_start`, so most real captures will show 0 for the Gemini client while the OpenAI direction shows the true count. Upstream behavior; noted, not fixed.
 5. **`alt=json` concatenation** is not the real Gemini API's JSON-array streaming. Mirrored byte-for-byte; registered as intentional non-equivalence.
-6. **countTokens numeric value** depends on an O200kBase tokenizer over the translated body. Byte-exact contract matching needs an equivalent tokenizer in CPA-Edge (JS). Open question for the orchestrator: approve a tokenizer dependency (e.g. a tiktoken-compatible package) or register `totalTokens` as a masked field in contract tests (shape-only assertion). Fixture S2d7-12 pins the reference integer either way.
+6. **countTokens numeric value** depends on an O200kBase tokenizer over the translated body. Byte-exact contract matching needs an equivalent tokenizer in CPA-Edge (JS); the recorded reference value for the golden request is 4. Open question for the orchestrator: approve a tokenizer dependency (e.g. a tiktoken-compatible package) or register `totalTokens` as a masked field in contract tests (shape-only assertion). Fixture S2d7-12 pins the reference integer either way.
 7. **finishReason is always STOP** for this pair (both paths; the MAX_TOKENS mapping is dead code upstream). Mirrored. If a future ruling wants real MAX_TOKENS semantics it must be registered in SPEC §5 first.
 8. Non-stream `modelVersion` uses the gateway-resolved model name while stream chunks use the upstream-echoed `message.model`. Identical for current fixtures; noted for force-mapped models (S4 interaction).
 9. `X-Mock-*` control headers do NOT traverse the gateway (allowlist); mock modes MUST be set via `mock/control/claude.json` for through-gateway recordings.
 10. The `?beta=true` query is always appended. Kept for byte-parity; harmless on Anthropic-compatible gateways.
+11. **Raw-args splice and its corruption cascade are mirrored deliberately** (fixtures S2d7-13/21): `functionCall.args` bytes from `input_json_delta` accumulation are never re-parsed, so upstream streams that emit invalid partial JSON produce invalid chunk JSON, and later structured sets on the corrupted chunk degrade to root-level appends. CPA-Edge must reproduce this byte-for-byte (the valid-args path S2d7-23/24 shows the non-degraded shape).
+12. **Only the config alias is routable; the verbatim upstream model name is not** (fixture S2d7-22). This is registry behavior (S1/S4/S6) observed on this surface; cross-listed there.

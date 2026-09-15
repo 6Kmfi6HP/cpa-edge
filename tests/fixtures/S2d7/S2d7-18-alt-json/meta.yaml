@@ -25,7 +25,8 @@
   ],
   "upstream_wire_delta_lines": 1,
   "notes": [
-    "upstream wire entries emitted during this case: 1"
+    "upstream wire entries emitted during this case: 1",
+    "DEVIATION: Content-Type is text/plain; charset=utf-8 (not text/event-stream as hinted); chunks are raw-concatenated with no separator as expected."
   ],
   "files": [
     "meta.yaml",

@@ -1,0 +1,230 @@
+# S6-04-field-toggle-persist — response 3/8 (step 3)
+
+## Status line
+HTTP/1.1 200 OK
+
+## Response headers (raw, received order)
+Access-Control-Allow-Headers: *
+Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS
+Access-Control-Allow-Origin: *
+Access-Control-Expose-Headers: X-CPA-TRACE-ID, X-CPA-VERSION, X-CPA-COMMIT, X-CPA-BUILD-DATE, X-CPA-SUPPORT-PLUGIN, X-CPA-HOME-VERSION, X-CPA-HOME-BUILD-DATE, X-SERVER-VERSION, X-SERVER-BUILD-DATE, Location, Retry-After, X-Request-Id, OpenAI-Request-Id
+Cache-Control: no-store
+Content-Type: application/yaml; charset=utf-8
+X-Content-Type-Options: nosniff
+X-Cpa-Build-Date: 2026-09-15T14:07:06Z
+X-Cpa-Commit: 8335eac
+X-Cpa-Support-Plugin: 1
+X-Cpa-Version: v7.3.4
+Date: Tue, 15 Sep 2026 17:09:56 GMT
+Connection: close
+Transfer-Encoding: chunked
+
+## Body (Transfer-Encoding: chunked framing preserved) (exact bytes received, 2582 bytes)
+```
+# S6 recording fleet config (oracle worker-2) — all 8 mock upstreams on run2 ports, NO real credentials.
+# Key conventions per spec/recordings/S6.cases.json; plaintext secret-key (server bcrypt-hashes on startup).
+host: ""
+port: 8387
+remote-management:
+  allow-remote: true
+  secret-key: "$2a$10$1OzX4TtpJoxxDm/29ivmwOc5g2a1SPIwTWOQaL5lY9ltLbIziT3Pi"
+  disable-control-panel: true
+auth-dir: "/root/.cli-proxy-api"
+api-keys:
+  - "oracle-local-key-1"
+debug: false
+request-retry: 0
+transient-error-cooldown-seconds: -1
+usage-statistics-enabled: true
+openai-compatibility:
+  - name: "mock-openai"
+    base-url: "http://host.docker.internal:19999/v1"
+    api-key-entries:
+      - api-key: "mock-upstream-key"
+    models:
+      - name: "mock-gpt-model"
+        alias: "mock-model"
+gemini-api-key:
+  - api-key: "mock-gem-key"
+    base-url: "http://host.docker.internal:20001"
+    models:
+      - name: "gemini-mock-model"
+        alias: "gm"
+claude-api-key:
+  - api-key: "mock-claude-key"
+    base-url: "http://host.docker.internal:20002"
+    models:
+      - name: "claude-mock-model"
+        alias: "cm"
+codex-api-key:
+  - api-key: "mock-codex-key"
+    base-url: "http://host.docker.internal:20003"
+    models:
+      - name: "gpt-mock-codex"
+        alias: "cx"
+xai-api-key:
+  - api-key: "mock-xai-key"
+    base-url: "http://host.docker.internal:20004"
+    models:
+      - name: "grok-mock"
+        alias: "xg"
+meta-api-key:
+  - api-key: "mock-meta-key"
+    base-url: "http://host.docker.internal:20005"
+    models:
+      - name: "muse-mock"
+        alias: "mm"
+interactions-api-key:
+  - api-key: "mock-int-key"
+    base-url: "http://host.docker.internal:20006"
+    models:
+      - name: "gemini-mock-model"
+        alias: "im"
+vertex-api-key:
+  - api-key: "mock-vertex-key"
+    base-url: "http://host.docker.internal:20007"
+    models:
+      - name: "vertex-mock-model"
+        alias: "vm"
+credential-concurrency:
+  cpa-heartbeat-timeout: 3s
+  cpa-cancel-bound: 5s
+  reclaim-grace: 5s
+  cleanup-interval: 5s
+  release-flush-interval: 250ms
+  release-max-backoff: 2s
+  busy-retry-min: 250ms
+  busy-retry-max: 1s
+  max-limit: 1000000
+credential-in-flight:
+  snapshot-interval: 2s
+  stale-after: 10s
+  max-part-bytes: 262144
+  max-part-count: 64
+  max-revision-bytes: 16777216
+  max-aggregate-groups: 100000
+  max-details: 10000
+  max-string-bytes: 256
+  staging-retention: 1m
+discovery:
+  service-type: _ai-gateway._tcp
+  subtypes:
+    - _chat-completions
+    - _responses
+    - _messages
+    - _generate-content
+    - _interactions
+redis-usage-queue-retention-seconds: 60
+ws-auth: true
+
+```
+
+## Body (raw chunked stream as received)
+```
+a16
+# S6 recording fleet config (oracle worker-2) — all 8 mock upstreams on run2 ports, NO real credentials.
+# Key conventions per spec/recordings/S6.cases.json; plaintext secret-key (server bcrypt-hashes on startup).
+host: ""
+port: 8387
+remote-management:
+  allow-remote: true
+  secret-key: "$2a$10$1OzX4TtpJoxxDm/29ivmwOc5g2a1SPIwTWOQaL5lY9ltLbIziT3Pi"
+  disable-control-panel: true
+auth-dir: "/root/.cli-proxy-api"
+api-keys:
+  - "oracle-local-key-1"
+debug: false
+request-retry: 0
+transient-error-cooldown-seconds: -1
+usage-statistics-enabled: true
+openai-compatibility:
+  - name: "mock-openai"
+    base-url: "http://host.docker.internal:19999/v1"
+    api-key-entries:
+      - api-key: "mock-upstream-key"
+    models:
+      - name: "mock-gpt-model"
+        alias: "mock-model"
+gemini-api-key:
+  - api-key: "mock-gem-key"
+    base-url: "http://host.docker.internal:20001"
+    models:
+      - name: "gemini-mock-model"
+        alias: "gm"
+claude-api-key:
+  - api-key: "mock-claude-key"
+    base-url: "http://host.docker.internal:20002"
+    models:
+      - name: "claude-mock-model"
+        alias: "cm"
+codex-api-key:
+  - api-key: "mock-codex-key"
+    base-url: "http://host.docker.internal:20003"
+    models:
+      - name: "gpt-mock-codex"
+        alias: "cx"
+xai-api-key:
+  - api-key: "mock-xai-key"
+    base-url: "http://host.docker.internal:20004"
+    models:
+      - name: "grok-mock"
+        alias: "xg"
+meta-api-key:
+  - api-key: "mock-meta-key"
+    base-url: "http://host.docker.internal:20005"
+    models:
+      - name: "muse-mock"
+        alias: "mm"
+interactions-api-key:
+  - api-key: "mock-int-key"
+    base-url: "http://host.docker.internal:20006"
+    models:
+      - name: "gemini-mock-model"
+        alias: "im"
+vertex-api-key:
+  - api-key: "mock-vertex-key"
+    base-url: "http://host.docker.internal:20007"
+    models:
+      - name: "vertex-mock-model"
+        alias: "vm"
+credential-concurrency:
+  cpa-heartbeat-timeout: 3s
+  cpa-cancel-bound: 5s
+  reclaim-grace: 5s
+  cleanup-interval: 5s
+  release-flush-interval: 250ms
+  release-max-backoff: 2s
+  busy-retry-min: 250ms
+  busy-retry-max: 1s
+  max-limit: 1000000
+credential-in-flight:
+  snapshot-interval: 2s
+  stale-after: 10s
+  max-part-bytes: 262144
+  max-part-count: 64
+  max-revision-bytes: 16777216
+  max-aggregate-groups: 100000
+  max-details: 10000
+  max-string-bytes: 256
+  staging-retention: 1m
+discovery:
+  service-type: _ai-gateway._tcp
+  subtypes:
+    - _chat-completions
+    - _responses
+    - _messages
+    - _generate-content
+    - _interactions
+redis-usage-queue-retention-seconds: 60
+ws-auth: true
+
+0
+
+
+```
+
+## Trailers
+```
+
+
+```

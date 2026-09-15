@@ -1,0 +1,7 @@
+GET /v0/management/usage-queue?count=-1 HTTP/1.1
+Host: 127.0.0.1:8387
+Authorization: Bearer oracle-mgmt-key-1
+User-Agent: oracle-s3-probe/1.0
+Accept: */*
+Connection: close
+

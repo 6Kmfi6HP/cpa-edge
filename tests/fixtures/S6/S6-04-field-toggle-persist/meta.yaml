@@ -1,0 +1,119 @@
+{
+  "case": "S6-04-field-toggle-persist",
+  "purpose": "Scalar field PUT persists to config.yaml and hot-applies (B4, sections 3.1.2/3.3.2/3.3.4).",
+  "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image eceasy/cli-proxy-api:v7.3.4 (digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266)",
+  "recorded_at": "2026-09-15T17:09:56.400974+00:00",
+  "client_protocol": "raw HTTP/1.1 over TCP socket; User-Agent: oracle-s3-probe/1.0; Connection: close",
+  "upstream_provider": "none (management/config surface only)",
+  "stream": false,
+  "instance": "S6-group-C",
+  "instance_port": 8387,
+  "port_note": "worker-2 isolated stack; S6 section 4 whitelist masks :18317->:8387 and 18999/190xx->19999/200xx in URLs, paths, config base-urls",
+  "config_fragment": "# S6 recording fleet config (oracle worker-2) — all 8 mock upstreams on run2 ports, NO real credentials.\n# Key conventions per spec/recordings/S6.cases.json; plaintext secret-key (server bcrypt-hashes on startup).\nhost: \"\"\nport: 8387\nremote-management:\n  allow-remote: true\n  secret-key: \"$2a$10$1OzX4TtpJoxxDm/29ivmwOc5g2a1SPIwTWOQaL5lY9ltLbIziT3Pi\"\n  disable-control-panel: true\nauth-dir: \"/root/.cli-proxy-api\"\napi-keys:\n  - \"oracle-local-key-1\"\ndebug: false\nrequest-retry: 0\ntransient-error-cooldown-seconds: -1\nusage-statistics-enabled: false\nopenai-compatibility:\n  - name: \"mock-openai\"\n    base-url: \"http://host.docker.internal:19999/v1\"\n    api-key-entries:\n      - api-key: \"mock-upstream-key\"\n    models:\n      - name: \"mock-gpt-model\"\n        alias: \"mock-model\"\ngemini-api-key:\n  - api-key: \"mock-gem-key\"\n    base-url: \"http://host.docker.internal:20001\"\n    models:\n      - name: \"gemini-mock-model\"\n        alias: \"gm\"\nclaude-api-key:\n  - api-key: \"mock-claude-key\"\n    base-url: \"http://host.docker.internal:20002\"\n    models:\n      - name: \"claude-mock-model\"\n        alias: \"cm\"\ncodex-api-key:\n  - api-key: \"mock-codex-key\"\n    base-url: \"http://host.docker.internal:20003\"\n    models:\n      - name: \"gpt-mock-codex\"\n        alias: \"cx\"\nxai-api-key:\n  - api-key: \"mock-xai-key\"\n    base-url: \"http://host.docker.internal:20004\"\n    models:\n      - name: \"grok-mock\"\n        alias: \"xg\"\nmeta-api-key:\n  - api-key: \"mock-meta-key\"\n    base-url: \"http://host.docker.internal:20005\"\n    models:\n      - name: \"muse-mock\"\n        alias: \"mm\"\ninteractions-api-key:\n  - api-key: \"mock-int-key\"\n    base-url: \"http://host.docker.internal:20006\"\n    models:\n      - name: \"gemini-mock-model\"\n        alias: \"im\"\nvertex-api-key:\n  - api-key: \"mock-vertex-key\"\n    base-url: \"http://host.docker.internal:20007\"\n    models:\n      - name: \"vertex-mock-model\"\n        alias: \"vm\"\ncredential-concurrency:\n  cpa-heartbeat-timeout: 3s\n  cpa-cancel-bound: 5s\n  reclaim-grace: 5s\n  cleanup-interval: 5s\n  release-flush-interval: 250ms\n  release-max-backoff: 2s\n  busy-retry-min: 250ms\n  busy-retry-max: 1s\n  max-limit: 1000000\ncredential-in-flight:\n  snapshot-interval: 2s\n  stale-after: 10s\n  max-part-bytes: 262144\n  max-part-count: 64\n  max-revision-bytes: 16777216\n  max-aggregate-groups: 100000\n  max-details: 10000\n  max-string-bytes: 256\n  staging-retention: 1m\ndiscovery:\n  service-type: _ai-gateway._tcp\n  subtypes:\n    - _chat-completions\n    - _responses\n    - _messages\n    - _generate-content\n    - _interactions\nredis-usage-queue-retention-seconds: 60\nws-auth: true\nlogs-max-total-size-mb: 0\n",
+  "requests": [
+    {
+      "file": "request.http",
+      "step": 1,
+      "repeat": 1
+    },
+    {
+      "file": "request-2.http",
+      "step": 2,
+      "repeat": 1
+    },
+    {
+      "file": "request-3.http",
+      "step": 3,
+      "repeat": 1
+    },
+    {
+      "file": "request-4.http",
+      "step": 4,
+      "repeat": 1
+    },
+    {
+      "file": "request-5.http",
+      "step": 5,
+      "repeat": 1
+    },
+    {
+      "file": "request-6.http",
+      "step": 6,
+      "repeat": 1
+    },
+    {
+      "file": "request-7.http",
+      "step": 7,
+      "repeat": 1
+    },
+    {
+      "file": "request-8.http",
+      "step": 8,
+      "repeat": 1
+    }
+  ],
+  "responses": [
+    {
+      "file": "downstream.md",
+      "step": 1,
+      "repeat": 1,
+      "status": 200
+    },
+    {
+      "file": "downstream-2.md",
+      "step": 2,
+      "repeat": 1,
+      "status": 200
+    },
+    {
+      "file": "downstream-3.md",
+      "step": 3,
+      "repeat": 1,
+      "status": 200
+    },
+    {
+      "file": "downstream-4.md",
+      "step": 4,
+      "repeat": 1,
+      "status": 400
+    },
+    {
+      "file": "downstream-5.md",
+      "step": 5,
+      "repeat": 1,
+      "status": 200
+    },
+    {
+      "file": "downstream-6.md",
+      "step": 6,
+      "repeat": 1,
+      "status": 200
+    },
+    {
+      "file": "downstream-7.md",
+      "step": 7,
+      "repeat": 1,
+      "status": 200
+    },
+    {
+      "file": "downstream-8.md",
+      "step": 8,
+      "repeat": 1,
+      "status": 200
+    }
+  ],
+  "dynamic_fields": [
+    "secret-key hash line",
+    "Date",
+    "Date",
+    "ports (8387/19999/200xx)"
+  ],
+  "disk_captures": [
+    {
+      "file": "disk/CLIProxyAPI/config.yaml.after-cleanup",
+      "what": "mounted config.yaml bytes after step 8 cleanup"
+    }
+  ],
+  "notes": [],
+  "expect_note": "expect entries in the cases file are predictions; recorded bytes are authoritative"
+}

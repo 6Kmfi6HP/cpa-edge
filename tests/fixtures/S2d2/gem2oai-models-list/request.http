@@ -1,0 +1,41 @@
+# Exact downstream requests, in order (R1..Rn)
+
+### R1: GET /v1beta/models
+GET /v1beta/models HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+x-goog-api-key: oracle-local-key-1
+
+
+
+
+### R2: GET /v1beta/models/mock-model
+GET /v1beta/models/mock-model HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+x-goog-api-key: oracle-local-key-1
+
+
+
+
+### R3: GET /v1beta/models/models/mock-model
+GET /v1beta/models/models/mock-model HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+x-goog-api-key: oracle-local-key-1
+
+
+
+
+### R4: GET /v1beta/models/no-such-model
+GET /v1beta/models/no-such-model HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+x-goog-api-key: oracle-local-key-1
+
+
+

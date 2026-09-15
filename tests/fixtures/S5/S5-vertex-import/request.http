@@ -1,0 +1,106 @@
+### S5-vertex-import STEP 1 — POST /v0/management/vertex/import
+POST /v0/management/vertex/import HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Type: multipart/form-data; boundary=X
+Content-Length: 1973
+
+--X
+Content-Disposition: form-data; name="file"; filename="sa.json"
+Content-Type: application/json
+
+{"type": "service_account", "project_id": "s5-project", "client_email": "s5@fixture.iam.gserviceaccount.com", "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCZRhPnDgkdbJtB\nuIumWUh+2QLZAm6o3asXZkonqhMrPSMj9NOgdjUMP9YWpdrUzI8eSPjVeRQzpHTA\nMQhl1cxTpD0KfUlg27x2uaagWmu86gL4yeA2MR/5KMD6thwywJMDi/kVPJzviXZR\n35XyfHnmhq5THzv9au2OQxPuD819tan6sEcWuM4gi3M3ZT5w05iRjx12lT8QaQlu\nz/+9YXV0HMsH/23joIbMSBy+J6gxwXhu98x2Iwq5di3Viq46M0nIx0Zhr7Ik4tDX\njTssniUxRf2U49zRDjjBGjCZ8d3aw4II5DRykW6pFsaXFqkd3aUkSYAig6odTNk+\nr7rmgFeTAgMBAAECggEAQMbyq2Btrr9TQGvPrV6nemCZyQAzp2+DmvCSn3/L+Sat\n/si+Vd8PXV1vTAQNX4kSZWC+tW2mAYtcAkvWuj8oyyKq34+CnwpO9LhSeQut49nc\npque9Bg/5Iv6PxsPAM4Nc97IxtZmlv+3/zMoyqIb3LcH3r5hGqGBw3GK7z5DgQBJ\nnQusuu5SO1r5/Mc/pgfgmPhkXADyWjpW0i3tnAlkPfCPpEgTns8mQFcexaeBmKSt\nxk5tEoEpwSbo17idq4nDqEu2sElIaRNTx4JzaLXxihcLGoMQMtP58PzkVAosWl5b\n3etcoxzEci4j3sM7vN1YvBnpZGFonLeSNAvyAkpUoQKBgQDSCjOP35Xy0Ip9Utt2\n3H1vD+pGlbThzpU0lBKAMjUkRdzsxUBSe6BGBVjk0GfT2Npi4dkQJDfZhslIUZT7\ngEPgFAs46WJANFHxxHxWid2+q1LROFwySC294KySVfWv97xHMnQETAlIu+/w8Jkd\nStQ+md+e6fmxlmJNDqgQ6cm54QKBgQC60AKfHTD/HM5zV3lIM/snECl4H4QdNniV\nFF7wH/P5wDP1TeQl67+sdGvcKh7CUWd/oUbMnZPPJyl9BCNYIxcTggaQGOBcW/pW\nMQFwpu9s0mQW9sxqhnjfDwptWWHGr9vPXY4pY8QDPSyeuybLSd1ngcxL1TRqbH1W\nIplRw2fH8wKBgFOaZ+eukVrzEwzLPDvVi7/3T8MEt9jhh5ZEEhEg6vIjNMqxwOaT\n+rmkSzvYkFtMh7CwQNwh7nERK3Ezt99bsKiykbz3eHoh2TQoh21Stwa73t0UV+5T\nuJFJqqccvAxsyW51cKR9N3zSAbGfsvJr5It+Z/ozG4ZKW5pcaR1CUV9BAoGBAJeZ\ntobpaZmeBuwTUJkHlgldVEnnSY9rZO+WWHUFeTh0gbXQQBWF+0Y4NE+23r9S0GsC\ntjHWrtytKz4I3aXo1BFAs5K8nVZWThEkM8b3sdTd59u67KiF+BEMY6nZnz9d90OQ\n6I0uKSN3wX4O4qyWhNY6v0/K9X5oDE6aRVHVAaOBAoGAD8pmEV/tkeVcRRkwie/l\nkGIlJXCEzdqZrtcnwdnahpegpVTAxXeBS6anW8MwkYlZOtwTXMR/pz7a7UR+0C+9\nfzcVDSIynuzMffgIE8PY0/xv/jZqEyF/lxyjFbLG6OMzmTajhNsw8bivpSKLcLuf\nq77/bU+nxpM9q8yatSOc3g8=\n-----END PRIVATE KEY-----\n"}
+--X--
+
+### S5-vertex-import STEP 2 — GET /v0/management/auth-files
+GET /v0/management/auth-files HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-vertex-import STEP 3 — POST /v0/management/vertex/import
+POST /v0/management/vertex/import HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Type: multipart/form-data; boundary=X
+Content-Length: 76
+
+--X
+Content-Disposition: form-data; name="location"
+
+us-central1
+--X--
+
+### S5-vertex-import STEP 4 — POST /v0/management/vertex/import
+POST /v0/management/vertex/import HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Type: multipart/form-data; boundary=X
+Content-Length: 121
+
+--X
+Content-Disposition: form-data; name="file"; filename="sa.json"
+Content-Type: application/json
+
+not json
+--X--
+
+### S5-vertex-import STEP 5 — POST /v0/management/vertex/import
+POST /v0/management/vertex/import HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Type: multipart/form-data; boundary=X
+Content-Length: 1912
+
+--X
+Content-Disposition: form-data; name="file"; filename="sa.json"
+Content-Type: application/json
+
+{"type": "service_account", "client_email": "x", "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCZRhPnDgkdbJtB\nuIumWUh+2QLZAm6o3asXZkonqhMrPSMj9NOgdjUMP9YWpdrUzI8eSPjVeRQzpHTA\nMQhl1cxTpD0KfUlg27x2uaagWmu86gL4yeA2MR/5KMD6thwywJMDi/kVPJzviXZR\n35XyfHnmhq5THzv9au2OQxPuD819tan6sEcWuM4gi3M3ZT5w05iRjx12lT8QaQlu\nz/+9YXV0HMsH/23joIbMSBy+J6gxwXhu98x2Iwq5di3Viq46M0nIx0Zhr7Ik4tDX\njTssniUxRf2U49zRDjjBGjCZ8d3aw4II5DRykW6pFsaXFqkd3aUkSYAig6odTNk+\nr7rmgFeTAgMBAAECggEAQMbyq2Btrr9TQGvPrV6nemCZyQAzp2+DmvCSn3/L+Sat\n/si+Vd8PXV1vTAQNX4kSZWC+tW2mAYtcAkvWuj8oyyKq34+CnwpO9LhSeQut49nc\npque9Bg/5Iv6PxsPAM4Nc97IxtZmlv+3/zMoyqIb3LcH3r5hGqGBw3GK7z5DgQBJ\nnQusuu5SO1r5/Mc/pgfgmPhkXADyWjpW0i3tnAlkPfCPpEgTns8mQFcexaeBmKSt\nxk5tEoEpwSbo17idq4nDqEu2sElIaRNTx4JzaLXxihcLGoMQMtP58PzkVAosWl5b\n3etcoxzEci4j3sM7vN1YvBnpZGFonLeSNAvyAkpUoQKBgQDSCjOP35Xy0Ip9Utt2\n3H1vD+pGlbThzpU0lBKAMjUkRdzsxUBSe6BGBVjk0GfT2Npi4dkQJDfZhslIUZT7\ngEPgFAs46WJANFHxxHxWid2+q1LROFwySC294KySVfWv97xHMnQETAlIu+/w8Jkd\nStQ+md+e6fmxlmJNDqgQ6cm54QKBgQC60AKfHTD/HM5zV3lIM/snECl4H4QdNniV\nFF7wH/P5wDP1TeQl67+sdGvcKh7CUWd/oUbMnZPPJyl9BCNYIxcTggaQGOBcW/pW\nMQFwpu9s0mQW9sxqhnjfDwptWWHGr9vPXY4pY8QDPSyeuybLSd1ngcxL1TRqbH1W\nIplRw2fH8wKBgFOaZ+eukVrzEwzLPDvVi7/3T8MEt9jhh5ZEEhEg6vIjNMqxwOaT\n+rmkSzvYkFtMh7CwQNwh7nERK3Ezt99bsKiykbz3eHoh2TQoh21Stwa73t0UV+5T\nuJFJqqccvAxsyW51cKR9N3zSAbGfsvJr5It+Z/ozG4ZKW5pcaR1CUV9BAoGBAJeZ\ntobpaZmeBuwTUJkHlgldVEnnSY9rZO+WWHUFeTh0gbXQQBWF+0Y4NE+23r9S0GsC\ntjHWrtytKz4I3aXo1BFAs5K8nVZWThEkM8b3sdTd59u67KiF+BEMY6nZnz9d90OQ\n6I0uKSN3wX4O4qyWhNY6v0/K9X5oDE6aRVHVAaOBAoGAD8pmEV/tkeVcRRkwie/l\nkGIlJXCEzdqZrtcnwdnahpegpVTAxXeBS6anW8MwkYlZOtwTXMR/pz7a7UR+0C+9\nfzcVDSIynuzMffgIE8PY0/xv/jZqEyF/lxyjFbLG6OMzmTajhNsw8bivpSKLcLuf\nq77/bU+nxpM9q8yatSOc3g8=\n-----END PRIVATE KEY-----\n"}
+--X--
+
+### S5-vertex-import STEP 6 — POST /v0/management/vertex/import
+POST /v0/management/vertex/import HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Type: multipart/form-data; boundary=X
+Content-Length: 2039
+
+--X
+Content-Disposition: form-data; name="location"
+
+us-east1
+--X
+Content-Disposition: form-data; name="file"; filename="sa.json"
+Content-Type: application/json
+
+{"type": "service_account", "project_id": "s5-project", "client_email": "s5@fixture.iam.gserviceaccount.com", "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCZRhPnDgkdbJtB\nuIumWUh+2QLZAm6o3asXZkonqhMrPSMj9NOgdjUMP9YWpdrUzI8eSPjVeRQzpHTA\nMQhl1cxTpD0KfUlg27x2uaagWmu86gL4yeA2MR/5KMD6thwywJMDi/kVPJzviXZR\n35XyfHnmhq5THzv9au2OQxPuD819tan6sEcWuM4gi3M3ZT5w05iRjx12lT8QaQlu\nz/+9YXV0HMsH/23joIbMSBy+J6gxwXhu98x2Iwq5di3Viq46M0nIx0Zhr7Ik4tDX\njTssniUxRf2U49zRDjjBGjCZ8d3aw4II5DRykW6pFsaXFqkd3aUkSYAig6odTNk+\nr7rmgFeTAgMBAAECggEAQMbyq2Btrr9TQGvPrV6nemCZyQAzp2+DmvCSn3/L+Sat\n/si+Vd8PXV1vTAQNX4kSZWC+tW2mAYtcAkvWuj8oyyKq34+CnwpO9LhSeQut49nc\npque9Bg/5Iv6PxsPAM4Nc97IxtZmlv+3/zMoyqIb3LcH3r5hGqGBw3GK7z5DgQBJ\nnQusuu5SO1r5/Mc/pgfgmPhkXADyWjpW0i3tnAlkPfCPpEgTns8mQFcexaeBmKSt\nxk5tEoEpwSbo17idq4nDqEu2sElIaRNTx4JzaLXxihcLGoMQMtP58PzkVAosWl5b\n3etcoxzEci4j3sM7vN1YvBnpZGFonLeSNAvyAkpUoQKBgQDSCjOP35Xy0Ip9Utt2\n3H1vD+pGlbThzpU0lBKAMjUkRdzsxUBSe6BGBVjk0GfT2Npi4dkQJDfZhslIUZT7\ngEPgFAs46WJANFHxxHxWid2+q1LROFwySC294KySVfWv97xHMnQETAlIu+/w8Jkd\nStQ+md+e6fmxlmJNDqgQ6cm54QKBgQC60AKfHTD/HM5zV3lIM/snECl4H4QdNniV\nFF7wH/P5wDP1TeQl67+sdGvcKh7CUWd/oUbMnZPPJyl9BCNYIxcTggaQGOBcW/pW\nMQFwpu9s0mQW9sxqhnjfDwptWWHGr9vPXY4pY8QDPSyeuybLSd1ngcxL1TRqbH1W\nIplRw2fH8wKBgFOaZ+eukVrzEwzLPDvVi7/3T8MEt9jhh5ZEEhEg6vIjNMqxwOaT\n+rmkSzvYkFtMh7CwQNwh7nERK3Ezt99bsKiykbz3eHoh2TQoh21Stwa73t0UV+5T\nuJFJqqccvAxsyW51cKR9N3zSAbGfsvJr5It+Z/ozG4ZKW5pcaR1CUV9BAoGBAJeZ\ntobpaZmeBuwTUJkHlgldVEnnSY9rZO+WWHUFeTh0gbXQQBWF+0Y4NE+23r9S0GsC\ntjHWrtytKz4I3aXo1BFAs5K8nVZWThEkM8b3sdTd59u67KiF+BEMY6nZnz9d90OQ\n6I0uKSN3wX4O4qyWhNY6v0/K9X5oDE6aRVHVAaOBAoGAD8pmEV/tkeVcRRkwie/l\nkGIlJXCEzdqZrtcnwdnahpegpVTAxXeBS6anW8MwkYlZOtwTXMR/pz7a7UR+0C+9\nfzcVDSIynuzMffgIE8PY0/xv/jZqEyF/lxyjFbLG6OMzmTajhNsw8bivpSKLcLuf\nq77/bU+nxpM9q8yatSOc3g8=\n-----END PRIVATE KEY-----\n"}
+--X--
+
+### S5-vertex-import STEP 7 — DELETE /v0/management/auth-files?name=vertex-s5-project.json
+DELETE /v0/management/auth-files?name=vertex-s5-project.json HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-vertex-import STEP 8 — DELETE /v0/management/auth-files?name=vertex-s5-project.json
+DELETE /v0/management/auth-files?name=vertex-s5-project.json HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+

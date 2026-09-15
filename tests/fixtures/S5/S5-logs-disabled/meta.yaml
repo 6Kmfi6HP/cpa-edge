@@ -126,6 +126,13 @@
    "expect_status": 404
   }
  ],
- "mismatches": [],
+ "mismatches": [
+  {
+   "step": 11,
+   "expected": "{\"error\":\"log file not found for the given request ID\"}",
+   "actual": "{\"error\":\"log directory not found\"}",
+   "field": "body"
+  }
+ ],
  "upstream_file": null
 }

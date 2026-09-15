@@ -1,0 +1,11 @@
+{
+  "control_file": {
+    "mode": "happy",
+    "scenario": "s2d2-nonstream-reasoning"
+  },
+  "scenario": "s2d2-nonstream-reasoning",
+  "reply": {
+    "status": 200,
+    "response_body": "{\"id\":\"chatcmpl-mock-reason\",\"object\":\"chat.completion\",\"created\":1770000000,\"model\":\"mock-gpt-model\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"Final answer text\",\"reasoning_content\":\"Working through it\"},\"finish_reason\":\"length\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15,\"completion_tokens_details\":{\"reasoning_tokens\":4}}}"
+  }
+}

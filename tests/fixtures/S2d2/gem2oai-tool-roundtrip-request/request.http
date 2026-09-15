@@ -1,0 +1,13 @@
+# Exact downstream requests, in order (R1..Rn)
+
+### R1: POST /v1beta/models/mock-model:generateContent
+POST /v1beta/models/mock-model:generateContent HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Type: application/json
+x-goog-api-key: oracle-local-key-1
+Content-Length: 393
+
+
+{"contents":[{"role":"user","parts":[{"text":"Read a.txt and grep for needle"}]},{"role":"model","parts":[{"functionCall":{"name":"read_file","args":{"path":"a.txt"}}},{"functionCall":{"name":"grep","args":{"pattern":"needle"}}}]},{"role":"function","parts":[{"functionResponse":{"name":"read_file","response":{"result":"a"}}},{"functionResponse":{"name":"grep","response":{"result":"b"}}}]}]}

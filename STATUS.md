@@ -12,7 +12,7 @@
 | P0.1 | repo skeleton (root configs, SPEC/STATUS) | 0 | — | pending | 0 |  |
 | P0.2 | packages/core: Store interface + memory impl + error registry | 0 | — | merged | 2 | impl-p0-core impl; adv round1 FAIL (B1 aliasing) -> fix-p0-core -> round2 PASS; N8 portability note carried to S6/T2 |
 | ORACLE | reference env at _cpa_edge_ref (outside repo) | — | — | merged | 0 | v7.3.4 anchor; image digest recorded; 17 probes; recordable/credentialed table; harness proven |
-| S1 | spec: endpoint inventory | 1 | spec-s1-endpoints | spec-adv | 0 | section+24 goldens done; spec-review assigned to adv-spec-1 |
+| S1 | spec: endpoint inventory | 1 | spec-s1-endpoints | spec-fix | 1 | R1: adv-spec-1 FAIL (B1-B4 realtime/config literals); S1-25+D3+21 follow-up recording authorized |
 | S2d1 | spec: OpenAI client → Gemini upstream | 1 | spec-s2d1-oai2gem | spec | 0 |  |
 | S2d2 | spec: Gemini client → OpenAI upstream | 1 | spec-s2d2-gem2oai | spec | 0 |  |
 | S2d3 | spec: OpenAI client → Claude upstream | 1 | spec-s2d3-oai2cla | spec | 0 |  |
@@ -24,7 +24,7 @@
 | S2d9 | spec: Codex/Responses passthrough semantics | 1 | spec-s2d9-codex | spec | 0 |  |
 | S2d10 | spec: Antigravity redirect rules | 1 | spec-s2d10-antigravity | spec | 0 |  |
 | S3 | spec: auth flows | 1 | spec-s3-auth | spec-adv | 0 | section+38 goldens finalized; spec-review assigned to adv-spec-2 |
-| S4 | spec: scheduling | 1 | spec-s4-scheduling | spec | 0 |  |
+| S4 | spec: scheduling | 1 | spec-s4-scheduling | spec-adv | 0 | section+20 goldens done; review pending assignment |
 | S5 | spec: management API | 1 | spec-s5-mgmt | spec | 0 |  |
 | S6 | spec: state & storage schemas | 1 | spec-s6-state | spec | 0 |  |
 | S7 | spec: platform degradation matrix | 1 | spec-s7-platform | spec-adv | 0 | section+15 goldens done; R-S7-A/B/C ruled; review assigned adv-spec-3 |

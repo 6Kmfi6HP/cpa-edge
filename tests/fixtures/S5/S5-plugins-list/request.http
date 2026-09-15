@@ -1,0 +1,59 @@
+### S5-plugins-list STEP 1 — GET /v0/management/plugins
+GET /v0/management/plugins HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-plugins-list STEP 2 — GET /v0/management/plugins/nope/config
+GET /v0/management/plugins/nope/config HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-plugins-list STEP 3 — PATCH /v0/management/plugins/nope/enabled
+PATCH /v0/management/plugins/nope/enabled HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 2
+
+{}
+
+### S5-plugins-list STEP 4 — PATCH /v0/management/plugins/bad%20id/enabled
+PATCH /v0/management/plugins/bad%20id/enabled HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Length: 16
+
+{"enabled":true}
+
+### S5-plugins-list STEP 5 — DELETE /v0/management/plugins/nope
+DELETE /v0/management/plugins/nope HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-plugins-list STEP 6 — GET /v0/management/plugins/nope/quota?auth_index=x
+GET /v0/management/plugins/nope/quota?auth_index=x HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-plugins-list STEP 7 — GET /v0/management/quota/providers
+GET /v0/management/quota/providers HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+

@@ -121,3 +121,46 @@ Send cases files + target fixture dirs per the RECIPES contract in `BOOTSTRAP.md
 land in `cpa-edge/tests/fixtures/<step-id>/<case-id>/` (meta.yaml / request.http / downstream.md
 / upstream.jsonl / mock-response.json). I record only into fixture dirs a mission assigns to me;
 if a mode/behavior cannot be reproduced I say so explicitly instead of approximating.
+
+## S5 recording mission (2026-09-16, complete)
+
+Executed the S5 golden recording request from @spec-s5-mgmt (cases file
+`cpa-edge/spec/recordings/S5.cases.json`): 22 RECORDABLE cases, 164 request steps
+(+1 aux step in S5-quota-endpoints = 165 recorded). The 6 `fixture_deferred` entries were
+NOT recorded (CREDENTIALED-ONLY / external, per the cases file).
+
+- Stack used: the BOOT-4 stack exactly (reference 8407, mocks 21999/22001-22007), with a
+  FRESH CONTAINER per case, pristine config + empty auth dir restored before every case
+  (so stateful cases could not leak into each other and usage counters were zero for
+  S5-usage-telemetry, which ran first).
+- Port substitution applied to the drafted (worker-2) bodies: 8387->8407, 19999->21999,
+  2000N->2200N. Recorded fixtures carry the worker-4 ports (masked dynamic fields).
+- Fixtures: `cpa-edge/tests/fixtures/S5/<case-id>/` — meta.yaml, request.http,
+  downstream.md (all steps delimited by `### <CASE> STEP <n>` sections; exact bytes),
+  plus upstream.jsonl + mock-response.json for S5-api-call-mock only.
+- Raw evidence: `_cpa_edge_ref/run4/probes/S5/` (per-case boot logs, exact request bytes,
+  structured responses, quota aux, vertex-import drafted-content side recording; README.md).
+- 17/22 cases match the cases-file predictions byte-exactly. Deviations (recorded reality
+  is authoritative; reported to the spec-writer):
+  1. S5-model-definitions steps 1-2: GET /model-definitions and ?channel=unknown return
+     **404 with EMPTY body** (route only registered as /model-definitions/:channel), not
+     the predicted 400 JSON errors.
+  2. S5-quota-endpoints step 5: POST /quota/reset with unknown auth_index returns
+     404 `{"error":"auth not found"}` (auth resolution precedes the quota-provider check);
+     the expect status list said 501. Step 4 (optional, real auth_index) DOES return 501
+     `{"error":"no quota provider available for credential"}`.
+  3. S5-oauth-session: envelope bodies marshal keys alphabetically
+     (`{"error":...,"status":...}`), and POST /oauth-callback with `{}` returns
+     `{"error":"state is required"}`, not "invalid body".
+  4. S5-logs-disabled step 11: `/request-log-by-id/abc123` returns
+     `{"error":"log directory not found"}` (the case allowed either variant).
+  5. Map-key-order-only differences in S5-config-yaml step 4 ({"changed","ok"}) — same
+     JSON content, different byte order.
+  6. S5-vertex-import: the drafted SA content (private_key "mock") is REJECTED
+     ("private_key is not valid pem: missing pem markers") — the reference parses
+     private_key as a real PEM before checking project_id. The fixture therefore embeds a
+     locally generated synthetic RSA-2048 PEM; the drafted-content recording is preserved
+     under `probes/S5/S5-vertex-import-drafted-content/`.
+- Teardown after the mission verified again: no cpa-oracle-4 container, no run4 mock
+  processes, ports 8407/21999/22001-22007 free, config byte-identical to pristine,
+  auth dir empty.

@@ -301,6 +301,8 @@ TUI mode; probe 16 recorded 404). Each of these is an INTENTIONAL-NON-EQUIVALENC
   inherited hazard: the deployment guide (D1) MUST warn that serverless deployments are public by
   default and that omitting `api-keys` (and `remote-management.secret-key`) exposes an open proxy.
   No golden is added here (S1/S3 own the auth fixtures); S7 records the ruling only.
+  CONFIRMED by orchestrator (2026-09-16): stands on all runtimes; D1 must carry a prominent security
+  warning plus "how to close the gateway" instructions; D2's final report lists it for visibility.
 - **Ruling R-S7-B (S3 O-4: OAuth login flows bind loopback callback servers).**
   Confirms §2.2 rows F5a/F5d. Redirect-based login (anthropic 54545, codex 1455, antigravity 51121,
   devin `127.0.0.1:<port>/callback`) is viable only where the process can bind those loopback ports:
@@ -347,6 +349,8 @@ Declared values (each runtime exports a constant):
 
 Rules:
 - The router consumes the descriptor at construction; it is immutable for the process lifetime.
+- ADOPTED as architecture (orchestrator 2026-09-16): the `RuntimeCapabilities` interface and the three
+  runtime constants are implemented in Phase 2 under the I-core step, alongside scheduling.
 - Contract tests MUST exercise degraded paths by constructing the `runtimes/node` server with a
   modified descriptor (e.g. the vercel values) — this is how T1 tests T3 behavior.
 - No global mutable state: the descriptor is passed in, never read from a module-level singleton.
@@ -502,19 +506,18 @@ Intentional non-equivalences (to be appended to SPEC §5 registry by the orchest
   ignored (no route, no listener). `/keep-alive` returns 404 identical to upstream's non-TUI mode.
 
 Open questions:
-- **OQ-S7-01.** Vercel "Fluid compute" WebSocket support, if it becomes generally available and
-  stable, would flip `inboundWebSocket` for vercel; the 501 body is the compatibility seam. Decision
-  deferred to a future SPEC revision; T3 ships with `false`.
-- **OQ-S7-02.** Per-request error dumps (`error-*.log` under `<auth-dir>/logs/`) are a SEPARATE
-  upstream feature from `logging-to-file`: they are written even while `logging-to-file: false`
-  (recorded in S7-10 aux artifacts; retention by `error-logs-max-files`). On `fileLogging: false`
-  runtimes (vercel) these files cannot exist, so `GET /v0/management/request-error-logs*` /
-  `/request-log-by-id/:id` need an explicit degraded stance: proposal — 501 with the F3 body for
-  symmetry; on cloudflare the dumps can persist through the DO-backed Store with upstream-shaped
-  responses. S5/S6 own the final route shapes; implementers should not add a third variant.
-- **OQ-S7-03.** Cloudflare outbound `connect()`-based proxying (TCP sockets API) could make a subset of
-  F1 (http CONNECT, socks5) possible on Workers; out of scope for T2 v1 — revisit if a real deployment
-  needs it. The 501 contract is designed so flipping the capability later is non-breaking.
+- **OQ-S7-01 — DECIDED (orchestrator 2026-09-16).** T3 ships with vercel `inboundWebSocket: false`;
+  the 501 body is the compatibility seam. A future Fluid-WS flip is a non-breaking capability change.
+- **OQ-S7-02 — DECIDED (orchestrator 2026-09-16).** Per-request error dumps (`error-*.log` under
+  `<auth-dir>/logs/`) are a SEPARATE upstream feature from `logging-to-file`: they are written even
+  while `logging-to-file: false` (recorded in S7-10 aux artifacts; retention by `error-logs-max-files`).
+  Ruling: on vercel (`fileLogging: false`) the request-error-logs endpoints return 501 with the F3
+  body; on cloudflare the dumps persist through the DO-backed Store with upstream-shaped responses.
+  Final route shapes are owned by S5/S6 (noted to their gate reviews); implementers must not add a
+  third variant.
+- **OQ-S7-03 — DECIDED (orchestrator 2026-09-16).** Cloudflare outbound `connect()`-based proxying
+  (TCP sockets API) stays OFF for T2 v1. The 501 contract is designed so flipping the capability later
+  is non-breaking.
 - **OQ-S7-04.** Device flows from serverless egress IPs may be rate-limited or blocked by vendors
   (operational, not behavioral); the contract stays EQUIVALENT regardless.
 - **OQ-S7-05.** Upstream's `ws-auth` reload terminates live sessions mid-flight (S7-02 logs). For the

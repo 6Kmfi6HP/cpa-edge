@@ -14,7 +14,7 @@ X-Cpa-Build-Date: 2026-09-15T14:07:06Z
 X-Cpa-Commit: 8335eac
 X-Cpa-Support-Plugin: 1
 X-Cpa-Version: v7.3.4
-Date: Tue, 15 Sep 2026 17:05:34 GMT
+Date: Tue, 15 Sep 2026 17:08:27 GMT
 Content-Length: 16
 ```
 
@@ -39,7 +39,7 @@ X-Cpa-Build-Date: 2026-09-15T14:07:06Z
 X-Cpa-Commit: 8335eac
 X-Cpa-Support-Plugin: 1
 X-Cpa-Version: v7.3.4
-Date: Tue, 15 Sep 2026 17:05:34 GMT
+Date: Tue, 15 Sep 2026 17:08:27 GMT
 Content-Length: 34
 ```
 
@@ -64,7 +64,7 @@ X-Cpa-Build-Date: 2026-09-15T14:07:06Z
 X-Cpa-Commit: 8335eac
 X-Cpa-Support-Plugin: 1
 X-Cpa-Version: v7.3.4
-Date: Tue, 15 Sep 2026 17:05:35 GMT
+Date: Tue, 15 Sep 2026 17:08:28 GMT
 Content-Length: 26
 ```
 
@@ -75,7 +75,7 @@ Content-Length: 26
 
 HTTP status: 404
 
-## AUX-1 — GET /v0/management/openai-compatibility
+## AUX-1 — GET /v0/management/gemini-api-key
 
 ### Status + response headers (received order)
 ```
@@ -89,13 +89,13 @@ X-Cpa-Build-Date: 2026-09-15T14:07:06Z
 X-Cpa-Commit: 8335eac
 X-Cpa-Support-Plugin: 1
 X-Cpa-Version: v7.3.4
-Date: Tue, 15 Sep 2026 17:05:36 GMT
-Content-Length: 258
+Date: Tue, 15 Sep 2026 17:08:29 GMT
+Content-Length: 179
 ```
 
 ### Body
 ```
-{"openai-compatibility":[{"name":"mock-openai","disabled":false,"base-url":"http://host.docker.internal:21999/v1","api-key-entries":[{"api-key":"mock-upstream-key","auth-index":"4236bb647a544144"}],"models":[{"name":"mock-gpt-model","alias":"mock-model"}]}]}
+{"gemini-api-key":[{"api-key":"mock-gem-key","base-url":"http://host.docker.internal:22001","models":[{"name":"gemini-mock-model","alias":"gm"}],"auth-index":"3cf396155c88e26a"}]}
 ```
 
 HTTP status: 200
@@ -104,7 +104,7 @@ HTTP status: 200
 
 ### Status + response headers (received order)
 ```
-HTTP/1.1 400 Bad Request
+HTTP/1.1 501 Not Implemented
 Access-Control-Allow-Headers: *
 Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS
 Access-Control-Allow-Origin: *
@@ -114,16 +114,16 @@ X-Cpa-Build-Date: 2026-09-15T14:07:06Z
 X-Cpa-Commit: 8335eac
 X-Cpa-Support-Plugin: 1
 X-Cpa-Version: v7.3.4
-Date: Tue, 15 Sep 2026 17:05:36 GMT
-Content-Length: 34
+Date: Tue, 15 Sep 2026 17:08:29 GMT
+Content-Length: 54
 ```
 
 ### Body
 ```
-{"error":"auth_index is required"}
+{"error":"no quota provider available for credential"}
 ```
 
-HTTP status: 400
+HTTP status: 501
 
 ## STEP 5 — POST /v0/management/quota/reset
 
@@ -139,7 +139,7 @@ X-Cpa-Build-Date: 2026-09-15T14:07:06Z
 X-Cpa-Commit: 8335eac
 X-Cpa-Support-Plugin: 1
 X-Cpa-Version: v7.3.4
-Date: Tue, 15 Sep 2026 17:05:38 GMT
+Date: Tue, 15 Sep 2026 17:08:31 GMT
 Content-Length: 26
 ```
 
@@ -164,7 +164,7 @@ X-Cpa-Build-Date: 2026-09-15T14:07:06Z
 X-Cpa-Commit: 8335eac
 X-Cpa-Support-Plugin: 1
 X-Cpa-Version: v7.3.4
-Date: Tue, 15 Sep 2026 17:05:39 GMT
+Date: Tue, 15 Sep 2026 17:08:32 GMT
 Content-Length: 34
 ```
 
@@ -189,7 +189,7 @@ X-Cpa-Build-Date: 2026-09-15T14:07:06Z
 X-Cpa-Commit: 8335eac
 X-Cpa-Support-Plugin: 1
 X-Cpa-Version: v7.3.4
-Date: Tue, 15 Sep 2026 17:05:40 GMT
+Date: Tue, 15 Sep 2026 17:08:33 GMT
 Content-Length: 26
 ```
 

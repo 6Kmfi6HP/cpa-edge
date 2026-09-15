@@ -1,0 +1,84 @@
+{
+ "id": "S4-20-notfound-request-fault-stop",
+ "purpose": "Accidental-but-valuable recording: (1) an upstream 404 whose body carries a request-fault type tag ('invalid_request_error') STOPS credential rotation at the first failing credential (client sees the 404 body verbatim, no failover); (2) a config credential entry with an EMPTY api-key but a non-empty base-url is still synthesized and scheduled; (3) the gemini executor sends its wire to whatever base-url the credential carries (here an OpenAI mock that 404s /v1beta/... paths).",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image eceasy/cli-proxy-api:v7.3.4 (digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266)",
+ "recorded_at": "2026-09-16T00:01:01",
+ "config_yaml": "host: \"\"\nport: 18317\nremote-management:\n  allow-remote: true\n  secret-key: \"oracle-mgmt-key-1\"\n  disable-control-panel: true\nauth-dir: \"/root/.cli-proxy-api\"\napi-keys:\n  - \"oracle-local-key-1\"\ndebug: false\nrequest-retry: 0\nmax-retry-credentials: 0\nmax-retry-interval: 10\ntransient-error-cooldown-seconds: 2\nusage-statistics-enabled: false\nrouting:\n  strategy: \"round-robin\"\n  session-affinity: false\nopenai-compatibility:\n  - name: \"mock-openai\"\n    base-url: \"http://host.docker.internal:18999/v1\"\n    api-key-entries:\n      - api-key: \"s4-oai-key-1\"\n      - api-key: \"s4-oai-key-2\"\n      - api-key: \"s4-oai-key-3\"\n    models:\n      - name: \"mock-gpt-model\"\n        alias: \"mock-model\"\n      - name: \"mock-pool-1\"\n        alias: \"pool-model\"\n      - name: \"mock-pool-2\"\n        alias: \"pool-model\"\n      - name: \"mock-iso-1\"\n        alias: \"iso-model-1\"\n      - name: \"mock-iso-2\"\n        alias: \"iso-model-2\"\ngemini-api-key:\n  - api-key: \"mock-gem-key\"\n    base-url: \"http://host.docker.internal:19001\"\n    models:\n      - name: \"gemini-mock-model\"\n        alias: \"mx\"\n\n  - name: \"mock-openai-mx\"\n    base-url: \"http://host.docker.internal:18999/v1\"\n    api-key-entries:\n      - api-key: \"s4-oai-key-1\"\n    models:\n      - name: \"mock-gpt-model\"\n        alias: \"mx\"\n",
+ "control_events": [
+  [
+   3,
+   "gemini",
+   {
+    "mode": "error",
+    "status": 500
+   }
+  ]
+ ],
+ "sleeps_applied": [],
+ "dynamic_fields": [
+  "Date",
+  "X-Cpa-Trace-Id",
+  "created",
+  "wire-log ts"
+ ],
+ "auth_id_mapping": {
+  "formula": "sha256(kind NUL key NUL base-url NUL)[:12]",
+  "ids": {
+   "s4-oai-key-1": "2add2ed9fa51",
+   "s4-oai-key-2": "9d9fdb184163",
+   "s4-oai-key-3": "922ad5b89d42"
+  },
+  "ascending_order": [
+   "s4-oai-key-1",
+   "s4-oai-key-3",
+   "s4-oai-key-2"
+  ]
+ },
+ "observed_credential_sequence": [
+  [
+   1,
+   null,
+   404
+  ],
+  [
+   2,
+   "mock-gem-key",
+   200
+  ],
+  [
+   4,
+   null,
+   404
+  ],
+  [
+   5,
+   null,
+   404
+  ],
+  [
+   5,
+   "mock-gem-key",
+   500
+  ]
+ ],
+ "http_statuses": [
+  {
+   "step": 1,
+   "status": "404"
+  },
+  {
+   "step": 2,
+   "status": "200"
+  },
+  {
+   "step": 4,
+   "status": "404"
+  },
+  {
+   "step": 5,
+   "status": "404"
+  }
+ ],
+ "fixture_status": "already recorded (bytes came from the first S4-18 attempt with a mis-nested config; oracle renames the directory and updates meta purpose)",
+ "rename_note": "Originally recorded as the first S4-18 attempt (mis-nested config: the second provider fragment continued the gemini-api-key list). Kept as S4-20 per spec-s4-scheduling follow-up 2026-09-16."
+}

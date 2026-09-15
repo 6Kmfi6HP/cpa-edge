@@ -24,7 +24,8 @@
   ],
   "upstream_wire_delta_lines": 0,
   "notes": [
-    "upstream wire entries emitted during this case: 0 (expected: none)"
+    "upstream wire entries emitted during this case: 0 (expected: none)",
+    "resolved integer: totalTokens=4, promptTokensDetails=[{modality:TEXT, tokenCount:4}]; no upstream request (wire delta 0)."
   ],
   "files": [
     "meta.yaml",

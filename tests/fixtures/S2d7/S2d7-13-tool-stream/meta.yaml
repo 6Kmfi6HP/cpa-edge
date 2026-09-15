@@ -25,7 +25,8 @@
   ],
   "upstream_wire_delta_lines": 1,
   "notes": [
-    "upstream wire entries emitted during this case: 1"
+    "upstream wire entries emitted during this case: 1",
+    "DEVIATION 1: the accumulated input_json_delta is spliced RAW into functionCall.args — the recorded frame contains \"args\":{\"city\":\"Par\"is\"} which is INVALID JSON (the scripted fragments concatenate to {\"city\":\"Par\"is\"}, not {\"city\":\"Paris\"}). If a valid-JSON fixture is wanted, script partial_json fragments that concatenate to valid JSON (e.g. '{\"city\":\"Par' + 'is\"}'). DEVIATION 2: in the STREAM path finishReason STOP is emitted at TOP LEVEL of frame 1 (after responseId), not inside candidates[0] as the hint showed."
   ],
   "files": [
     "meta.yaml",

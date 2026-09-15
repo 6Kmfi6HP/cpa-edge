@@ -1,0 +1,7 @@
+{
+  "control_file": {
+    "mode": "happy"
+  },
+  "reply": null,
+  "note": "gateway-local case: no upstream call expected"
+}

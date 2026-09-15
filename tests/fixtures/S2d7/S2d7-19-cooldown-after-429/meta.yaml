@@ -21,7 +21,8 @@
   "pair": "S2d7-19 fired back-to-back <1s after S2d7-10 (same credential rate-limit cooldown window)",
   "upstream_wire_delta_lines": 0,
   "notes": [
-    "upstream wire entries emitted during this case: 0"
+    "upstream wire entries emitted during this case: 0",
+    "DEVIATION: cooldown surfaces as HTTP 429 (not the expected 500). Body carries the full model_cooldown shape with fields in alphabetical order: code, last_upstream_error (verbatim 429 body), message 'All credentials for model cm are cooling down via provider claude (last error: ...)', model 'cm', provider 'claude', reset_seconds 1, reset_time '1s'. No upstream call (wire delta 0)."
   ],
   "files": [
     "meta.yaml",

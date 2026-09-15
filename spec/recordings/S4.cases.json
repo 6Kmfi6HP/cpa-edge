@@ -1636,7 +1636,7 @@
       "id": "S4-18-mixed-provider-rotation",
       "classification": "RECORDABLE-LOCALLY",
       "purpose": "Cross-provider pool: two provider families (gemini-api-key + openai-compatibility) exposing the same client model rotate across providers; a failing provider's requests fail over to the other provider.",
-      "config": "baseline + second openai-compatibility provider: name \"mock-openai-mx\", base-url \"http://host.docker.internal:18999/v1\", one api-key-entries key \"s4-oai-key-1\", models: [{name: \"mock-gpt-model\", alias: \"mx\"}] + gemini-api-key model alias changed to \"mx\" (name gemini-mock-model)",
+      "config": "baseline + the EXACT YAML delta below — the second openai-compatibility provider MUST be a second list item under the top-level `openai-compatibility:` key (NOT under gemini-api-key). First recording attempt mis-nested it under gemini-api-key (fixture repurposed as S4-20); re-record with this YAML.",
       "control": "phase A: both happy; phase B: {\"gemini\": {\"mode\":\"error\",\"status\":500}}, openai happy",
       "requests": [
         {
@@ -1731,14 +1731,16 @@
         }
       ],
       "record": "per chat request: status+headers+body; BOTH wire logs (mock/logs/gemini.jsonl and mock/logs/openai.jsonl — copy both as upstream-gemini.jsonl / upstream-openai.jsonl)",
-      "expected": "R1: gemini credential serves (provider order: ready-count tie 1:1 resolved by name ASC, gemini < openai-compatibility-mock-openai-mx). R2: openai-compat (mixed cursor alternates). R3 phase B R4: gemini 500 then openai 200 (cross-provider failover), downstream 200. R5: openai only (gemini cooling) — downstream 200. Client-side model field in translated responses: gemini rounds show the gemini->openai-chat translation shape, openai rounds the passthrough shape (record as-is).",
+      "expected": "Model 'mx' is served by two providers: gemini (gemini-api-key, 1 credential) and openai-compatibility-mock-openai-mx (1 credential). Provider list order = credential-count DESC then provider-name ASC -> [gemini, openai-compatibility-mock-openai-mx] (tie 1:1, 'gemini' < 'openai-...'). Phase A R1: mixed cursor at slot 0 -> gemini segment -> gemini credential serves 200 on the GEMINI wire (POST {gemini-base}/v1beta/models/gemini-mock-model:generateContent, x-goog-api-key auth). R2: cursor -> openai-mx segment -> openai-compat credential serves 200 on the OpenAI-compat wire (POST {openai-base}/chat/completions, Bearer s4-oai-key-1). Phase B (gemini mock error 500, transient 2s): R3 -> gemini 500 -> cooldown -> same-request failover -> openai-mx 200 (client sees 200). R4 -> gemini still cooling -> openai-mx 200. If the recording disagrees with the segment order, the fixture wins and the spec will be re-derived.",
       "dynamic_fields": [
         "Date",
         "X-Cpa-Trace-Id",
         "created",
         "wire-log ts"
       ],
-      "mock_upstream_mode": "gemini + openai mocks, phased"
+      "mock_upstream_mode": "gemini + openai mocks, phased",
+      "config_delta_yaml": "openai-compatibility:\n  - name: \"mock-openai\"\n    base-url: \"http://host.docker.internal:18999/v1\"\n    api-key-entries:\n      - api-key: \"s4-oai-key-1\"\n      - api-key: \"s4-oai-key-2\"\n      - api-key: \"s4-oai-key-3\"\n    models:\n      - name: \"mock-gpt-model\"\n        alias: \"mock-model\"\n      - name: \"mock-pool-1\"\n        alias: \"pool-model\"\n      - name: \"mock-pool-2\"\n        alias: \"pool-model\"\n      - name: \"mock-iso-1\"\n        alias: \"iso-model-1\"\n      - name: \"mock-iso-2\"\n        alias: \"iso-model-2\"\n  - name: \"mock-openai-mx\"\n    base-url: \"http://host.docker.internal:18999/v1\"\n    api-key-entries:\n      - api-key: \"s4-oai-key-1\"\n    models:\n      - name: \"mock-gpt-model\"\n        alias: \"mx\"\ngemini-api-key:\n  - api-key: \"mock-gem-key\"\n    base-url: \"http://host.docker.internal:19001\"\n    models:\n      - name: \"gemini-mock-model\"\n        alias: \"mx\"\n",
+      "recording_note": "First attempt recorded a mis-nested config (second gemini-api-key entry with empty api-key + openai mock base-url); those bytes are kept as S4-20. Re-record this case with the exact YAML above in a FRESH container."
     },
     {
       "id": "S4-19-invalid-weight-rejected",
@@ -1787,12 +1789,31 @@
       "reason": "CREDENTIALED-ONLY: quota-exceeded.antigravity-credits retries Claude 429/503 exhaustions with an Antigravity OAuth credential that has Google One AI credits; requires real Antigravity OAuth + credits state.",
       "specified_in": "spec/sections/S4-scheduling.md §2.5 (evidence: conductor_execution.go shouldAttemptAntigravityCreditsFallback/tryAntigravityCreditsExecute; internal/runtime/executor/antigravity_executor_credits.go)",
       "requests": []
+    },
+    {
+      "id": "S4-20-notfound-request-fault-stop",
+      "classification": "RECORDABLE-LOCALLY",
+      "fixture_status": "already recorded (bytes came from the first S4-18 attempt with a mis-nested config; oracle renames the directory and updates meta purpose)",
+      "purpose": "Accidental-but-valuable recording: (1) an upstream 404 whose body carries a request-fault type tag ('invalid_request_error') STOPS credential rotation at the first failing credential (client sees the 404 body verbatim, no failover); (2) a config credential entry with an EMPTY api-key but a non-empty base-url is still synthesized and scheduled; (3) the gemini executor sends its wire to whatever base-url the credential carries (here an OpenAI mock that 404s /v1beta/... paths).",
+      "config": "recorded config is in the fixture meta.yaml: a second gemini-api-key entry named mock-openai-mx with api-key-entries (ignored by the gemini schema) and base-url http://host.docker.internal:18999/v1, exposing alias mx; plus the normal gemini entry mock-gem-key exposing mx. Both credentials are provider 'gemini' (single-provider 2-credential pool).",
+      "requests": "as recorded (5 numbered steps, phases: happy then gemini error 500)",
+      "record": "already on disk",
+      "expected": "As recorded: R1 -> credential (auth-ID 3f39...) base-url openai-mock: gemini-wire POST /v1/v1beta/models/mock-gpt-model:generateContent -> 404 body {'error':{'message':'mock openai: no handler for POST ...','type':'invalid_request_error'}} -> ROTATION STOPS (request-fault body) -> client gets the 404 verbatim. R2 -> gemini credential (mock-gem-key) -> 200. Phase B: R4 -> 404 stop again; R5 -> gemini 500 then failover to the 404 credential -> stop -> client 404. The 404s never cool either credential (request-fault classification skips cooldown).",
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "created",
+        "wire-log ts"
+      ],
+      "mock_upstream_mode": "openai mock 404s gemini-style paths; gemini mock happy then error 500"
     }
   ],
   "case_count": {
-    "recordable": 19,
-    "recordable_core": 18,
+    "recordable": 20,
+    "recordable_core": 19,
     "optional": 1,
-    "fixture_deferred": 3
+    "fixture_deferred": 3,
+    "recorded": 20,
+    "notes": "All 20 recordable cases recorded (S4-18 re-recorded 2026-09-16 with corrected config; first attempt bytes kept as S4-20). 3 FIXTURE-DEFERRED (CREDENTIALED-ONLY)."
   }
 }

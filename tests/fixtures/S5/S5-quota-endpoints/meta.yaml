@@ -2,7 +2,7 @@
  "id": "S5-quota-endpoints",
  "purpose": "quota endpoints on empty quota-provider state + auth_index validation",
  "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image eceasy/cli-proxy-api:v7.3.4, digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
- "recorded_at": "2026-09-16T00:05:41",
+ "recorded_at": "2026-09-16T00:08:35",
  "record_kind": "management multi-step",
  "config": "S5 baseline: fleet template (_cpa_edge_ref/run/config.yaml) with base-urls re-pointed to the worker-4 mock ports (openai 21999, gemini 22001, claude 22002, codex 22003, xai 22004, meta 22005, interactions 22006, vertex 22007) and server port 8407; api-keys [oracle-local-key-1]; secret-key stored bcrypt-hashed (plaintext oracle-mgmt-key-1 accepted); request-retry 0; transient-error-cooldown-seconds -1; usage-statistics-enabled false; logging-to-file absent (false); empty auth dir; fresh container per case",
  "mock_upstream_mode": null,
@@ -47,9 +47,9 @@
   },
   {
    "seq": "AUX-1",
-   "label": "AUX-1 \u2014 GET /v0/management/openai-compatibility",
+   "label": "AUX-1 \u2014 GET /v0/management/gemini-api-key",
    "method": "GET",
-   "path": "/v0/management/openai-compatibility",
+   "path": "/v0/management/gemini-api-key",
    "note": "aux request: fetch a real auth-index for optional step 4",
    "aux": true,
    "http_status": 200,
@@ -62,7 +62,7 @@
    "path": "/v0/management/quota/fetch",
    "note": "unknown plugin id but auth must resolve first; use auth_index of a real provider list entry to expose the quota-provider-not-found family if convenient",
    "aux": false,
-   "http_status": 400,
+   "http_status": 501,
    "expect_status": "see-note"
   },
   {
@@ -104,5 +104,9 @@
    "actual": 404
   }
  ],
- "upstream_file": null
+ "upstream_file": null,
+ "adaptations": [
+  "step 4 (optional in the cases file): executed with a REAL auth_index fetched by the AUX-1 GET /v0/management/gemini-api-key (the fleet gemini entry carries auth-index 3cf396155c88e26a; the openai-compatibility entry exposes an EMPTY auth-index in this state). Result: 501 {\"error\":\"no quota provider available for credential\"} \u2014 confirming the prediction note. The auth_index value is a dynamic field.",
+  "step 5 mismatch vs the expect status list: POST /quota/reset {\"auth_index\":\"nope\"} returns 404 {\"error\":\"auth not found\"} \u2014 auth resolution precedes the quota-provider check; the cases-file body_notes ('step 3/5/7: {\"error\":\"auth not found\"}') were correct, the statuses list (501) was not."
+ ]
 }

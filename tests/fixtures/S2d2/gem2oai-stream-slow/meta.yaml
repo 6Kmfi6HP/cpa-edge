@@ -1,0 +1,41 @@
+{
+  "case": "gem2oai-stream-slow",
+  "recorded_at": "2026-09-15T17:18:06Z",
+  "recorder": "oracle-runner-3",
+  "version": {
+    "image": "eceasy/cli-proxy-api:v7.3.4",
+    "digest": "sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+    "commit": "8335eac731946bd4eff18f500653f93736df53d6",
+    "binary_self_report": "CLIProxyAPI Version: v7.3.4, Commit: 8335eac, BuiltAt: 2026-09-15T14:07:06Z"
+  },
+  "client_protocol": "gemini (/v1beta, x-goog-api-key or Bearer)",
+  "upstream_provider_type": "openai-compatibility (mock_openai.py, worker-3 port 20999)",
+  "stream": true,
+  "base_url": "http://127.0.0.1:8397",
+  "port_adaptation": "cases file 18317->8397 (reference); upstream mock 18999->20999 (worker-3)",
+  "gateway_key": "oracle-local-key-1 (cases-file placeholder <gateway-api-key>)",
+  "purpose": "slow chunks: each translated frame is flushed separately (frame count/order identical to case 9; inter-arrival between frames >= mock delay; ~2 gaps of >=300ms)",
+  "dynamic_fields": [
+    "Date",
+    "X-Cpa-Trace-Id",
+    "upstream Host header port (20999)",
+    "mock wire log ts field",
+    "createTime / responseId-like ids where present"
+  ],
+  "upstream_wire_delta_lines": 1,
+  "upstream_wire_lines_per_request": [
+    1
+  ],
+  "layout": "request.http: R1..Rn blocks; downstream.md: ## R1..Rn sections; upstream.jsonl: entries in request order",
+  "notes": [
+    "upstream wire entries per request: [1]",
+    "aux timing evidence (re-run): end-to-end request duration 1.578s with delay_ms=300 and 6 upstream frames (role, Hello, ' world', finish, usage, [DONE]) — consistent with ~300ms inter-frame gaps; frame content byte-identical to the recorded fixture: True"
+  ],
+  "files": [
+    "meta.yaml",
+    "request.http",
+    "downstream.md",
+    "upstream.jsonl",
+    "mock-response.json"
+  ]
+}

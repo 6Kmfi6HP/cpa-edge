@@ -1,0 +1,11 @@
+{
+  "control_file": {
+    "mode": "happy",
+    "scenario": "s2d2-nonstream-toolcall"
+  },
+  "scenario": "s2d2-nonstream-toolcall",
+  "reply": {
+    "status": 200,
+    "response_body": "{\"id\":\"chatcmpl-mock-tool\",\"object\":\"chat.completion\",\"created\":1770000000,\"model\":\"mock-gpt-model\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"call_mock_tool_1\",\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"{\\\"city\\\":\\\"Paris\\\",\\\"unit\\\":\\\"celsius\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":21,\"completion_tokens\":7,\"total_tokens\":28}}"
+  }
+}

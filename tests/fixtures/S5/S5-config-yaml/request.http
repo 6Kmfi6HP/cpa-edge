@@ -1,0 +1,195 @@
+### S5-config-yaml STEP 1 — GET /v0/management/config.yaml
+GET /v0/management/config.yaml HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-config-yaml STEP 2 — PUT /v0/management/config.yaml
+PUT /v0/management/config.yaml HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Type: application/yaml
+Content-Length: 15
+
+: :
+{{{not yaml
+
+### S5-config-yaml STEP 3 — PUT /v0/management/config.yaml
+PUT /v0/management/config.yaml HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Type: application/yaml
+Content-Length: 173
+
+port: 8407
+remote-management:
+  allow-remote: true
+  secret-key: oracle-mgmt-key-1
+  disable-control-panel: true
+gemini-api-key:
+  - api-key: bad-weight
+    weight: 2000000
+
+### S5-config-yaml STEP 4 — PUT /v0/management/config.yaml
+PUT /v0/management/config.yaml HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Type: application/yaml
+Content-Length: 1603
+
+port: 8407
+remote-management:
+  allow-remote: true
+  secret-key: oracle-mgmt-key-1
+  disable-control-panel: true
+auth-dir: /root/.cli-proxy-api
+api-keys:
+  - "oracle-local-key-1"
+request-retry: 2
+transient-error-cooldown-seconds: -1
+usage-statistics-enabled: false
+openai-compatibility:
+  - name: "mock-openai"
+    base-url: "http://host.docker.internal:21999/v1"
+    api-key-entries:
+      - api-key: "mock-upstream-key"
+    models:
+      - name: "mock-gpt-model"
+        alias: "mock-model"
+gemini-api-key:
+  - api-key: "mock-gem-key"
+    base-url: "http://host.docker.internal:22001"
+    models:
+      - name: "gemini-mock-model"
+        alias: "gm"
+claude-api-key:
+  - api-key: "mock-claude-key"
+    base-url: "http://host.docker.internal:22002"
+    models:
+      - name: "claude-mock-model"
+        alias: "cm"
+codex-api-key:
+  - api-key: "mock-codex-key"
+    base-url: "http://host.docker.internal:22003"
+    models:
+      - name: "gpt-mock-codex"
+        alias: "cx"
+xai-api-key:
+  - api-key: "mock-xai-key"
+    base-url: "http://host.docker.internal:22004"
+    models:
+      - name: "grok-mock"
+        alias: "xg"
+meta-api-key:
+  - api-key: "mock-meta-key"
+    base-url: "http://host.docker.internal:22005"
+    models:
+      - name: "muse-mock"
+        alias: "mm"
+interactions-api-key:
+  - api-key: "mock-int-key"
+    base-url: "http://host.docker.internal:22006"
+    models:
+      - name: "gemini-mock-model"
+        alias: "im"
+vertex-api-key:
+  - api-key: "mock-vertex-key"
+    base-url: "http://host.docker.internal:22007"
+    models:
+      - name: "vertex-mock-model"
+        alias: "vm"
+
+### S5-config-yaml STEP 5 — GET /v0/management/request-retry
+GET /v0/management/request-retry HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-config-yaml STEP 6 — PUT /v0/management/config.yaml
+PUT /v0/management/config.yaml HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Type: application/yaml
+Content-Length: 1603
+
+port: 8407
+remote-management:
+  allow-remote: true
+  secret-key: oracle-mgmt-key-1
+  disable-control-panel: true
+auth-dir: /root/.cli-proxy-api
+api-keys:
+  - "oracle-local-key-1"
+request-retry: 0
+transient-error-cooldown-seconds: -1
+usage-statistics-enabled: false
+openai-compatibility:
+  - name: "mock-openai"
+    base-url: "http://host.docker.internal:21999/v1"
+    api-key-entries:
+      - api-key: "mock-upstream-key"
+    models:
+      - name: "mock-gpt-model"
+        alias: "mock-model"
+gemini-api-key:
+  - api-key: "mock-gem-key"
+    base-url: "http://host.docker.internal:22001"
+    models:
+      - name: "gemini-mock-model"
+        alias: "gm"
+claude-api-key:
+  - api-key: "mock-claude-key"
+    base-url: "http://host.docker.internal:22002"
+    models:
+      - name: "claude-mock-model"
+        alias: "cm"
+codex-api-key:
+  - api-key: "mock-codex-key"
+    base-url: "http://host.docker.internal:22003"
+    models:
+      - name: "gpt-mock-codex"
+        alias: "cx"
+xai-api-key:
+  - api-key: "mock-xai-key"
+    base-url: "http://host.docker.internal:22004"
+    models:
+      - name: "grok-mock"
+        alias: "xg"
+meta-api-key:
+  - api-key: "mock-meta-key"
+    base-url: "http://host.docker.internal:22005"
+    models:
+      - name: "muse-mock"
+        alias: "mm"
+interactions-api-key:
+  - api-key: "mock-int-key"
+    base-url: "http://host.docker.internal:22006"
+    models:
+      - name: "gemini-mock-model"
+        alias: "im"
+vertex-api-key:
+  - api-key: "mock-vertex-key"
+    base-url: "http://host.docker.internal:22007"
+    models:
+      - name: "vertex-mock-model"
+        alias: "vm"
+
+### S5-config-yaml STEP 7 — GET /v0/management/request-retry
+GET /v0/management/request-retry HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+

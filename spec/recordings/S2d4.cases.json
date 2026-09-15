@@ -344,7 +344,7 @@
     {
       "id": "S2d4-nostream-rich",
       "run_order": 11,
-      "purpose": "Scripted rich non-stream response pins the full response mapping: message.reasoning_content -> leading thinking block; message.content string -> text block; message.tool_calls -> tool_use blocks with id SANITIZED to ^[a-zA-Z0-9_-]+$ ('call:rich:1' -> 'call_rich_1') and name RESTORED to the request's casing via the tool-name map ('get_weather' -> 'Get_Weather'); arguments FixJSON-parsed to an input object; stop_reason tool_calls -> tool_use; usage cache math: input_tokens = prompt_tokens - cached_tokens (120-30=90), cache_read_input_tokens=30, cache_creation_input_tokens=5.",
+      "purpose": "Scripted rich non-stream response pins the full response mapping: for STRING message.content the text block comes FIRST, then message.reasoning_content -> thinking blocks, then message.tool_calls -> tool_use blocks (reference block order); tool_use id SANITIZED to ^[a-zA-Z0-9_-]+$ ('call:rich:1' -> 'call_rich_1'); name RESTORED to the request's casing via the tool-name map ('get_weather' -> 'Get_Weather'); arguments FixJSON-parsed to an input object; stop_reason tool_calls -> tool_use; usage cache math: input_tokens = prompt_tokens - cached_tokens (120-30=90), cache_read_input_tokens=30, cache_creation_input_tokens=5.",
       "request": {
         "method": "POST",
         "path": "/v1/messages",
@@ -404,7 +404,7 @@
       },
       "expected": {
         "status": 200,
-        "downstream_body": "{\"id\":\"chatcmpl-rich-0001\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"mock-gpt-model\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"deciding how to answer\"},{\"type\":\"text\",\"text\":\"It is sunny in Paris.\"},{\"type\":\"tool_use\",\"id\":\"call_rich_1\",\"name\":\"Get_Weather\",\"input\":{\"city\":\"Paris\",\"unit\":\"C\"}}],\"stop_reason\":\"tool_use\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":90,\"output_tokens\":13,\"cache_read_input_tokens\":30,\"cache_creation_input_tokens\":5}}"
+        "downstream_body": "{\"id\":\"chatcmpl-rich-0001\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"mock-gpt-model\",\"content\":[{\"type\":\"text\",\"text\":\"It is sunny in Paris.\"},{\"type\":\"thinking\",\"thinking\":\"deciding how to answer\"},{\"type\":\"tool_use\",\"id\":\"call_rich_1\",\"name\":\"Get_Weather\",\"input\":{\"city\":\"Paris\",\"unit\":\"C\"}}],\"stop_reason\":\"tool_use\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":90,\"output_tokens\":13,\"cache_read_input_tokens\":30,\"cache_creation_input_tokens\":5}}"
       }
     },
     {

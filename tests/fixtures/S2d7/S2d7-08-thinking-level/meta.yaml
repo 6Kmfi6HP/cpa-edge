@@ -25,7 +25,8 @@
   ],
   "upstream_wire_delta_lines": 1,
   "notes": [
-    "upstream wire entries emitted during this case: 1"
+    "upstream wire entries emitted during this case: 1",
+    "DEVIATION: upstream body contains NO thinking block for thinkingLevel low on this registry-unknown model (the expected body_hint's \"thinking\":{\"type\":\"enabled\",\"budget_tokens\":1024} is absent; the hint was already marked non-normative). Recorded body is the truth."
   ],
   "files": [
     "meta.yaml",
