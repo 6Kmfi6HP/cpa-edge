@@ -216,9 +216,9 @@ function userMediaPart(record: Record<string, unknown>): WireValue | undefined {
     const audio = readObject(record, 'input_audio')
     if (audio === undefined) return undefined
     const data = readString(audio, 'data')
-    const format = readString(audio, 'format') ?? ''
+    const format = (readString(audio, 'format') ?? '').trim().toLowerCase()
     if (data === undefined) return undefined
-    const mime = AUDIO_FORMAT_MIME[format.trim().toLowerCase()] ?? `audio/${format}`
+    const mime = AUDIO_FORMAT_MIME[format] ?? `audio/${format}`
     return { inlineData: { mime_type: mime, data } }
   }
   return undefined

@@ -1358,7 +1358,6 @@ describe('createOai2GemService', () => {
   })
 
   it('rewrites every chunk model with force-mapping', async () => {
-    const service = createOai2GemService({ ...SERVICE_OPTIONS_BASE, store: new MemoryStore() })
     const upstreamText = [
       'data: {"candidates":[{"content":{"parts":[{"text":"a"}],"role":"model"},"index":0}]}',
       '',
@@ -1373,7 +1372,6 @@ describe('createOai2GemService', () => {
       chatRequest({ model: 'alias-force', messages: [{ role: 'user', content: 'x' }], stream: true }),
       async () => ({ status: 200, headers: [], body: jsonStream(upstreamText) }),
     )
-    void service
     const body = await bodyOf(response.body)
     expect(body).not.toContain('"model":"model"')
     expect(body).not.toContain('"model":"up-force"')

@@ -103,7 +103,7 @@ export class GeminiChunkTranslator {
       const content = readObject(candidate, 'content')
       const parts = content !== undefined ? (readArray(content, 'parts') ?? []) : []
 
-      const delta = this.deltaOf(index, candidateIndex, parts, state, rawPayload)
+      const delta = this.deltaOf(candidateIndex, parts, state, rawPayload)
       const carriesFinish = usage !== undefined && state.finishReason !== undefined
       const lowered = state.finishReason !== undefined ? state.finishReason.toLowerCase() : undefined
       const finish = carriesFinish
@@ -137,7 +137,6 @@ export class GeminiChunkTranslator {
 
   /** Builds one candidate's delta from the chunk's parts. */
   private deltaOf(
-    candidateKey: number,
     candidateIndex: number,
     parts: readonly unknown[],
     state: CandidateState,
@@ -193,7 +192,6 @@ export class GeminiChunkTranslator {
       tool_calls: toolCalls.length > 0 ? toolCalls : null,
     }
     if (images.length > 0) delta['images'] = images
-    void candidateKey
     return delta
   }
 }

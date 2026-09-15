@@ -49,12 +49,11 @@
 | I-exec-custom-openai | packages/executors: custom-openai executor | 2 | — | merged | 0 | SATISFIED via direction modules per R-EXECS |
 | I-mgmt | packages/management: /v0/management | 2 | — | merged | 2 | MERGED: management complete (impl gate 2 rounds). 50 unit + S5 24/24 + S6 20/20. Ledger: NR1 overflow-record off-by-one, NR2 callback now()-stamp, N3-N10. |
 | T1 | runtimes/node integration + full contract tests | 3 | integrator-t1 | impl | 0 |  |
-| T2 | runtimes/cloudflare (DO store, alarms, WS hibernation) | 3 | — | pending | 0 |  |
-| T3 | runtimes/vercel (degraded per S7) | 3 | — | pending | 0 |  |
+| T2 | runtimes/cloudflare (DO store, alarms, WS hibernation) | 3 | integrator-t2 | impl | 0 |  |
+| T3 | runtimes/vercel (degraded per S7) | 3 | integrator-t3 | impl | 0 |  |
 | T4 | end-to-end smoke: fixture replay vs upstream diff | 3 | — | pending | 0 |  |
 | D1 | README/deploy guide, SPEC version anchor publication | 4 | — | pending | 0 |  |
 | D2 | global final audit vs upstream README | 4 | — | pending | 0 |  |
 
 ## Verdict / escalation log
 (appended by orchestrator)
-- 2026-09-16 07:3x I-tr-S2d4 MERGED (impl gate PASS-WITH-NONBLOCKING). cla2oai complete: 9 modules merged. 1 direction remains (oai2gem implementing) + core.
