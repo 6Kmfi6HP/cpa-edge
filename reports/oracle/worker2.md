@@ -120,6 +120,8 @@ mission; sandbox drivers + configs under `_cpa_edge_ref/run2/{s3,s6,s2d10,s2d3}/
 | S2d10 antigravity (spec-s2d10-antigravity) | `tests/fixtures/S2d10/` — 18 cases (13 + port-busy + 3 executor + gemini extra) | forwarder port-busy RECORDED via in-container perl listener; synthetic antigravity credential routes to my mock (20008); always-SSE upstream for claude-family, generateContent for gemini-family |
 | S2d3 oai→claude (spec-s2d3-oai2cla) | `tests/fixtures/S2d3/` — 18 cases | user_id sha256 anchor byte-exact; case-14 cooldown envelope surfaces at 429 (predicted 500) |
 | S5 management API | NOT recorded | reassigned to oracle-runner-4 per orchestrator; dropped before any S5 work started |
+| S2d9 codex passthrough (spec-s2d9-codex, reassigned from worker-5) | `tests/fixtures/S2d9/` — 17 cases | worker-1's cancelled set WIPED, fresh single-provenance re-record; 408 root-caused (mock writes-dict bug); codex HTTP errors are content-verbatim re-serialized; accepted + section finalized |
+| S2d1 oai2gem (spec-s2d1-oai2gem, reassigned from worker-5) | `tests/fixtures/S2d1/` — 21 cases (20 + optional C21) | per-URL-model scripted gemini mock (s2d1_scripts.json); rate-limit cooldown = 429 model_cooldown (not 500) — family now consistent across gemini/claude/antigravity |
 
 New reusable assets in my sandbox: `mock_antigravity.py` (v1internal wire, 20008) and
 `mock_claude.py` extended with scripts (tool_use/thinking/stop_variant/error_event) +
