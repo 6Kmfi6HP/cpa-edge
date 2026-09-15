@@ -10,7 +10,7 @@
 | step | scope | phase | assignee (lock) | pipeline | gate rounds | notes |
 |---|---|---|---|---|---|---|
 | P0.1 | repo skeleton (root configs, SPEC/STATUS) | 0 | — | pending | 0 |  |
-| P0.2 | packages/core: Store interface + memory impl + error registry | 0 | impl-p0-core | impl | 0 |  |
+| P0.2 | packages/core: Store interface + memory impl + error registry | 0 | impl-p0-core | fix | 1 | R1: adv FAIL (B1 update-return aliasing); fixer dispatched |
 | ORACLE | reference env at _cpa_edge_ref (outside repo) | — | — | merged | 0 | v7.3.4 anchor; image digest recorded; 17 probes; recordable/credentialed table; harness proven |
 | S1 | spec: endpoint inventory | 1 | — | pending | 0 |  |
 | S2d1 | spec: OpenAI client → Gemini upstream | 1 | — | pending | 0 |  |
@@ -56,4 +56,4 @@
 | D2 | global final audit vs upstream README | 4 | — | pending | 0 |  |
 
 ## Verdict / escalation log
-(appended by orchestrator)
+- 2026-09-15 23:00 P0.2 gate round 1: FAIL — B1 blocking (update() returns internal object; caller mutation corrupts state). Rulings on N1-N8 in reports/adversary/P0.2.md. @fixer (fix-p0-core) dispatched: B1+N1+N3+N5 behavior fixes, N2/N4/N6/N7 doc-only, N8 deferred to S6/T2.
