@@ -1,0 +1,34 @@
+{
+ "id": "S2d4-stream-truthy-null",
+ "round": 2,
+ "batch_index": 11,
+ "purpose": "Stream truthiness edge (N6): \"stream\": null is NOT JSON false, so the request takes the STREAMING path: SSE headers + full canned event stream downstream; upstream body carries stream:true + stream_options. Expected downstream SSE = same as S2d4-stream-text (message_start input_tokens 3).",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image eceasy/cli-proxy-api:v7.3.4, digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+ "recorded_at": "2026-09-16T04:29:03",
+ "record_kind": "client-api translation (cla2oai), single request, gate round-2 batch (B1 + N6)",
+ "config": "S2d4 round-2 baseline = round-1 config: worker-4 fleet config (port 8407) + second openai-compatibility entry mock-openai-compat (alias mock-model-compat, is-compat:true); stock mock-openai entry alias mock-model -> mock-gpt-model; one fresh container + one openai mock for the batch, happy mode, no control files",
+ "mock_upstream_mode": "happy",
+ "dynamic_fields": [
+  "Date response header",
+  "X-Cpa-Trace-Id",
+  "port numbers anywhere (8407 / 21999; masked for contract replay)",
+  "ts field in upstream.jsonl",
+  "NOTE: input_tokens values are DETERMINISTIC (o200k_base) \u2014 deliberately NOT masked"
+ ],
+ "port_substitution": "round-2 cases drafted for the worker-5 stack; recorded on the worker-4 stack (8407/21999); request bodies carried no port literals",
+ "steps": [
+  {
+   "seq": 1,
+   "label": "STEP 1 \u2014 POST /v1/messages",
+   "method": "POST",
+   "path": "/v1/messages",
+   "http_status": 200,
+   "expect_status": 200
+  }
+ ],
+ "upstream_slice": {
+  "lines": 1,
+  "note": "sliced from the batch wire log"
+ },
+ "mismatches": []
+}

@@ -294,7 +294,9 @@ class MessageAssembler {
   finish(): readonly WireObject[] {
     this.flushToolCalls()
     this.flushPendingReasoning()
-    this.flushDeferred()
+    // No further outputs can arrive, so deferred messages splice in
+    // unconditionally.
+    this.flushDeferred(true)
     return this.out
   }
 
@@ -305,8 +307,11 @@ class MessageAssembler {
       ? customOutputContent(item['output'])
       : functionOutputContent(item, bodyText, itemIndex)
     if (callId.length > 0 && this.awaiting.has(callId)) {
-      this.awaiting.delete(callId)
+      // The tool message stays adjacent to its assistant block: it defers
+      // with it while earlier outputs are still awaited, and its call id
+      // is consumed only after the message is placed.
       this.emit({ role: 'tool', tool_call_id: callId, content })
+      this.awaiting.delete(callId)
       if (this.awaiting.size === 0) this.flushDeferred()
       return
     }
@@ -373,8 +378,8 @@ class MessageAssembler {
     return true
   }
 
-  private flushDeferred(): void {
-    if (this.awaiting.size > 0 || this.deferred.length === 0) return
+  private flushDeferred(force = false): void {
+    if ((!force && this.awaiting.size > 0) || this.deferred.length === 0) return
     for (const message of this.deferred) this.out.push(message)
     this.deferred.length = 0
   }

@@ -1033,5 +1033,321 @@
       "S2d4-tool-roundtrip: upstream reminder text HTML-escaped (<system-reminder> -> \\u003csystem-reminder\\u003e) — deep-equal, informative-only",
       "measured openai-compat rate-limit cooldown window is 2-4s (cooldown-probe.json), not ~1s; the timing constraints in this file were written for a ~1s window and were honored, but future re-recordings should allow 2-4s"
     ]
+  },
+  "round2_batch": {
+    "reason": "Gate round 1 B1 + N6: pin the two-stage EFFECTIVE thinking mapping (stage-2 rewrites stage-1 values), the 400 thinking-validation failures, the countTokens thinking pipeline, plus the stream-truthiness and top_p edges. Same stack as round 1 (worker-4 reference + openai mock, happy canned replies unless noted).",
+    "cases": [
+      {
+        "id": "S2d4-thinking-disabled",
+        "purpose": "EFFECTIVE thinking mapping row: {type:disabled} -> upstream reasoning_effort 'low' (stage-2: disable not allowed -> first supported level; NOT the stage-1 'none').",
+        "request": {
+          "method": "POST",
+          "path": "/v1/messages",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "content-type": "application/json"
+          },
+          "body": "{\"model\":\"mock-model\",\"max_tokens\":128,\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}],\"thinking\":{\"type\":\"disabled\"}}"
+        },
+        "mock": {
+          "mode": "happy",
+          "control_file": null
+        },
+        "record": {
+          "downstream": "status + headers + body",
+          "upstream": "full wire request"
+        },
+        "expected": {
+          "status": 200,
+          "upstream_body": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}],\"max_tokens\":128,\"stream\":false,\"reasoning_effort\":\"low\"}"
+        }
+      },
+      {
+        "id": "S2d4-thinking-budget-0",
+        "purpose": "EFFECTIVE row: enabled budget_tokens 0 -> 'low' (0->none->clamp low; NOT stage-1 'none').",
+        "request": {
+          "method": "POST",
+          "path": "/v1/messages",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "content-type": "application/json"
+          },
+          "body": "{\"model\":\"mock-model\",\"max_tokens\":128,\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}],\"thinking\":{\"type\":\"enabled\",\"budget_tokens\":0}}"
+        },
+        "mock": {
+          "mode": "happy",
+          "control_file": null
+        },
+        "record": {
+          "downstream": "status + headers + body",
+          "upstream": "full wire request"
+        },
+        "expected": {
+          "status": 200,
+          "upstream_body": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}],\"max_tokens\":128,\"stream\":false,\"reasoning_effort\":\"low\"}"
+        }
+      },
+      {
+        "id": "S2d4-thinking-budget-300",
+        "purpose": "EFFECTIVE row: enabled budget_tokens 300 (1..512 band) -> 'low' (stage-1 'minimal' clamps to low).",
+        "request": {
+          "method": "POST",
+          "path": "/v1/messages",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "content-type": "application/json"
+          },
+          "body": "{\"model\":\"mock-model\",\"max_tokens\":128,\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}],\"thinking\":{\"type\":\"enabled\",\"budget_tokens\":300}}"
+        },
+        "mock": {
+          "mode": "happy",
+          "control_file": null
+        },
+        "record": {
+          "downstream": "status + headers + body",
+          "upstream": "full wire request"
+        },
+        "expected": {
+          "status": 200,
+          "upstream_body": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}],\"max_tokens\":128,\"stream\":false,\"reasoning_effort\":\"low\"}"
+        }
+      },
+      {
+        "id": "S2d4-thinking-budget-30000",
+        "purpose": "EFFECTIVE row: enabled budget_tokens 30000 (>=24577 band) -> 'high' (stage-1 'xhigh' clamps to high).",
+        "request": {
+          "method": "POST",
+          "path": "/v1/messages",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "content-type": "application/json"
+          },
+          "body": "{\"model\":\"mock-model\",\"max_tokens\":128,\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}],\"thinking\":{\"type\":\"enabled\",\"budget_tokens\":30000}}"
+        },
+        "mock": {
+          "mode": "happy",
+          "control_file": null
+        },
+        "record": {
+          "downstream": "status + headers + body",
+          "upstream": "full wire request"
+        },
+        "expected": {
+          "status": 200,
+          "upstream_body": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}],\"max_tokens\":128,\"stream\":false,\"reasoning_effort\":\"high\"}"
+        }
+      },
+      {
+        "id": "S2d4-thinking-budget-invalid",
+        "purpose": "EFFECTIVE row: enabled budget_tokens -5 (< -1) -> request fails 400 BEFORE dispatch (empty upstream wire log) with the thinking-validation message in the Claude error shape.",
+        "request": {
+          "method": "POST",
+          "path": "/v1/messages",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "content-type": "application/json"
+          },
+          "body": "{\"model\":\"mock-model\",\"max_tokens\":128,\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}],\"thinking\":{\"type\":\"enabled\",\"budget_tokens\":-5}}"
+        },
+        "mock": {
+          "mode": "happy",
+          "control_file": null
+        },
+        "record": {
+          "downstream": "status + headers + body",
+          "upstream": "full wire request"
+        },
+        "expected": {
+          "status": 400,
+          "downstream_body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"budget -5 cannot be converted to a valid level\"}}",
+          "upstream": "assert EMPTY wire log (validation failure happens before dispatch)"
+        }
+      },
+      {
+        "id": "S2d4-thinking-adaptive-auto",
+        "purpose": "EFFECTIVE row: adaptive + output_config.effort 'auto' -> 'medium' (ModeAuto -> mid-range; dynamic not allowed).",
+        "request": {
+          "method": "POST",
+          "path": "/v1/messages",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "content-type": "application/json"
+          },
+          "body": "{\"model\":\"mock-model\",\"max_tokens\":128,\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}],\"thinking\":{\"type\":\"adaptive\"},\"output_config\":{\"effort\":\"auto\"}}"
+        },
+        "mock": {
+          "mode": "happy",
+          "control_file": null
+        },
+        "record": {
+          "downstream": "status + headers + body",
+          "upstream": "full wire request"
+        },
+        "expected": {
+          "status": 200,
+          "upstream_body": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}],\"max_tokens\":128,\"stream\":false,\"reasoning_effort\":\"medium\"}"
+        }
+      },
+      {
+        "id": "S2d4-thinking-adaptive-max",
+        "purpose": "EFFECTIVE row: adaptive + output_config.effort 'max' -> 'high' (mapConfiguredHighIntent max->high for Levels[low,medium,high]).",
+        "request": {
+          "method": "POST",
+          "path": "/v1/messages",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "content-type": "application/json"
+          },
+          "body": "{\"model\":\"mock-model\",\"max_tokens\":128,\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}],\"thinking\":{\"type\":\"adaptive\"},\"output_config\":{\"effort\":\"max\"}}"
+        },
+        "mock": {
+          "mode": "happy",
+          "control_file": null
+        },
+        "record": {
+          "downstream": "status + headers + body",
+          "upstream": "full wire request"
+        },
+        "expected": {
+          "status": 200,
+          "upstream_body": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}],\"max_tokens\":128,\"stream\":false,\"reasoning_effort\":\"high\"}"
+        }
+      },
+      {
+        "id": "S2d4-thinking-adaptive-noeffort",
+        "purpose": "DISCRIMINATOR: adaptive WITHOUT output_config.effort. Two derivations conflict and the recording settles it: my code trace says stage-2 re-reads the stage-1 provisional 'xhigh' from the translated body and clamps it to 'high' (mapConfiguredHighIntent xhigh->high for Levels[low,medium,high]); the gate ruling's parenthetical said 'xhigh passes through'. Record the ACTUAL upstream reasoning_effort value — it is the golden.",
+        "request": {
+          "method": "POST",
+          "path": "/v1/messages",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "content-type": "application/json"
+          },
+          "body": "{\"model\":\"mock-model\",\"max_tokens\":128,\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}],\"thinking\":{\"type\":\"adaptive\"}}"
+        },
+        "mock": {
+          "mode": "happy",
+          "control_file": null
+        },
+        "record": {
+          "downstream": "status + headers + body",
+          "upstream": "full wire request"
+        },
+        "expected": {
+          "status": 200,
+          "upstream_body": "record the actual reasoning_effort value (derived 'high'; gate ruling parenthetical said 'xhigh') — recorded bytes win"
+        }
+      },
+      {
+        "id": "S2d4-thinking-adaptive-unknown",
+        "purpose": "EFFECTIVE row: adaptive + output_config.effort 'ultra' (unknown level) -> request fails 400 before dispatch (empty upstream wire log).",
+        "request": {
+          "method": "POST",
+          "path": "/v1/messages",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "content-type": "application/json"
+          },
+          "body": "{\"model\":\"mock-model\",\"max_tokens\":128,\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}],\"thinking\":{\"type\":\"adaptive\"},\"output_config\":{\"effort\":\"ultra\"}}"
+        },
+        "mock": {
+          "mode": "happy",
+          "control_file": null
+        },
+        "record": {
+          "downstream": "status + headers + body",
+          "upstream": "full wire request"
+        },
+        "expected": {
+          "status": 400,
+          "downstream_body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"level \\\"ultra\\\" not supported, valid levels: low, medium, high\"}}",
+          "upstream": "assert EMPTY wire log"
+        }
+      },
+      {
+        "id": "S2d4-count-tokens-bad-budget",
+        "purpose": "count_tokens runs the SAME thinking pipeline: enabled budget_tokens -5 -> the same 400 validation error (Claude shape); no upstream call.",
+        "request": {
+          "method": "POST",
+          "path": "/v1/messages/count_tokens",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "content-type": "application/json"
+          },
+          "body": "{\"model\":\"mock-model\",\"max_tokens\":256,\"thinking\":{\"type\":\"enabled\",\"budget_tokens\":-5},\"messages\":[{\"role\":\"user\",\"content\":\"Hello there, count me.\"}]}"
+        },
+        "mock": {
+          "mode": "happy",
+          "control_file": null
+        },
+        "record": {
+          "downstream": "status + headers + body",
+          "upstream": "full wire request"
+        },
+        "expected": {
+          "status": 400,
+          "downstream_body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"budget -5 cannot be converted to a valid level\"}}",
+          "upstream": "assert EMPTY wire log"
+        }
+      },
+      {
+        "id": "S2d4-stream-truthy-null",
+        "purpose": "Stream truthiness edge (N6): \"stream\": null is NOT JSON false, so the request takes the STREAMING path: SSE headers + full canned event stream downstream; upstream body carries stream:true + stream_options. Expected downstream SSE = same as S2d4-stream-text (message_start input_tokens 3).",
+        "request": {
+          "method": "POST",
+          "path": "/v1/messages",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "content-type": "application/json"
+          },
+          "body": "{\"model\":\"mock-model\",\"max_tokens\":64,\"stream\":null,\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}]}"
+        },
+        "mock": {
+          "mode": "happy",
+          "control_file": null
+        },
+        "record": {
+          "downstream": "status + headers + body",
+          "upstream": "full wire request"
+        },
+        "expected": {
+          "status": 200,
+          "downstream_headers_include": {
+            "Content-Type": "text/event-stream"
+          },
+          "upstream_body": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}],\"max_tokens\":64,\"stream\":true,\"stream_options\":{\"include_usage\":true}}"
+        }
+      },
+      {
+        "id": "S2d4-topp-no-temperature",
+        "purpose": "top_p edge (N6): top_p present with NO temperature -> upstream 'top_p' IS forwarded (the drop rule only applies when temperature is present).",
+        "request": {
+          "method": "POST",
+          "path": "/v1/messages",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "content-type": "application/json"
+          },
+          "body": "{\"model\":\"mock-model\",\"max_tokens\":96,\"top_p\":0.9,\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}]}"
+        },
+        "mock": {
+          "mode": "happy",
+          "control_file": null
+        },
+        "record": {
+          "downstream": "status + headers + body",
+          "upstream": "full wire request"
+        },
+        "expected": {
+          "status": 200,
+          "upstream_body": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}],\"max_tokens\":96,\"top_p\":0.9,\"stream\":false}"
+        }
+      }
+    ],
+    "notes": [
+      "All 12 cases are stateless for the credential; any order. Run AFTER a fresh config load; no control files needed (happy mode).",
+      "Three cases assert an EMPTY upstream wire slice (thinking-budget-invalid, thinking-adaptive-unknown, count-tokens-bad-budget — validation fails before dispatch); the rest capture the usual wire request.",
+      "S2d4-thinking-adaptive-noeffort is the discriminator between the two derivations — record the actual reasoning_effort byte value."
+    ]
   }
 }

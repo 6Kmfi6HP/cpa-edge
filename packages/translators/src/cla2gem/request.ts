@@ -246,13 +246,11 @@ function resolveToolResultName(
 /** Translates the blocks of one Claude message into Gemini parts. */
 function messageParts(
   blocks: readonly BlockRef[],
-  role: 'user' | 'model',
   messageIndex: number,
   rawBody: string,
   tools: ToolUseIndex,
   turnToolUseIds: string[],
 ): WireObject[] {
-  void role
   const parts: WireObject[] = []
   let firstCallOfTurn = true
   for (const ref of blocks) {
@@ -385,7 +383,7 @@ export function buildContents(
 
     if (mapped === 'model') {
       const turnToolUseIds: string[] = []
-      const parts = messageParts(blockRefs, 'model', index, rawBody, tools, turnToolUseIds)
+      const parts = messageParts(blockRefs, index, rawBody, tools, turnToolUseIds)
       tools.lastAssistantToolUseIds = turnToolUseIds
       if (parts.length === 0) continue
       contents.push({ role: 'model', parts })
@@ -393,7 +391,7 @@ export function buildContents(
     }
 
     const blocks = alignToolResults(blockRefs, tools.lastAssistantToolUseIds)
-    const parts = reorderUserParts(messageParts(blocks, 'user', index, rawBody, tools, []))
+    const parts = reorderUserParts(messageParts(blocks, index, rawBody, tools, []))
     if (parts.length === 0) continue
     appendUserTurn(contents, parts)
   }

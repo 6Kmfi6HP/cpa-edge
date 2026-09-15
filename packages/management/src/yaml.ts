@@ -370,7 +370,8 @@ export function renderScalar(value: JsonValue): string {
   if (value === null) return '""'
   if (typeof value === 'boolean') return value ? 'true' : 'false'
   if (typeof value === 'number') return String(value)
-  const text = value
+  if (typeof value !== 'string') return '""'
+  const text: string = value
   if (text === '') return '""'
   if (/^[A-Za-z0-9_./:@+=-][A-Za-z0-9_./:@+= -]*$/.test(text) && !text.includes('  ')) {
     const resolved = resolvePlain(text)

@@ -192,7 +192,10 @@ function readMockResponseFile(caseId: string): Record<string, unknown> | undefin
  * and replay the default stream script (the caller supplies the fallback
  * script of S2d6-stream-basic).
  */
-export function readRecordedMock(caseId: string, fallbackScript: RecordedScript | undefined = undefined): RecordedMock {
+export function readRecordedMock(
+  caseId: string,
+  fallbacks: { readonly script?: RecordedScript; readonly nonStreamReply?: unknown } = {},
+): RecordedMock {
   const definition = readCaseDefinitions()[caseId]
   const control =
     typeof definition?.mock === 'object' && definition.mock !== null
@@ -215,8 +218,8 @@ export function readRecordedMock(caseId: string, fallbackScript: RecordedScript 
       events: definitionSse['events'] as readonly unknown[],
       terminator: typeof definitionSse['terminator'] === 'string' ? definitionSse['terminator'] : null,
     }
-  } else if (fallbackScript !== undefined) {
-    script = fallbackScript
+  } else if (fallbacks.script !== undefined) {
+    script = fallbacks.script
   }
 
   const nonStreamReply =
@@ -224,7 +227,7 @@ export function readRecordedMock(caseId: string, fallbackScript: RecordedScript 
       ? file
       : definition?.mock_response_nonstream !== undefined
         ? definition.mock_response_nonstream
-        : undefined
+        : fallbacks.nonStreamReply
 
   return {
     mode: typeof control['mode'] === 'string' ? control['mode'] : 'happy',

@@ -295,6 +295,7 @@ MUST (evidence: `sdk/api/handlers/claude/code_handlers.go` `WriteErrorResponse`,
 | Streaming request failing before first event | upstream status | Claude error JSON, `Content-Type: application/json`, NO SSE headers | S2d4-stream-error-429 |
 | Mid-stream failure after first event | 200 (already committed) | in-stream `event: error` frame (§4.4) | S2d4-stream-disconnect |
 | count_tokens with unknown model | 400 | same unknown-provider shape as /v1/messages | cited (same routing path) |
+| Invalid thinking config (`budget_tokens` < -1; `adaptive` effort outside low/medium/high/xhigh/max/auto/none/minimal) | 400 | `{"type":"error","error":{"type":"invalid_request_error","message":"<validation message>"}}` — exact messages: `budget <N> cannot be converted to a valid level` / `level "<value>" not supported, valid levels: low, medium, high` (for the default capability). The failure happens in the executor's thinking stage BEFORE dispatch: the upstream wire log is EMPTY, no credential cooldown. Same 400 via /v1/messages/count_tokens | S2d4-thinking-budget-invalid, S2d4-thinking-adaptive-unknown, S2d4-count-tokens-bad-budget (round 2) |
 
 Upstream Retry-After: a 429 carrying a `Retry-After` header (or a TPM-style body) sets a retry hint that surfaces as a downstream `Retry-After` header when present; the oracle mock's 429 body carries none, so goldens assert absence.
 

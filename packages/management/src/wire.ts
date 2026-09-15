@@ -112,23 +112,19 @@ export function canonicalHeaderKey(name: string): string {
 export function base64UrlEncode(bytes: Uint8Array): string {
   let binary = ''
   for (const byte of bytes) binary += String.fromCharCode(byte)
-  const encoded = typeof btoa === 'function' ? btoa(binary) : Buffer.from(bytes).toString('base64')
-  return encoded.replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '')
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '')
 }
 
 /** Base64url decode tolerating missing padding and URL-safe alphabet. */
 export function base64UrlDecode(text: string): Uint8Array {
   const base64 = text.replaceAll('-', '+').replaceAll('_', '/')
   const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4)
-  const binary = typeof atob === 'function' ? atob(padded) : Buffer.from(padded, 'base64').toString('binary')
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
-  return bytes
+  return decodeBase64(padded)
 }
 
 /** Raw base64 decode of a standard-alphabet string. */
 export function decodeBase64(text: string): Uint8Array {
-  const binary = typeof atob === 'function' ? atob(text) : Buffer.from(text, 'base64').toString('binary')
+  const binary = atob(text)
   const bytes = new Uint8Array(binary.length)
   for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
   return bytes
@@ -138,7 +134,7 @@ export function decodeBase64(text: string): Uint8Array {
 export function encodeBase64(bytes: Uint8Array): string {
   let binary = ''
   for (const byte of bytes) binary += String.fromCharCode(byte)
-  return typeof btoa === 'function' ? btoa(binary) : Buffer.from(bytes).toString('base64')
+  return btoa(binary)
 }
 
 /** Hex of raw bytes. */
@@ -148,7 +144,9 @@ export function hexOf(bytes: Uint8Array): string {
 
 /** sha256 digest as raw bytes (WebCrypto). */
 export async function sha256Bytes(data: Uint8Array): Promise<Uint8Array> {
-  const buffer = await crypto.subtle.digest('SHA-256', data)
+  const copy = new Uint8Array(data.length)
+  copy.set(data)
+  const buffer = await crypto.subtle.digest('SHA-256', copy)
   return new Uint8Array(buffer)
 }
 

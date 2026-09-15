@@ -53,14 +53,6 @@ export interface Cla2GemUpstreamBody {
   readonly requestTools: readonly WireObject[]
 }
 
-/** Downstream response-translation input (non-stream). */
-export interface GeminiResponseContext {
-  /** Original client request text (raw bytes, for raw-argument splicing). */
-  readonly upstreamBody: string
-  /** Name-restore index built from the request's tools. */
-  readonly toolNames: import('./schema').ToolNameIndex
-}
-
 /** Default id/model of the stream `message_start` template (recorded). */
 export const DEFAULT_STREAM_MESSAGE_ID = 'msg_1nZdL29xx5MUA1yADyHTEsnR8uuvGzszyY'
 export const DEFAULT_STREAM_MODEL = 'claude-3-5-sonnet-20241022'

@@ -454,6 +454,9 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
     return ((hash >>> 0).toString(16).padStart(8, '0') + (second >>> 0).toString(16).padStart(8, '0'))
   }
 
+  // ---- boot: materialize the effective config from the mounted bytes -----
+  materialize(deps.configYaml)
+
   const fileRegistry = new AuthFileRegistry(store, deriveFileAuthIndex, effective.authDir, now, zoneOffset)
 
   const sidecars = new CooldownSidecars(store, now)
@@ -462,7 +465,7 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
   const allCredentialIndices = async (): Promise<Map<string, { provider: string; models: readonly string[] }>> => {
     const out = new Map<string, { provider: string; models: readonly string[] }>()
     for (const [, spec] of Object.entries(PROVIDER_LISTS) as Array<[string, (typeof PROVIDER_LISTS)[ProviderListKey]]>) {
-      const entries = (effective as unknown as { [key: string]: readonly ProviderEntry[] })[spec.key]
+      const entries = ((effective as unknown as { [key: string]: readonly ProviderEntry[] | undefined })[spec.key]) ?? []
       for (const entry of entries) {
         const models = entry.models.map((model) => model.alias)
         if (spec.family === 'openai-compatibility') {
@@ -479,22 +482,6 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
     return out
   }
 
-  // ---- boot ---------------------------------------------------------------
-  materialize(deps.configYaml)
-  void (async (): Promise<void> => {
-    for (const entry of deps.initialLogLines ?? []) {
-      await appendLogLineInternal(entry)
-    }
-  })()
-
-  async function appendLogLineInternal(entry: LogLineEntry): Promise<void> {
-    await appendLogRing(store, {
-      line: entry.line,
-      level: entry.level,
-      timestamp: entry.timestamp,
-      requestId: entry.requestId,
-    })
-  }
 
   const emitLog = async (level: string, source: string, message: string): Promise<void> => {
     const stamp = stampFor(now(), zoneOffset)
@@ -994,14 +981,14 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
     request: Request,
   ): Promise<WireResponse> {
     const spec = PROVIDER_LISTS[path]
-    const current = [...((effective as unknown as { [key: string]: readonly ProviderEntry[] })[spec.key])]
+    const current = [...(((effective as unknown as { [key: string]: readonly ProviderEntry[] | undefined })[spec.key]) ?? [])]
 
     if (method === 'GET') {
       const entries = await Promise.all(
         current.map(async (entry) => {
           if (spec.family === 'openai-compatibility') {
             const subs = await Promise.all(
-              (entry.apiKeyEntries ?? []).map(async (sub): Promise<[string, WireValue]> => {
+              (entry.apiKeyEntries ?? []).map(async (sub: ApiKeyEntry): Promise<[string, WireValue]> => {
                 const index = await apiKeyEntryAuthIndex(entry.baseUrl ?? '', sub.apiKey)
                 const members: Array<[string, WireValue]> = [['api-key', sub.apiKey]]
                 if (sub.weight !== undefined) members.push(['weight', sub.weight])

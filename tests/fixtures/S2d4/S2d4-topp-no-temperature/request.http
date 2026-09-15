@@ -1,0 +1,10 @@
+### S2d4-topp-no-temperature STEP 1 — POST /v1/messages
+POST /v1/messages HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-local-key-1
+content-type: application/json
+Content-Length: 94
+
+{"model":"mock-model","max_tokens":96,"top_p":0.9,"messages":[{"role":"user","content":"Hi"}]}

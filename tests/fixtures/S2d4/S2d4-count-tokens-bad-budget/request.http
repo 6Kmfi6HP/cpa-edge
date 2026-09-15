@@ -1,0 +1,10 @@
+### S2d4-count-tokens-bad-budget STEP 1 — POST /v1/messages/count_tokens
+POST /v1/messages/count_tokens HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-local-key-1
+content-type: application/json
+Content-Length: 152
+
+{"model":"mock-model","max_tokens":256,"thinking":{"type":"enabled","budget_tokens":-5},"messages":[{"role":"user","content":"Hello there, count me."}]}

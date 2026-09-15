@@ -239,6 +239,7 @@ function assertUpstreamWire(recorded: RecordedUpstream, call: Res2OaiUpstreamReq
 
 async function replaySteps(stepCaseIds: readonly string[]): Promise<void> {
   const defaultScript = readRecordedMock('S2d6-stream-basic').script
+  const defaultReply = readRecordedMock('S2d6-nostream-basic').nonStreamReply
   let step = 0
   const service = createRes2OaiService({
     apiKeys: GATEWAY_API_KEYS,
@@ -254,8 +255,12 @@ async function replaySteps(stepCaseIds: readonly string[]): Promise<void> {
     if (stepCaseId === undefined) throw new Error('harness bug: no step for the current index')
     const own = readRecordedMock(stepCaseId)
     const mock =
-      own.script === undefined && streamRequested(stepCaseId) && defaultScript !== undefined
-        ? readRecordedMock(stepCaseId, defaultScript)
+      own.script === undefined && own.nonStreamReply === undefined &&
+      (streamRequested(stepCaseId) ? defaultScript !== undefined : defaultReply !== undefined)
+        ? readRecordedMock(stepCaseId, {
+            script: streamRequested(stepCaseId) ? defaultScript : undefined,
+            nonStreamReply: streamRequested(stepCaseId) ? undefined : defaultReply,
+          })
         : own
     captured.push({ step, call })
     return buildMockResponse(mock, stepCaseId)
