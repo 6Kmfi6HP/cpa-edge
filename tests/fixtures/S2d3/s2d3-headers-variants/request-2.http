@@ -1,0 +1,12 @@
+POST /v1/chat/completions HTTP/1.1
+Host: 127.0.0.1:8387
+Authorization: Bearer <api-key>
+Content-Type: application/json
+Anthropic-Beta: custom-beta-2026-01-01
+Anthropic-Version: 2024-10-01
+User-Agent: oracle-s3-probe/1.0
+Accept: */*
+Connection: close
+Content-Length: 72
+
+{"model": "cm", "messages": [{"role": "user", "content": "Beta check"}]}

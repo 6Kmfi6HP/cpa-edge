@@ -1,0 +1,15 @@
+{
+ "control_file_per_step": [
+  {
+   "mode": "happy",
+   "script": "thinking"
+  },
+  {
+   "mode": "happy",
+   "script": "thinking"
+  }
+ ],
+ "mode_selection": "mock control file only (X-Mock-* do not traverse the reference to claude)",
+ "script": "thinking",
+ "script_note": "canned SSE event list per spec/recordings/S2d3.cases.json scripts_needed.thinking (events verbatim)"
+}

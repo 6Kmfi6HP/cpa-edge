@@ -66,7 +66,7 @@ MUST (all evidenced in `internal/runtime/executor/claude_executor_execute.go` / 
 ### 2.3 Request translation — Gemini → Claude (evidence: `internal/translator/claude/gemini/claude_gemini_request.go`, registered in `internal/translator/claude/gemini/init.go` as Gemini→Claude)
 
 Output skeleton (key order is observable; recorded):
-`{"model":..., "max_tokens":..., "messages":[...], "metadata":{"user_id":...}, [top_p], [stop_sequences], [thinking], [tools], [tool_choice], "stream":true}`
+`{"model":..., "max_tokens":..., "messages":[...], "metadata":{"user_id":...}, [service_tier], [top_p], [stop_sequences], [thinking], [tools], [tool_choice], "stream":true}`
 
 MUST rules:
 - `contents[]` → `messages[]` with role mapping: `model`→`assistant`; `function`→`user`; `tool`→`user`; any other value (including empty string / missing) is NOT remapped.
@@ -91,7 +91,7 @@ MUST rules:
   - `ANY` with exactly ONE name in `allowedFunctionNames`/`allowed_function_names` → `{"type":"tool","name":<name>}`;
   - `ANY` otherwise → `{"type":"any"}`; other/absent mode → no `tool_choice`.
 - `generationConfig`:
-  - `maxOutputTokens` → `max_tokens` (JSON number; string values coerce to 0). Absent → 32000.
+  - `maxOutputTokens` → `max_tokens` (numeric strings parse: `"500"` → 500; only non-numeric values coerce to 0). Absent → 32000.
   - `topP` → `top_p` (then deleted by the executor for this pair — §2.2).
   - `stopSequences` (non-empty array) → `stop_sequences`.
   - `temperature`, `topK`, `candidateCount`, `responseMimeType`, `responseSchema`, `seed`, `presencePenalty` etc. are NOT read: dropped for this direction.
@@ -114,7 +114,7 @@ Skeleton (key order observable; golden S2d7-01):
  "usageMetadata":{"promptTokenCount":P,"candidatesTokenCount":C,"totalTokenCount":P+C,"trafficType":"PROVISIONED_THROUGHPUT"},
  "modelVersion":M,"createTime":T,"responseId":R}
 ```
-- `parts`: assembled from the upstream events in order, then CONSECUTIVE text parts merged into one block and consecutive thought parts merged into one block (`consolidateParts`); `functionCall` and other parts stay as-is.
+- `parts`: assembled from the upstream events in order, then CONSECUTIVE text parts merged into one block and consecutive thought parts merged into one block (`consolidateParts`); when several merged thought parts carry `thoughtSignature` values, the LAST signature wins; `functionCall` and other parts stay as-is.
   - `content_block.delta` `text_delta` → `{"text":s}` (empty strings dropped);
   - `thinking_delta` → `{"thought":true,"text":s}`;
   - `signature_delta` / thinking-block `signature` → `{"thought":true,"thoughtSignature":...}` (replay-compat wrapper, S4);
@@ -137,8 +137,16 @@ MUST (evidence: `internal/runtime/executor/claude_executor_tokens.go`):
 - For non-Anthropic base URLs the gateway does NOT call the upstream `count_tokens` endpoint. It counts locally with an O200kBase tokenizer over the TRANSLATED Claude body (segments: system text blocks, per-message role + content text/tool ids/names/inputs, tool names, tool_choice) and returns a Gemini-shaped body:
   `{"totalTokens":N,"promptTokensDetails":[{"modality":"TEXT","tokenCount":N}]}` (evidence: `internal/translator/common/bytes.go` `GeminiTokenCountJSON`). Recorded N for the S2d7-12 request is 4 (O200kBase over segments `["user","Say hello"]` joined with `\n`).
 - No upstream request is emitted for this path. Pin: golden S2d7-12 (upstream wire log stays unchanged).
-- Validation: translated `messages` must be a non-empty array of `user`/`assistant` turns with typed content blocks, else 400 `{"error":{"message":"<validator message>","type":...}}` (§5).
-- The numeric value N is deterministic for a fixed request under the reference tokenizer. Byte-exact reproduction requires an O200k-compatible tokenizer — see §7 open question.
+- Validation (evidence: `internal/runtime/executor/claude_executor_tokens.go` `validateClaudeTokenCountRequest`): failure yields HTTP 400 with body `{"error":{"message":"<validator string>","type":"invalid_request_error"}}` (code omitted — omitempty). The validator strings are public-interface bytes and are exactly:
+  1. `invalid Claude token count request JSON` (body not valid JSON)
+  2. `Claude token count request must be a JSON object`
+  3. `Claude token count request messages must be a non-empty array`
+  4. `Claude token count request messages must contain objects`
+  5. `Claude token count request message role must be user or assistant`
+  6. `Claude token count request message content must be a string or array`
+  7. `Claude token count request content blocks must be typed objects`
+  Reachability from the Gemini entry: the translator's accumulator only emits `user`/`assistant` messages whose content is an array of typed blocks, so strings 5-7 are unreachable from Gemini bodies (the validator is shared with other entry protocols); strings 1-3 are reachable. Pin: golden S2d7-25 (a `role:"system"`-only contents list translates to `messages:[]` → string 3).
+- **Numeric value — decided contract (SPEC.md §5 Ruling R-TOK, 2026-09-16):** N is computed with js-tiktoken's `o200k_base` encoding (already installed in `packages/translators`), byte-exact NUMERICALLY in contract tests — `totalTokens` is NEVER masked. Estimation input = the translated Claude body's segments (system text blocks; per-message role + content text/tool fields; tools; tool_choice) joined with `\n`, per `internal/runtime/executor/helps/claude_input_tokens.go`. If js-tiktoken output disagrees with a recorded golden, the implementer replicates the reference's exact estimation, not the library default. Golden S2d7-12 (recorded N=4) is the oracle.
 
 ### 2.6 Model list
 
@@ -180,12 +188,15 @@ No `system` key is ever produced by this direction (§2.3). No `temperature`/`to
 
 ### 3.3 `metadata.user_id` derivation (evidence: `internal/translator/common/claude_user_id.go`)
 
-Order of precedence:
+Order of precedence (complete):
 1. A pre-existing `metadata.user_id` in the CLIENT body (string, non-blank) — passed through.
-2. `user` field (not a Gemini field) — n/a.
-3. Seed `"content:"` + all non-thought `text` parts of the FIRST `contents` entry whose role is `user` OR MISSING, joined with `\n`.
-4. Else seed from `model` + `;instructions:`/`;system:`/`;systemInstruction:`/`;system_instruction:` raw values.
-5. Else `"unknown"`.
+2. `user` field (string, non-blank; not a Gemini field) — passed through.
+3. `prompt_cache_key` → seed `prompt_cache_key:<value>`.
+4. `session_id` or `sessionId` (first non-blank) → seed `session_id:<value>`.
+5. `conversation.id`, a string `conversation`, or `conversation_id` (first non-blank) → seed `conversation_id:<value>`.
+6. Seed `"content:"` + all non-thought `text` parts of the FIRST `contents` entry whose role is `user` OR MISSING, joined with `\n`.
+7. Else seed from `model` + `;instructions:`/`;system:`/`;systemInstruction:`/`;system_instruction:` raw values.
+8. Else `"unknown"`.
 Then `user_id = hex(sha256(seed))`. Deterministic; recorded values pin the algorithm (e.g. `content:Say hello` → `120226d8…8b6c46`).
 
 ### 3.4 `cache_control` injection (evidence: `internal/runtime/executor/claude_executor_cloaking.go`)
@@ -204,9 +215,9 @@ Per-request FIFO: `toolu_gemini_%016d` ids are allocated in order of appearance 
 
 - `content_block_start` with `content_block.type == "tool_use"` records `name` and `id` by block index; emits nothing.
 - `content_block_delta` with `delta.type == "input_json_delta"` accumulates `delta.partial_json` by index; emits nothing.
-- `content_block_stop` for that index emits the assembled part `{"functionCall":{"name":N,"args":A,"id":I}}` (`A` = the accumulated `partial_json` bytes spliced RAW — no re-serialization, no validation; invalid accumulated JSON flows through verbatim; `"id"` only when the block carried one) — and the SAME chunk carries `finishReason:"STOP"`. Key order inside `functionCall`: `name`, `args`, `id`.
+- `content_block_stop` for that index emits the assembled part `{"functionCall":{"name":N,"args":A,"id":I}}` (`A` = the accumulated `partial_json` bytes, TRIMMED of leading/trailing whitespace, then spliced RAW — no re-serialization, no validation; invalid accumulated JSON flows through verbatim; `"id"` only when the block carried one) — and the SAME chunk carries `finishReason:"STOP"`. Key order inside `functionCall`: `name`, `args`, `id`.
 - **Raw-splice cascade (recorded)**: when the spliced `args` bytes are not valid JSON, the chunk itself becomes invalid JSON, and every subsequent structured write on that chunk degrades to a ROOT-LEVEL append: the stream tool chunk's `finishReason:"STOP"` lands at the top level of the chunk object (after `responseId`) instead of inside `candidates[0]` (recorded: S2d7-13 frame 1), and the non-stream aggregation appends a SECOND root-level `usageMetadata` (duplicate key: the skeleton's trafficType-only block stays in place, the token-count block is appended at the end) instead of replacing it (recorded: S2d7-21). With VALID accumulated args the sets land at their nested positions (recorded: S2d7-23, S2d7-24).
-- `text_delta`/`thinking_delta`/`signature_delta` per §2.4. Empty text deltas emit nothing.
+- `text_delta`/`thinking_delta`/`signature_delta` per §2.4. A `content_block_delta` whose payload yields no part (empty/absent text, unknown delta type) still emits ONE chunk with `"parts":[]`; ONLY `input_json_delta` emits nothing (accumulates silently).
 
 ---
 
@@ -242,7 +253,7 @@ Rules this sequence pins:
 - Per-chunk skeleton key order: `candidates`, `usageMetadata`, `modelVersion`, `createTime`, `responseId`; inside `candidates[0]`: `content` then (`finishReason` only when set).
 - `usageMetadata` key order in stream chunks: `trafficType` FIRST, then `promptTokenCount`, `candidatesTokenCount`, `totalTokenCount`, (`cachedContentTokenCount`), (`thoughtsTokenCount`). (Non-stream order differs — `trafficType` LAST; §2.4.)
 - `modelVersion` in stream chunks = upstream `message_start.message.model` (the mock echoes the request model).
-- `promptTokenCount` reads only `message_delta.usage.input_tokens` (absent → 0).
+- `promptTokenCount` reads only `message_delta.usage.input_tokens` (absent → 0). A `message_delta` with NO `usage` object still emits the STOP chunk with the skeleton's trafficType-only `usageMetadata` (no count keys added).
 - `finishReason` for `message_delta` is ALWAYS `"STOP"`: the stop_reason→finishReason switch result is overwritten by an unconditional STOP set in the same branch (`max_tokens` → `"MAX_TOKENS"` is dead code; `end_turn`, `tool_use`, `stop_sequence`, unknown all → `"STOP"`). Pin: golden S2d7-15.
 - A tool_use block adds `finishReason:"STOP"` on its OWN chunk (§3.6), and `message_delta` then emits a second STOP+usage chunk with `"parts":[]`. Pin: golden S2d7-13.
 
@@ -270,12 +281,19 @@ The 400/INVALID_ARGUMENT values are fixed regardless of the upstream error type.
 
 - The upstream status code and body are passed downstream VERBATIM (recorded for the gemini fleet; same executor pipeline). The Claude 429 body `{"type":"error","error":{"type":"rate_limit_error","message":"mock rate limit"}}` arrives at the client byte-identical with status 429, `Content-Type: application/json`. Pin: golden S2d7-10.
 - Applies to both `:generateContent` and `:streamGenerateContent` (for streaming, an error before the first chunk never commits SSE headers).
-- 429 also triggers the credential rate-limit cooldown (~1s reset) that `transient-error-cooldown-seconds: -1` does NOT disable (recorded, `_cpa_edge_ref/probes/mocks/README.md` §Error propagation): an immediate follow-up request fails with **HTTP 429** — the status is INHERITED from the wrapped upstream error (the cooldown error chains the original rate-limit `statusErr`, and `clienterror.HTTPStatusFromError` unwraps to its 429; a statusless transport-cause would fall back to the 500 gateway default) — and a JSON body `{"error":{"code":"model_cooldown","last_upstream_error":"<verbatim upstream body>","message":"All credentials for model cm are cooling down via provider claude (last error: <verbatim>)","model":"cm","provider":"claude","reset_seconds":1,"reset_time":"1s"}}` produced by the cooldown error's own marshal of a Go map, so the fields appear in ALPHABETICAL order (evidence: `sdk/cliproxy/auth/selector.go` `modelCooldownError.Error()`). Byte-exact shape pinned by fixture S2d7-19 (recorded immediately after S2d7-10; no upstream request is emitted during cooldown).
+- 429 also triggers the credential rate-limit cooldown (~1s reset) that `transient-error-cooldown-seconds: -1` does NOT disable (recorded, `_cpa_edge_ref/probes/mocks/README.md` §Error propagation): an immediate follow-up request fails with **HTTP 429** — the status is INHERITED from the wrapped upstream error (the cooldown error chains the original rate-limit `statusErr`, and `clienterror.HTTPStatusFromError` unwraps to its 429; a statusless transport-cause would fall back to the 500 gateway default) — and a JSON body `{"error":{"code":"model_cooldown","last_upstream_error":"<verbatim upstream body>","message":"All credentials for model cm are cooling down via provider claude (last error: <verbatim>)","model":"cm","provider":"claude","reset_seconds":1,"reset_time":"1s"}}` produced by the cooldown error's own marshal of a Go map, so the fields appear in ALPHABETICAL order (evidence: `sdk/cliproxy/auth/selector.go` `modelCooldownError.Error()`). The response also carries `Retry-After: 1` (recorded: S2d7-19). Byte-exact shape pinned by fixture S2d7-19 (recorded immediately after S2d7-10; no upstream request is emitted during cooldown).
 - Gateway auth errors (missing/invalid key): 401 `{"error":"..."}` (S1 shapes).
 
 ### 5.2 Upstream stream validation failures (non-stream aggregation path)
 
-`validateClaudeStreamingResponse` (`claude_executor_stream.go`) fails the whole request with HTTP 502 and an OpenAI-style wrap of the validator message when the aggregated upstream stream: contains no `data:` line; contains a `type:"error"` event (message `claude executor: upstream returned error event: <msg>`); lacks `message_start` (or it lacks id/model); lacks `message_delta`; or any `data:` payload is invalid JSON. Pin: golden S2d7-20 (error-event variant, non-stream).
+`validateClaudeStreamingResponse` (`claude_executor_stream.go`) runs ONLY on the non-stream aggregation path (the streaming executor forwards line-by-line and performs none of these checks; the handler's SSE validator is active only for the Responses protocol — `responseProtocol == "openai-response"`). It skips `data:` payloads that are empty or exactly `[DONE]`, then fails the whole request with HTTP 502 and body `{"error":{"message":"<validator string>","type":"server_error","code":"internal_server_error"}}`. The validator strings are public-interface bytes and are exactly:
+  1. `claude executor: upstream returned empty stream response` (no non-skipped `data:` payload at all)
+  2. `claude executor: upstream stream response is missing message_start`
+  3. `claude executor: upstream stream response ended before message completion` (no `message_delta`)
+  4. `claude executor: upstream returned malformed stream data` (a `data:` payload that is not valid JSON)
+  5. `claude executor: upstream returned error event: <msg>` — where `<msg>` falls back through `error.message` → `error.type` → `unknown upstream error` (checked per line, before the completeness flags)
+  6. `claude executor: upstream stream message_start is missing id or model`
+  Pins: golden S2d7-20 (string 5, with error.message present); goldens S2d7-26/27/28/29 pin strings 1/2/3/4. On the STREAM client path the same upstreams do NOT 502: an empty upstream yields HTTP 200 with zero frames (golden S2d7-30), and malformed/unknown events are silently dropped by the per-line translator (gjson is lenient; unknown event types emit nothing).
 
 ### 5.3 Translation-produced errors
 
@@ -288,7 +306,7 @@ The 400/INVALID_ARGUMENT values are fixed regardless of the upstream error type.
 
 Recorded by @oracle-runner against CLIProxyAPI v7.3.4 (image digest per BOOTSTRAP §2), claude mock upstream (worker copy `run3/mock/mock_claude.py`; recording stack: reference on port 8397, mock on 21002 — port adaptation noted in every `meta.yaml`; config `claude-api-key`, model `claude-mock-model`, alias `cm`). Fixture layout per BOOTSTRAP §7 RECIPES under `tests/fixtures/S2d7/<case-id>/` (`meta.yaml`, `request.http`, `downstream.md`, `upstream.jsonl`, `mock-response.json`).
 
-**Recording status: ALL 25 cases recorded (S2d7-00 … S2d7-24; raw transcripts in `_cpa_edge_ref/run3/probes/S2d7/`). The valid-args companions S2d7-23/24 confirm the non-degraded shapes: finishReason nested inside `candidates[0]` (stream) and a single in-place `usageMetadata` with the S2d7-01 key order (non-stream).**
+**Recording status: S2d7-00 … S2d7-24 recorded (25 fixtures; raw transcripts in `_cpa_edge_ref/run3/probes/S2d7/`). The valid-args companions S2d7-23/24 confirm the non-degraded shapes: finishReason nested inside `candidates[0]` (stream) and a single in-place `usageMetadata` with the S2d7-01 key order (non-stream). Round-2 batch S2d7-25 … S2d7-30 (validator error paths) requested from @oracle-runner.**
 
 Requests below use gateway auth `x-goog-api-key: oracle-local-key-1` and the alias model `cm` unless noted. Wire-log secrets are redacted by the mock. Dynamic fields masked: `Date`, `X-Cpa-Trace-Id`, `createTime`, `User-Agent` (caller-controlled, fixed per case by the curl used).
 
@@ -317,8 +335,16 @@ Requests below use gateway auth `x-goog-api-key: oracle-local-key-1` and the ali
 | S2d7-20-errstream-nonstream | aggregated error event → 502 validator wrap | no | variant `errstream` |
 | S2d7-21-tool-nonstream | functionCall part in non-stream response; RAW args splice (duplicate root-level usageMetadata under invalid args) | no | variant `tool` (invalid-args fragments) |
 | S2d7-22-verbatim-model | verbatim provider model name does NOT resolve: 400 model_not_found, no upstream call (only the alias is routable) | no | happy |
+| S2d7-23-tool-stream-valid-args | valid-args tool_use SSE → functionCall chunk with finishReason INSIDE candidates[0], then STOP+usage chunk | alt=sse | variant `tool-valid` |
+| S2d7-24-tool-nonstream-valid-args | valid-args tool_use aggregated → single usageMetadata (replaced in place, trafficType last), finishReason inside candidates[0] | no | variant `tool-valid` |
+| S2d7-25-counttokens-validation | system-role-only contents → translated `messages:[]` → 400 `Claude token count request messages must be a non-empty array`; no upstream call | no | none |
+| S2d7-26-empty-stream | aggregated empty upstream → 502 `claude executor: upstream returned empty stream response` | no | variant `empty` |
+| S2d7-27-missing-message-start | upstream data lines but no message_start → 502 `claude executor: upstream stream response is missing message_start` | no | variant `nostart` |
+| S2d7-28-missing-message-delta | message_start present, no message_delta → 502 `claude executor: upstream stream response ended before message completion` | no | variant `truncated` |
+| S2d7-29-malformed-stream | invalid-JSON `data:` payload → 502 `claude executor: upstream returned malformed stream data` | no | variant `malformed` |
+| S2d7-30-stream-empty-200 | STREAM client + empty upstream → HTTP 200, SSE headers, ZERO frames (no 502 on the stream path) | alt=sse | variant `empty` |
 
-Mock extensions required (claude mock, `_cpa_edge_ref/mock/mock_claude.py`, control key `variant`, deterministic canned SSE): `tool` (tool_use block + input_json_delta×2 + stop_reason tool_use), `errstream` (message_start + text delta + `type:"error"` event), `maxtokens` (happy events with stop_reason "max_tokens"). Exact event lists are specified in `spec/recordings/S2d7.cases.json`.
+Mock variants used (claude mock, control key `variant`, deterministic canned SSE; implemented by @oracle-runner in `run3/mock/mock_claude.py`): `tool` (tool_use block + input_json_delta×2 with INVALID-args fragments; S2d7-13/21), `tool-valid` (same shape, VALID fragments, ids `toolu_mock04`/`msg_mock_04`; S2d7-23/24), `errstream` (message_start + text delta + `type:"error"` event; S2d7-14/20), `maxtokens` (happy events with stop_reason "max_tokens"; S2d7-15), and the round-2 validator batch: `empty` (200 + zero events, clean close), `nostart` (data lines but no `message_start`), `truncated` (no `message_delta`), `malformed` (one invalid-JSON `data:` payload) — S2d7-26..30. Exact event lists are in `spec/recordings/S2d7.cases.json`; each fixture's `mock-response.json` embeds the scripted events that drove it.
 
 CREDENTIALED-ONLY (FIXTURE-DEFERRED, per R-FIXTURE): Claude OAuth upstream behaviors — `x-api-key` on api.anthropic.com, CLI fingerprint profile (X-App/x-stainless/x-claude-code-* identity headers, anthropic-beta baselines), CCH billing headers, cloaking system injection, 1h cache TTL + `extended-cache-ttl` beta, adaptive-effort registry-known models, thinking signatures replay. Specified from source reading; no local fixtures possible.
 
@@ -336,7 +362,7 @@ Orchestrator rulings received 2026-09-16 (binding):
 3. **Role-less `contents` turns are dropped** although the real Gemini API defaults them to `user`. Mirrored; a client relying on that default silently loses the turn. Golden S2d7-16 pins it.
 4. **`promptTokenCount` is 0 unless `message_delta.usage.input_tokens` exists** — real Anthropic streams put input tokens in `message_start`, so most real captures will show 0 for the Gemini client while the OpenAI direction shows the true count. Upstream behavior; noted, not fixed.
 5. **`alt=json` concatenation** is not the real Gemini API's JSON-array streaming. Mirrored byte-for-byte; registered as intentional non-equivalence.
-6. **countTokens numeric value — RESOLVED by ruling:** byte-exact via js-tiktoken (already installed); replicate the reference estimation function; S2d7-12 (recorded N=4) is the oracle. Kept here for traceability.
+6. **countTokens numeric value — DECIDED, registered as SPEC.md §5 Ruling R-TOK:** js-tiktoken `o200k_base`, byte-exact numerically (never masked); estimation input = translated-body segments joined `\n` per `helps/claude_input_tokens.go`; on systematic disagreement the implementer replicates the reference's estimation, not the library default; S2d7-12 (recorded N=4) is the oracle. Kept here for traceability.
 7. **finishReason is always STOP** for this pair (both paths; the MAX_TOKENS mapping is dead code upstream). Mirrored. If a future ruling wants real MAX_TOKENS semantics it must be registered in SPEC §5 first.
 8. Non-stream `modelVersion` uses the gateway-resolved model name while stream chunks use the upstream-echoed `message.model`. Identical for current fixtures; noted for force-mapped models (S4 interaction).
 9. `X-Mock-*` control headers do NOT traverse the gateway (allowlist); mock modes MUST be set via `mock/control/claude.json` for through-gateway recordings.

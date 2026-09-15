@@ -22,11 +22,11 @@
 | S2d7 | spec: Gemini client → Claude upstream | 1 | spec-s2d7-gem2cla | spec-fix | 1 | R1: adv-spec-2 FAIL (B1 tokenizer ruling unapplied; B2 validator strings/goldens); R-TOK registered in SPEC §5 |
 | S2d8 | spec: Claude client → Gemini upstream | 1 | spec-s2d8-cla2gem | spec | 0 | section+18 cases done; rulings sent; recording queued w5 |
 | S2d9 | spec: Codex/Responses passthrough semantics | 1 | spec-s2d9-codex | spec | 0 |  |
-| S2d10 | spec: Antigravity redirect rules | 1 | spec-s2d10-antigravity | spec | 0 |  |
+| S2d10 | spec: Antigravity redirect rules | 1 | spec-s2d10-antigravity | spec-adv | 0 | section+17 goldens; synthetic-credential precedent; review queued on adv-spec-2 |
 | S3 | spec: auth flows | 1 | spec-s3-auth | spec-adv-r2 | 1 | round-2 re-review queued on adv-spec-2 (after its S2d7 review) |
 | S4 | spec: scheduling | 1 | spec-s4-scheduling | spec-adv | 0 | section+20 goldens done; review pending assignment |
 | S5 | spec: management API | 1 | spec-s5-mgmt | spec-adv | 0 | section+22 goldens finalized; review assigned adv-spec-3 (GET/config secrets = mirror per S7-N2 ruling) |
-| S6 | spec: state & storage schemas | 1 | spec-s6-state | spec | 0 |  |
+| S6 | spec: state & storage schemas | 1 | spec-s6-state | spec-adv | 0 | section+17 goldens done; S7 amendments applied; review assigned adv-spec-6 |
 | S7 | spec: platform degradation matrix | 1 | spec-s7-platform | spec-adv-r2 | 1 | round-2 re-review queued on adv-spec-3 (after its S5 review) |
 | I-core | packages/core: scheduling algorithms | 2 | — | pending | 0 |  |
 | I-auth | packages/auth: OAuth/device/refresh | 2 | — | pending | 0 |  |
@@ -57,3 +57,4 @@
 
 ## Verdict / escalation log
 (appended by orchestrator)
+- 2026-09-16 01:0x PRECEDENT (from S2d10): OAuth provider executors honoring base_url overrides are RECORDABLE via synthetic credentials — antigravity executor request wire now golden-covered. Optional post-Phase-2 sweep: kimi-native/xai-native synthetic recordability for I-exec goldens. REGISTERED GAP (D2 audit): antigravity-as-upstream pairwise field tables beyond envelope+3 chat cases (candidate S2d11 if time permits).

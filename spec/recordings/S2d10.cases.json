@@ -23,7 +23,7 @@
   "cases": [
     {
       "id": "S2d10-auth-url-json",
-      "classification": "RECORDABLE-LOCALLY",
+      "classification": "RECORDED (golden at tests/fixtures/S2d10/S2d10-auth-url-json/)",
       "purpose": "Pin the 200 shape of GET /v0/management/antigravity-auth-url and the exact Google authorization URL: fixed client_id, redirect_uri http://localhost:51121/oauth-callback, prompt=consent, access_type=offline, response_type=code, five scopes in fixed order, params alphabetically encoded.",
       "requests": [
         {
@@ -45,7 +45,7 @@
     },
     {
       "id": "S2d10-auth-url-auth-failures",
-      "classification": "RECORDABLE-LOCALLY",
+      "classification": "RECORDED (golden at tests/fixtures/S2d10/S2d10-auth-url-auth-failures/)",
       "purpose": "401 error family on antigravity-auth-url: missing management key and invalid management key.",
       "requests": [
         {
@@ -73,7 +73,7 @@
     },
     {
       "id": "S2d10-forwarder-302",
-      "classification": "RECORDABLE-LOCALLY",
+      "classification": "RECORDED (golden at tests/fixtures/S2d10/S2d10-forwarder-302/)",
       "purpose": "The 302 redirect contract of the loopback forwarder started by is_webui=1: Location = http://127.0.0.1:18317/antigravity/callback with the raw incoming query, Cache-Control: no-store, plus the follow-up hop to the main-port callback returning the success HTML.",
       "requests": [
         {
@@ -112,7 +112,7 @@
     },
     {
       "id": "S2d10-forwarder-any-path",
-      "classification": "RECORDABLE-LOCALLY",
+      "classification": "RECORDED (golden at tests/fixtures/S2d10/S2d10-forwarder-any-path/)",
       "purpose": "Forwarder path-rewrite rule: ANY path is redirected to /antigravity/callback; incoming path discarded; raw query preserved (multi-param, ordering preserved).",
       "requests": [
         {
@@ -143,7 +143,7 @@
     },
     {
       "id": "S2d10-forwarder-replace",
-      "classification": "RECORDABLE-LOCALLY",
+      "classification": "RECORDED (golden at tests/fixtures/S2d10/S2d10-forwarder-replace/)",
       "purpose": "A second is_webui flow replaces the existing forwarder: the same loopback port now redirects with the NEW session state (no error, single listener).",
       "requests": [
         {
@@ -185,7 +185,7 @@
     },
     {
       "id": "S2d10-main-callback-html",
-      "classification": "RECORDABLE-LOCALLY",
+      "classification": "RECORDED (golden at tests/fixtures/S2d10/S2d10-main-callback-html/)",
       "purpose": "Main-port GET /antigravity/callback with an UNKNOWN (well-formed) state: 200 + success HTML, no auth required, write silently ignored.",
       "requests": [
         {
@@ -204,7 +204,7 @@
     },
     {
       "id": "S2d10-main-callback-variants",
-      "classification": "RECORDABLE-LOCALLY",
+      "classification": "RECORDED (golden at tests/fixtures/S2d10/S2d10-main-callback-variants/)",
       "purpose": "Main-port callback variants: no query, error param present, OPTIONS (204+CORS), wrong method POST (404 empty per R-404).",
       "requests": [
         {
@@ -244,7 +244,7 @@
     },
     {
       "id": "S2d10-oauth-callback-errors",
-      "classification": "RECORDABLE-LOCALLY",
+      "classification": "RECORDED (golden at tests/fixtures/S2d10/S2d10-oauth-callback-errors/)",
       "purpose": "GET/POST /v0/management/oauth-callback validation family (no management key needed): invalid body, state required, invalid state, code-or-error required, unknown state 404, unsupported provider, provider mismatch against a live antigravity session, and alias normalization.",
       "requests": [
         {
@@ -355,7 +355,7 @@
     },
     {
       "id": "S2d10-session-lifecycle",
-      "classification": "RECORDABLE-LOCALLY",
+      "classification": "RECORDED (golden at tests/fixtures/S2d10/S2d10-session-lifecycle/)",
       "purpose": "Full session lifecycle without Google: pending wait -> cancel -> unknown -> re-cancel -> main-port callback after cancel.",
       "requests": [
         {
@@ -436,7 +436,7 @@
     },
     {
       "id": "S2d10-callback-error-session",
-      "classification": "RECORDABLE-LOCALLY",
+      "classification": "RECORDED (golden at tests/fixtures/S2d10/S2d10-callback-error-session/)",
       "purpose": "Browser-deny path end-to-end without Google: main-port callback with error param against a pending session sets session status 'Authentication failed' (no upstream call happens).",
       "requests": [
         {
@@ -478,7 +478,7 @@
     },
     {
       "id": "S2d10-post-callback-exchange-fail",
-      "classification": "RECORDABLE-LOCALLY",
+      "classification": "RECORDED (golden at tests/fixtures/S2d10/S2d10-post-callback-exchange-fail/)",
       "purpose": "JSON handoff success + deterministic exchange failure: POST oauth-callback with a fake code returns 200 ok; the waiter then fails the exchange (bogus code and/or unreachable Google) and marks the session 'Failed to exchange token' regardless of failure cause.",
       "requests": [
         {
@@ -522,7 +522,7 @@
     },
     {
       "id": "S2d10-get-auth-status-variants",
-      "classification": "RECORDABLE-LOCALLY",
+      "classification": "RECORDED (golden at tests/fixtures/S2d10/S2d10-get-auth-status-variants/)",
       "purpose": "get-auth-status degenerate inputs: no state param, empty state, invalid state characters.",
       "requests": [
         {
@@ -564,7 +564,7 @@
     },
     {
       "id": "S2d10-cancel-errors",
-      "classification": "RECORDABLE-LOCALLY",
+      "classification": "RECORDED (golden at tests/fixtures/S2d10/S2d10-cancel-errors/)",
       "purpose": "DELETE oauth-session validation: missing state, invalid state.",
       "requests": [
         {
@@ -596,7 +596,7 @@
     },
     {
       "id": "S2d10-forwarder-port-busy",
-      "classification": "FIXTURE-DEFERRED (error-path recordable in principle; blocked by container netns - attempt only if a runtime that can occupy in-container port 51121 is available, e.g. docker exec into a non-scratch image or --network host)",
+      "classification": "RECORDED (was conditional; in-container 51121 occupied via docker exec perl IO::Socket::INET listener — technique in fixture meta pre_occupation; golden at tests/fixtures/S2d10/S2d10-forwarder-port-busy/)",
       "purpose": "Forwarder bind failure: with 51121 already bound inside the container, is_webui=1 auth-url returns 500 {\"error\":\"failed to start callback server\"}.",
       "requests": [
         {
@@ -604,7 +604,8 @@
           "method": "PRE",
           "url": "hold a TCP listener on 127.0.0.1:51121 INSIDE the container netns for the duration of this case",
           "headers": null,
-          "body": null
+          "body": null,
+          "note": "RECORDED OUTCOME: 500 {\"error\":\"failed to start callback server\"} exactly as predicted."
         },
         {
           "order": 1,
@@ -625,8 +626,8 @@
     },
     {
       "id": "S2d10-executor-request-shape",
-      "classification": "RECORDABLE-ATTEMPT (synthetic credential + base_url override; if the reference rejects the synthetic antigravity auth file or the model does not route, fall back to FIXTURE-DEFERRED)",
-      "purpose": "Pin the v1internal generateContent request envelope with a local antigravity mock: URL {base}/v1internal:generateContent, headers (Authorization Bearer fake, User-Agent antigravity/hub/<ver> darwin/arm64, Content-Type application/json), body {model, userAgent:'antigravity', project, requestType:'agent', requestId:'agent-<uuid>', request:{sessionId:'-<int64>', contents, systemInstruction, generationConfig...}} with request.safetySettings deleted and toolConfig moved into request.toolConfig.",
+      "classification": "RECORDED (synthetic credential; golden at tests/fixtures/S2d10/S2d10-executor-request-shape/)",
+      "purpose": "RECORDED 2026-09-15. Pin the v1internal upstream envelope with a local antigravity mock. OUTCOME: with the chosen claude-family catalog model (claude-opus-4-6-thinking) the NON-STREAM chat call went upstream to /v1internal:streamGenerateContent?alt=sse (Claude-family ALWAYS-STREAM rule, section 3.5/4.6), NOT :generateContent; the :fetchAvailableModels probe (body {}) fired BEFORE generation with Connection: close and did not block on mock 404; envelope alphabetical {project, request:{contents, sessionId, toolConfig:{functionCallingConfig:{mode:VALIDATED}}}, model, userAgent:'antigravity', requestType:'agent', requestId:'agent-<uuid>'}; request.safetySettings absent; countTokens body exactly {\"request\":{\"contents\":[...]}}. Original (wrong for a claude model) prediction: :generateContent. Recorded bytes authoritative.",
       "setup": [
         "NEW mock type 'antigravity' on port 19121 speaking: POST /v1internal:generateContent -> 200 {\"response\":{\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"hello\"}]}},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":1,\"candidatesTokenCount\":1,\"totalTokenCount\":2}}; POST /v1internal:streamGenerateContent?alt=sse -> SSE data: chunks of the same shape; POST /v1internal:countTokens -> {\"totalTokens\":7}; log all incoming requests to upstream.jsonl like the other mocks.",
         "Upload synthetic credential via POST /v0/management/auth-files (multipart or raw per S5 upload contract) with filename antigravity-oracle@synth.json and JSON {\"type\":\"antigravity\",\"email\":\"oracle@synth\",\"project_id\":\"synth-project\",\"access_token\":\"fake-token\",\"refresh_token\":\"fake-refresh\",\"expires_in\":3600,\"expired\":\"2030-01-01T00:00:00Z\",\"base_url\":\"http://host.docker.internal:19121\"}."
@@ -682,7 +683,7 @@
     },
     {
       "id": "S2d10-executor-stream-usage",
-      "classification": "RECORDABLE-ATTEMPT (same synthetic setup as S2d10-executor-request-shape)",
+      "classification": "RECORDED (synthetic credential; golden at tests/fixtures/S2d10/S2d10-executor-stream-usage/)",
       "purpose": "Pin the stream contract through the mock: upstream URL .../v1internal:streamGenerateContent?alt=sse; SSE chunk translation; usageMetadata filter (non-terminal chunks renamed cpaUsageMetadata and not surfaced client-side); terminal chunk keeps usage; OpenAI client sees SSE with [DONE].",
       "requests": [
         {
@@ -697,7 +698,7 @@
           "note": "mock returns 3 SSE data: chunks: two non-terminal each carrying usageMetadata (must be stripped client-side) + one terminal with finishReason STOP and usageMetadata (kept)"
         }
       ],
-      "record": "Full downstream SSE byte stream + upstream.jsonl (incl. query string alt=sse) + mock-response.json.",
+      "record": "Full downstream SSE byte stream + upstream.jsonl (incl. query string alt=sse) + mock-response.json. RECORDED OUTCOME: downstream chat.completion.chunk frames (id \"\", created 0, reasoning_content/tool_calls null, native_finish_reason); non-terminal usageMetadata stripped client-side; terminal chunk keeps usage {completion_tokens, prompt_tokens, total_tokens} + finish_reason stop + data: [DONE].",
       "mock_upstream_mode": "happy (SSE); optional second pass with slow-chunks to observe framing",
       "dynamic_fields": [
         "Date",
@@ -710,7 +711,7 @@
     },
     {
       "id": "S2d10-executor-429-cooldown",
-      "classification": "RECORDABLE-ATTEMPT (same synthetic setup)",
+      "classification": "RECORDED (synthetic credential; golden at tests/fixtures/S2d10/S2d10-executor-429-cooldown/)",
       "purpose": "Pin the antigravity 429 taxonomy via the mock: 429 body {\"error\":{\"code\":429,\"message\":\"...\",\"status\":\"RESOURCE_EXHAUSTED\",\"details\":[{\"@type\":\"type.googleapis.com/google.rpc.ErrorInfo\",\"reason\":\"RATE_LIMIT_EXCEEDED\"},{\"@type\":\"type.googleapis.com/google.rpc.RetryInfo\",\"retryDelay\":\"30s\"}]}} -> short per-credential cooldown; an immediate second request with the same model hits the cooldown path (auth switch / model_cooldown error family per S4). Note: oracle config transient-error-cooldown-seconds:-1 does NOT disable this provider-local cooldown.",
       "requests": [
         {
@@ -738,7 +739,7 @@
           "note": "immediately after; with a single credential the cooldown surfaces the model_cooldown/auth_unavailable error family (S4) - record exact shape; if request-retry/cooldown config interferes, note config used"
         }
       ],
-      "record": "Both downstream exchanges + mock control files used.",
+      "record": "Both downstream exchanges + mock control files used. RECORDED OUTCOME: step1 429 Google body VERBATIM; step2 429 model_cooldown family {\"error\":{\"code\":\"model_cooldown\",\"last_upstream_error\":\"<verbatim>\",\"message\":...}} — distinct from the transient 503 auth_unavailable family (S6-16).",
       "mock_upstream_mode": "error (status 429, Google-shaped body)",
       "dynamic_fields": [
         "Date",
@@ -772,6 +773,70 @@
       "requests": [],
       "record": "none (specified in section 2.8)",
       "mock_upstream_mode": null
+    },
+    {
+      "id": "S2d10-executor-request-shape-gemini",
+      "classification": "PENDING (requested from @oracle-runner-2; cheap extra pass with the existing antigravity mock)",
+      "purpose": "Record the OTHER model-family branch: with a GEMINI-family antigravity catalog model, a non-stream client call goes upstream to POST {base}/v1internal:generateContent (no query string), with NO request.toolConfig.functionCallingConfig VALIDATED injection, and with request.generationConfig.maxOutputTokens REMOVED (non-Claude deletion rule, section 3.3 item 8).",
+      "setup": "Same synthetic credential + antigravity mock as S2d10-executor-request-shape (already recorded; mock exists at _cpa_edge_ref/run2/mock/mock_antigravity.py).",
+      "requests": [
+        {
+          "order": 1,
+          "method": "POST",
+          "url": "http://<reference>/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer <api-key>",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"model\":\"<gemini-family catalog model, e.g. gemini-3-flash>\",\"max_tokens\":128,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}",
+          "note": "max_tokens set so the upstream body shows the generationConfig.maxOutputTokens DELETION for non-Claude models; expect upstream path /v1internal:generateContent with NO ?alt query"
+        }
+      ],
+      "record": "upstream.jsonl (method, exact path with no query, headers sans Authorization, full body) + downstream.md + mock-response.json.",
+      "mock_upstream_mode": "happy",
+      "dynamic_fields": [
+        "Date",
+        "requestId",
+        "sessionId",
+        "X-Cpa-Trace-Id",
+        "created",
+        "id",
+        "modelVersion/responseId",
+        "UA hub version",
+        "ports"
+      ]
     }
-  ]
+  ],
+  "outcome_summary": {
+    "recorded": 17,
+    "recorded_case_ids": [
+      "S2d10-auth-url-json",
+      "S2d10-auth-url-auth-failures",
+      "S2d10-forwarder-302",
+      "S2d10-forwarder-any-path",
+      "S2d10-forwarder-replace",
+      "S2d10-main-callback-html",
+      "S2d10-main-callback-variants",
+      "S2d10-oauth-callback-errors",
+      "S2d10-session-lifecycle",
+      "S2d10-callback-error-session",
+      "S2d10-post-callback-exchange-fail",
+      "S2d10-get-auth-status-variants",
+      "S2d10-cancel-errors",
+      "S2d10-forwarder-port-busy",
+      "S2d10-executor-request-shape",
+      "S2d10-executor-stream-usage",
+      "S2d10-executor-429-cooldown"
+    ],
+    "pending": [
+      "S2d10-executor-request-shape-gemini"
+    ],
+    "fixture_deferred": [
+      "S2d10-live-oauth-success",
+      "S2d10-live-executor-responses",
+      "S2d10-cli-loopback-server"
+    ],
+    "recorded_at": "2026-09-15",
+    "oracle": "oracle-runner-2 (isolated stack: reference port 8387 masked as dynamic; loopback 51121 literal; antigravity mock port 20008)"
+  }
 }

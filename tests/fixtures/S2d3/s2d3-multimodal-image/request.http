@@ -1,0 +1,10 @@
+POST /v1/chat/completions HTTP/1.1
+Host: 127.0.0.1:8387
+Authorization: Bearer <api-key>
+Content-Type: application/json
+User-Agent: oracle-s3-probe/1.0
+Accept: */*
+Connection: close
+Content-Length: 357
+
+{"model": "cm", "messages": [{"role": "user", "content": [{"type": "text", "text": "What is in these images?"}, {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="}}, {"type": "image_url", "image_url": {"url": "http://example.test/cat.png"}}]}]}

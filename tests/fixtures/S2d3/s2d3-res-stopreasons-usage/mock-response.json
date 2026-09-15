@@ -1,0 +1,22 @@
+{
+ "control_file_per_step": [
+  {
+   "mode": "happy",
+   "script": "stop_variant",
+   "stop_reason": "max_tokens"
+  },
+  {
+   "mode": "happy",
+   "script": "stop_variant",
+   "stop_reason": "max_tokens"
+  },
+  {
+   "mode": "happy",
+   "script": "stop_variant",
+   "stop_reason": "stop_sequence"
+  }
+ ],
+ "mode_selection": "mock control file only (X-Mock-* do not traverse the reference to claude)",
+ "script": "stop_variant",
+ "script_note": "canned SSE event list per spec/recordings/S2d3.cases.json scripts_needed.stop_variant (events verbatim)"
+}

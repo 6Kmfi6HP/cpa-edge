@@ -1,0 +1,13 @@
+{
+ "control_file_per_step": [
+  {
+   "mode": "disconnect",
+   "after": 4
+  },
+  {
+   "mode": "disconnect",
+   "after": 4
+  }
+ ],
+ "mode_selection": "mock control file only (X-Mock-* do not traverse the reference to claude)"
+}

@@ -1,0 +1,10 @@
+POST /v1/chat/completions HTTP/1.1
+Host: 127.0.0.1:8387
+Authorization: Bearer <api-key>
+Content-Type: application/json
+User-Agent: oracle-s3-probe/1.0
+Accept: */*
+Connection: close
+Content-Length: 376
+
+{"model": "cm", "messages": [{"role": "developer", "content": "Always answer in English."}, {"role": "system", "content": "You are a JSON generator."}, {"role": "user", "content": "Give me a person"}], "response_format": {"type": "json_schema", "json_schema": {"name": "person", "schema": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}}}}

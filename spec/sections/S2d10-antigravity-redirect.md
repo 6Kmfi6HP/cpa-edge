@@ -185,7 +185,7 @@ Evidence: `internal/runtime/executor/antigravity_executor.go` (path constants), 
 | Generate (non-stream) | `POST {base}/v1internal:generateContent` | antigravity envelope (§3.3) | non-stream requests for Gemini-family models |
 | Stream | `POST {base}/v1internal:streamGenerateContent?alt=sse` (default) or `?$alt=<url-encoded alt>` when a non-empty `alt` option is present | same | streaming requests; ALSO used internally for non-stream requests to Claude-family models and then aggregated (§4.4) |
 | Count tokens | `POST {base}/v1internal:countTokens` (+ `?$alt=<alt>` when present) | envelope minus `model`/`project`/`request.sessionId`/`request.safetySettings`/`request.toolConfig`/`request.labels` | `/v1/messages/count_tokens`, Gemini `:countTokens` |
-| Model capability probe | `POST {base}/v1internal:fetchAvailableModels` | `{}` | per-credential probe (5-min cache) reading `webSearchModelIds[]` |
+| Model capability probe | `POST {base}/v1internal:fetchAvailableModels` | `{}` | per-credential probe (5-min cache) reading `webSearchModelIds[]`; fires BEFORE the first generate/stream call for a credential; probe request carries `Connection: close` (generate/stream do not); a failed probe (e.g. 404) does NOT block generation — recorded in S2d10-executor-request-shape |
 | Auth-time project discovery | `POST https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist` | `{"metadata":{"ideType":"ANTIGRAVITY"}}` | reads `cloudaicompanionProject`/`projectId`/`project` (string or `{id}`) |
 | Onboarding | `POST https://daily-cloudcode-pa.googleapis.com/v1internal:onboardUser` | `{"tier_id":"<tier>","metadata":{"ide_type":"ANTIGRAVITY","ide_version":"<hub version>","ide_name":"antigravity"}}` | polled up to 5× (2 s apart, 30 s per attempt) until `done:true` + project id; default tier from `allowedTiers[].isDefault` → `currentTier.id` → literal `free-tier` |
 | Token exchange | `POST https://oauth2.googleapis.com/token` | form: `code`, `client_id`, `client_secret`, `redirect_uri`, `grant_type=authorization_code` | login |
@@ -243,7 +243,7 @@ MUST:
   - contains `image` → `requestType: image_gen` + `image_gen/<ms>/<uuid>/12` request id.
   - otherwise Gemini-family path.
 - `web_search` requestType comes from the Claude typed web-search tool translation; a client-provided `requestType` passes through unchanged.
-- Per-credential capability probe (`:fetchAvailableModels`, body `{}`, short antigravity UA, `webSearchModelIds[]` response) gates web-search-capable models; probe caches: success 5 min, failure 1 min, auth failure backoff 1 min per token. (`sdk/cliproxy/antigravity_models.go`.)
+- Per-credential capability probe (`:fetchAvailableModels`, body `{}`, short antigravity UA, `webSearchModelIds[]` response) gates web-search-capable models; probe caches: success 5 min, failure 1 min, auth failure backoff 1 min per token. (`sdk/cliproxy/antigravity_models.go`.) RECORDED (S2d10-executor-request-shape `upstream.jsonl`): the probe fires before the first generate call and a probe failure does not block generation.
 
 ---
 
@@ -286,6 +286,7 @@ Upstream-propagated (executor):
     - 3 s .. 5 min → short per-credential cooldown (switch auth), the client may see `Retry-After`;
     - ≥ 5 min → full-quota-exhausted.
   - anything else → soft retry (normal conductor retry; S4).
+  - RECORDED downstream surfacing (S2d10-executor-429-cooldown): the short-cooldown branch yields the 429 `model_cooldown` error family — `{"error":{"code":"model_cooldown","last_upstream_error":"<verbatim upstream body>","message":"All credentials for model <m> are cooling down via provider <p> (last error: ...)"}}` — while the TRANSIENT (5xx) cooldown family surfaces as 503 `auth_unavailable` (S6 golden S6-16; two distinct cooldown error families, both with goldens now).
   - Credits fallback (`quota-exceeded.antigravity-credits: true`) may inject `enabledCreditTypes: ["GOOGLE_ONE_AI"]` into the request body for Claude models as a last resort; `INSUFFICIENT_G1_CREDITS_BALANCE` marks the credential permanently credits-disabled. OPTIONAL behavior (config-gated).
 - Cooldowns are S4; the antigravity-specific bit is the short-cooldown trigger and the 429 taxonomy above.
 
@@ -295,37 +296,39 @@ Upstream-propagated (executor):
 
 Fixtures live in `tests/fixtures/S2d10/<case-id>/` per the RECIPES layout (`meta.yaml`, `request.http`, `downstream.md`; `upstream.jsonl`/`mock-response.json` only for the synthetic-credential attempts). Recording config: the oracle template (§3 of `reports/oracle/BOOTSTRAP.md`) plus `-p 127.0.0.1:51121:51121` so the loopback forwarder is reachable from the host; management key `oracle-mgmt-key-1`. Dynamic per session: the `<state>` token (request + response) and the server port inside the 302 `Location` (18317 in the bootstrap template; the oracle's isolated stack may use a different port — mask both as `dynamic_fields`, per the S3 §4 precedent). The loopback port 51121 itself is a provider constant and is NOT masked.
 
-RECORDABLE-LOCALLY (recorded or to be recorded by @oracle-runner):
+RECORDED by @oracle-runner (2026-09-15, isolated stack; reference port 8387 masked, loopback 51121 literal):
 
 | case-id | purpose | fixture dir | dynamic fields (mask these) |
 |---|---|---|---|
-| S2d10-auth-url-json | 200 `{state,status,url}`; auth URL shape: sorted params, fixed client id/redirect_uri/scopes | `tests/fixtures/S2d10/S2d10-auth-url-json/` | Date, state (both in JSON and inside url) |
+| S2d10-auth-url-json | 200 `{state,status,url}`; auth URL shape: sorted params, fixed client id/redirect_uri/scopes | `tests/fixtures/S2d10/S2d10-auth-url-json/` | Date, state (both in JSON and inside url), port |
 | S2d10-auth-url-auth-failures | 401 missing + invalid management key on antigravity-auth-url | `tests/fixtures/S2d10/S2d10-auth-url-auth-failures/` | Date |
-| S2d10-forwarder-302 | `is_webui=1` → GET `:51121/oauth-callback?code&state` → 302 Found, `Cache-Control: no-store`, Location `http://127.0.0.1:18317/antigravity/callback?code&state`; second hop: main-port 200 HTML | `tests/fixtures/S2d10/S2d10-forwarder-302/` | Date, state |
-| S2d10-forwarder-any-path | 302 path-rewrite rule: `/whatever/deep/path?x=1&code=c` → Location still `/antigravity/callback?x=1&code=c` (path discarded, raw query preserved) | `tests/fixtures/S2d10/S2d10-forwarder-any-path/` | Date, state |
-| S2d10-forwarder-replace | second `is_webui` flow replaces the previous forwarder (302 Location serves the NEW state) | `tests/fixtures/S2d10/S2d10-forwarder-replace/` | Date, state ×2 |
-| S2d10-main-callback-html | `GET /antigravity/callback?code=x&state=<unknown-hex>` → 200 success HTML, no auth needed, no CORS-auth failure | `tests/fixtures/S2d10/S2d10-main-callback-html/` | Date |
-| S2d10-main-callback-variants | no query → 200 HTML; `error=access_denied` variant → 200 HTML; `OPTIONS` → 204 + CORS; `POST` → 404 empty (R-404) | `tests/fixtures/S2d10/S2d10-main-callback-variants/` | Date |
-| S2d10-oauth-callback-errors | POST/GET oauth-callback error family: invalid body, state required, invalid state, code-or-error required, unknown state (404), unsupported provider, provider mismatch (vs pending antigravity session) | `tests/fixtures/S2d10/S2d10-oauth-callback-errors/` | Date, state |
-| S2d10-session-lifecycle | auth-url → get-auth-status `wait` → DELETE oauth-session `{cancelled:true}` → get-auth-status `unknown or expired state` → DELETE again `{cancelled:false}` → main-port callback after cancel still 200 HTML | `tests/fixtures/S2d10/S2d10-session-lifecycle/` | Date, state |
-| S2d10-callback-error-session | pending session + main-port callback with `error=access_denied&error_description=...` → session status `Authentication failed` via get-auth-status (no network involved) | `tests/fixtures/S2d10/S2d10-callback-error-session/` | Date, state |
-| S2d10-post-callback-exchange-fail | pending session + POST oauth-callback `{provider:"antigravity",code:"fake",state}` → 200 `{"status":"ok"}` → get-auth-status settles to `{"status":"error","error":"Failed to exchange token"}` (exchange fails for any reason — offline included) | `tests/fixtures/S2d10/S2d10-post-callback-exchange-fail/` | Date, state (poll-until-stable; record final value) |
-| S2d10-get-auth-status-variants | no state → `{"status":"ok"}`; empty state → `{"status":"ok"}`; invalid state → 400 | `tests/fixtures/S2d10/S2d10-get-auth-status-variants/` | Date |
-| S2d10-cancel-errors | DELETE oauth-session without state / invalid state → 400 family | `tests/fixtures/S2d10/S2d10-cancel-errors/` | Date |
+| S2d10-forwarder-302 | `is_webui=1` → GET `:51121/oauth-callback?code&state` → 302 Found, `Cache-Control: no-store`, Location `http://127.0.0.1:<port>/antigravity/callback?code&state`; second hop: main-port 200 HTML (288-byte constant) | `tests/fixtures/S2d10/S2d10-forwarder-302/` | Date, state, port |
+| S2d10-forwarder-any-path | 302 path-rewrite rule: `/whatever/deep/path?z=1&code=ac2&state=..&x=abc` → Location `/antigravity/callback?z=1&code=ac2&state=..&x=abc` (path discarded, raw query order preserved) | `tests/fixtures/S2d10/S2d10-forwarder-any-path/` | Date, state, port |
+| S2d10-forwarder-replace | second `is_webui` flow replaces the previous forwarder (302 Location serves the NEW state) | `tests/fixtures/S2d10/S2d10-forwarder-replace/` | Date, state ×2, port |
+| S2d10-forwarder-port-busy | 51121 pre-occupied in-container (perl `IO::Socket::INET` listener via `docker exec`, technique recorded in meta `pre_occupation`) → `is_webui=1` auth-url returns 500 `{"error":"failed to start callback server"}` | `tests/fixtures/S2d10/S2d10-forwarder-port-busy/` | Date |
+| S2d10-main-callback-html | `GET /antigravity/callback?code&state=<unknown>` → 200 success HTML, no auth needed | `tests/fixtures/S2d10/S2d10-main-callback-html/` | Date |
+| S2d10-main-callback-variants | [200 HTML, 200 HTML (error param), 204+CORS (OPTIONS), 404 EMPTY (POST)] | `tests/fixtures/S2d10/S2d10-main-callback-variants/` | Date |
+| S2d10-oauth-callback-errors | 10-step ladder `[400,400,400,400,404,404,200,400,400,200]`: invalid body / state required / invalid state / code-or-error required / unknown state (×2, incl. before-provider-normalization) / alias `ANTI-GRAVITY` → 200 ok / unsupported provider / provider mismatch | `tests/fixtures/S2d10/S2d10-oauth-callback-errors/` | Date, state |
+| S2d10-session-lifecycle | `[200×6, 404]`: wait → cancel(true) → unknown-or-expired → cancel(false) → late main-port callback still 200 HTML → mgmt-callback 404 | `tests/fixtures/S2d10/S2d10-session-lifecycle/` | Date, state |
+| S2d10-callback-error-session | pending session + main-port callback `error=access_denied` → settled 0.65 s → `{"error":"Authentication failed","status":"error"}` (final response only) | `tests/fixtures/S2d10/S2d10-callback-error-session/` | Date, state, settle time |
+| S2d10-post-callback-exchange-fail | pending session + POST oauth-callback fake code → 200 ok → settled 0.68 s → `{"error":"Failed to exchange token","status":"error"}` | `tests/fixtures/S2d10/S2d10-post-callback-exchange-fail/` | Date, state, settle time |
+| S2d10-get-auth-status-variants | [200 `{"status":"ok"}`, 200 `{"status":"ok"}` (empty `?state=` treated as absent), 400 invalid state] | `tests/fixtures/S2d10/S2d10-get-auth-status-variants/` | Date |
+| S2d10-cancel-errors | DELETE oauth-session [400 missing state, 400 invalid state] | `tests/fixtures/S2d10/S2d10-cancel-errors/` | Date |
 
-RECORDABLE-ATTEMPT (oracle may record via synthetic credential; FIXTURE-DEFERRED if the reference refuses the synthetic auth file or the flow proves credential-bound):
+RECORDED via SYNTHETIC credential (uploaded `{"type":"antigravity", ...,"base_url":"<mock>"}`; chosen catalog model `claude-opus-4-6-thinking`; upstream wire golden = `upstream.jsonl`):
 
-| case-id | purpose | how |
-|---|---|---|
-| S2d10-executor-request-shape | upstream envelope golden: upload `{"type":"antigravity","email":"...","project_id":"proj","access_token":"fake","refresh_token":"fake","expired":"<far-future RFC3339>","base_url":"http://host.docker.internal:19121"}` via POST /v0/management/auth-files; POST /v1/chat/completions with an antigravity catalog model → record `upstream.jsonl` (method/path/`?alt`/headers/body incl. model, `userAgent:"antigravity"`, project, requestType, requestId, sessionId, deleted safetySettings, moved toolConfig) | mock speaking antigravity wire (new mock type) |
-| S2d10-executor-stream-usage | SSE stream through synthetic credential: alt=sse, usageMetadata→cpaUsageMetadata on non-terminal chunks, terminal-chunk passthrough, client-side terminal synthesis on EOF | mock modes happy/slow |
-| S2d10-executor-429-cooldown | mock 429 with Google-style body (RATE_LIMIT_EXCEEDED + RetryInfo retryDelay 30s) → short cooldown; next request same model → 429 switch-auth behavior per S4 | mock mode error |
+| case-id | purpose | fixture dir | recorded findings |
+|---|---|---|---|
+| S2d10-executor-request-shape | upstream envelope golden (chat non-stream + count-tokens) | `tests/fixtures/S2d10/S2d10-executor-request-shape/` | probe `:fetchAvailableModels` body `{}` fires BEFORE generation (mock 404 did not block); chat request went to `/v1internal:streamGenerateContent?alt=sse` — the Claude-family ALWAYS-STREAM rule of §3.5/§4.6, confirmed; envelope alphabetical `{project, request:{contents, sessionId:"-<int64>", toolConfig:{functionCallingConfig:{mode:"VALIDATED"}}}, model, userAgent:"antigravity", requestType:"agent", requestId:"agent-<uuid>"}`; `request.safetySettings` absent; count-tokens body exactly `{"request":{"contents":[...]}}` (model/project/sessionId/safetySettings/toolConfig/labels all absent); headers `User-Agent: antigravity/hub/<ver> darwin/arm64` + `Authorization: Bearer` + `Content-Type: application/json` + `Accept-Encoding: gzip` |
+| S2d10-executor-stream-usage | stream contract: alt=sse, usage filter, terminal chunk, client-side [DONE] | `tests/fixtures/S2d10/S2d10-executor-stream-usage/` | downstream SSE = `chat.completion.chunk` frames (`id` "", `created` 0, `reasoning_content`/`tool_calls` null, `native_finish_reason`); non-terminal `usageMetadata` stripped client-side; terminal chunk carries usage `{completion_tokens, prompt_tokens, total_tokens}` + `finish_reason: stop` + `data: [DONE]`; raw chunked framing preserved |
+| S2d10-executor-429-cooldown | 429 taxonomy + downstream cooldown surfacing | `tests/fixtures/S2d10/S2d10-executor-429-cooldown/` | step 1: 429 Google-shaped body passes through VERBATIM; step 2 (immediate same model): 429 `{"error":{"code":"model_cooldown","last_upstream_error":"<verbatim upstream body>","message":...}}` — the short-cooldown branch surfaces as the `model_cooldown` family (429), distinct from the transient 503 `auth_unavailable` family (S6-16) |
+
+Pending optional pass (requested from @oracle-runner): `S2d10-executor-request-shape-gemini` — same synthetic setup with a GEMINI-family catalog model (e.g. `gemini-3-flash`) to record the `/v1internal:generateContent` non-stream branch (no `alt` query, no `toolConfig` VALIDATED, `generationConfig.maxOutputTokens` removed). Until it lands, the Generate row of §3.1 is source-specified only.
 
 FIXTURE-DEFERRED (CREDENTIALED-ONLY; specified in §2–§5, no golden):
 - Full Google OAuth success path (consent → code → exchange → userinfo → loadCodeAssist/onboardUser → credential file). Requires a real Google account; `state`/`url` are per-request random.
-- Real upstream `:generateContent`/`:streamGenerateContent`/`:countTokens`/`:fetchAvailableModels` responses (gemini + claude model families), token refresh success, credits balance fetch.
+- Real upstream `:generateContent`/`:streamGenerateContent`/`:countTokens`/`:fetchAvailableModels` RESPONSE shapes from Google (gemini + claude families), token refresh success, credits balance fetch.
 - CLI-mode loopback server responses (`:51121/oauth-callback` login success/failure HTML) — requires the CLI login process, not the server; specified in §2.8.
-- Forwarder bind-failure 500 (`failed to start callback server`) — needs a listener inside the container netns on 51121; record if a host-network or `docker exec`-able runtime is available, else defer.
 
 Case definitions with exact requests: `spec/recordings/S2d10.cases.json`.
 
@@ -333,9 +336,10 @@ Case definitions with exact requests: `spec/recordings/S2d10.cases.json`.
 
 ## 7. Classification summary
 
-- RECORDABLE-LOCALLY: §2 management/callback surface (13 cases in §6, all deterministic; three forwarder cases need the extra `-p 127.0.0.1:51121:51121` port mapping; two cases settle asynchronously and need poll-until-stable recording).
-- RECORDABLE-ATTEMPT: executor request/stream/429 shapes via synthetic credential + `base_url` override + new antigravity mock (3 cases). Fallback: FIXTURE-DEFERRED.
-- CREDENTIALED-ONLY (FIXTURE-DEFERRED per R-FIXTURE): all live-Google behaviors listed in §6.
+- RECORDED (RECORDABLE-LOCALLY): 14 cases — the §2 management/callback surface (13) plus the forwarder bind-failure 500 (in-container port occupation is feasible on the Debian-based reference image via `docker exec`; the earlier "needs in-container port conflict" deferral concern is void). Recording prerequisites: the `-p 127.0.0.1:51121:51121` port mapping for the forwarder cases; two cases settle asynchronously (~0.7 s) and are recorded poll-until-stable.
+- RECORDED (synthetic credential): 3 executor cases via uploaded `{"type":"antigravity",...,"base_url":"<mock>"}` credential + a local v1internal mock — the antigravity EXECUTOR wire (envelope, headers, probe, count-tokens, stream usage filter, 429 cooldown family) is therefore NOT fixture-deferred after all; this is a R-FIXTURE refinement precedent for OAuth providers whose executor honors a `base_url` override.
+- PENDING: `S2d10-executor-request-shape-gemini` (gemini-family model → `/v1internal:generateContent` branch); requested from @oracle-runner, optional.
+- CREDENTIALED-ONLY (FIXTURE-DEFERRED per R-FIXTURE): live-Google OAuth success path, real upstream RESPONSE shapes/refresh/credits, CLI-mode loopback pages.
 
 ---
 
@@ -347,5 +351,7 @@ Case definitions with exact requests: `spec/recordings/S2d10.cases.json`.
 4. `?$alt=` (dollar) vs `?alt=sse` (no dollar) is an upstream inconsistency; spec pins it byte-exact for fidelity. No "fix".
 5. Session TTLs (30 min pending / 1 min completed) and the 5-minute waiter are timer behaviors — goldens avoid timing asserts; contract tests must not sleep-poll.
 6. Hub-manifest UA version (default `2.9.1`, refreshed every 6 h from a Google-run appspot URL) is an external dependency. CPA-Edge MUST keep the fallback constant and MAY pin the fetch behind config; the UA is a wire fingerprint, not a functional requirement. Decide in S6/S7 whether the fetch is required at all.
-7. The synthetic-credential recordability (§6 RECORDABLE-ATTEMPT) deviates from the R-FIXTURE default classification. If the oracle proves it works, this becomes the precedent for other OAuth providers with base_url overrides (xAI/Meta compat executors excepted). Awaiting oracle result.
+7. The synthetic-credential recordability PROVED OUT (17/20 cases recorded): an uploaded antigravity auth file with a `base_url` override routes executor traffic to a local mock with no Google involvement. This refines R-FIXTURE for OAuth providers whose executor honors `base_url`: request-side wires are RECORDABLE-LOCALLY; only vendor-issued tokens/consent/response content stay CREDENTIALED-ONLY. Other OAuth providers should be re-examined under this precedent (xAI/Meta compat executors excepted — they have separate API-key executors).
 8. `get-auth-status` returning HTTP 200 with `{"status":"error",...}` bodies is an upstream quirk shared with S5; mirrored, already covered by R-404-style compatibility reasoning.
+9. `/v1internal:generateContent` (gemini-family non-stream branch, §3.1) has no golden yet — the first executor recording necessarily used the catalog's first model (`claude-opus-4-6-thinking`), which takes the always-stream path. A gemini-family pass (`S2d10-executor-request-shape-gemini`) is requested from @oracle-runner; remove this item when it lands.
+10. Recorded probes show `Accept-Encoding: gzip` on generate/stream calls (Go transport default) and `Connection: close` ONLY on the `:fetchAvailableModels` probe. Header-exact contract tests should treat `Accept-Encoding` as transport-added, not application logic.

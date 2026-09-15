@@ -1,0 +1,10 @@
+{
+ "control_file_per_step": [
+  {
+   "mode": "error",
+   "status": 500,
+   "raw_body": "mock internal failure"
+  }
+ ],
+ "mode_selection": "mock control file only (X-Mock-* do not traverse the reference to claude)"
+}

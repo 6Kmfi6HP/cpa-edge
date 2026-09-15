@@ -1,0 +1,9 @@
+POST /v1/chat/completions HTTP/1.1
+Host: 127.0.0.1:8387
+Authorization: Bearer <api-key>
+Content-Type: application/json
+Accept: */*
+Connection: close
+Content-Length: 70
+
+{"model": "cm", "messages": [{"role": "user", "content": "UA check"}]}

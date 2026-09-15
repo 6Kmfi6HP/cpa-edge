@@ -20,10 +20,14 @@
   },
   "mock_control": "mock/control/claude.json (re-read per request). X-Mock-* headers do NOT traverse the gateway; use the control file.",
   "mock_extensions_required": [
-    "variant 'tool': tool_use SSE block with INVALID-args fragments (see S2d7-13; recorded)",
-    "variant 'tool-valid': tool_use SSE block with VALID fragments '{\"city\":\"Par' + 'is\"}' (see S2d7-23)",
-    "variant 'errstream': message_start + text delta + type:error event (see S2d7-14; recorded)",
-    "variant 'maxtokens': happy events with message_delta stop_reason max_tokens (see S2d7-15; recorded)"
+    "variant 'tool': tool_use SSE block with INVALID-args fragments (S2d7-13; recorded)",
+    "variant 'tool-valid': VALID fragments '{\"city\":\"Par' + 'is\"}' (S2d7-23; recorded)",
+    "variant 'errstream' (S2d7-14; recorded)",
+    "variant 'maxtokens' (S2d7-15; recorded)",
+    "variant 'empty': 200 + zero events, clean chunked close (S2d7-26, S2d7-30)",
+    "variant 'nostart': data lines but no message_start (S2d7-27)",
+    "variant 'truncated': message_start present, no message_delta (S2d7-28)",
+    "variant 'malformed': one invalid-JSON data payload (S2d7-29)"
   ],
   "ordering_constraints": "Run S2d7-10 then S2d7-19 back-to-back (<1s gap), then wait >=1s. All other cases are order-independent; reset control file to happy (or delete it) between cases.",
   "dynamic_fields_masked": [
@@ -1163,6 +1167,369 @@
       ],
       "deterministic": "fixed variant SSE",
       "fixture": "tests/fixtures/S2d7/S2d7-24-tool-nonstream-valid-args/"
+    },
+    {
+      "id": "S2d7-25-counttokens-validation",
+      "purpose": "countTokens validator 400 via the Gemini entry: a role:'system'-only contents list translates to messages:[] and trips the non-empty-array validator. Pins validator string 3 of §2.5 and the 400 wrap (no code field). No upstream call.",
+      "client_protocol": "gemini",
+      "upstream_provider_type": "claude-api-key",
+      "stream": false,
+      "mock": {
+        "mode": "happy",
+        "note": "irrelevant — no upstream request is made"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/cm:countTokens",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"contents\":[{\"role\":\"system\",\"parts\":[{\"text\":\"Be terse.\"}]}]}",
+          "curl": "curl -sS -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/cm:countTokens' -H 'x-goog-api-key: oracle-local-key-1' -H 'Content-Type: application/json' -d '{\"contents\":[{\"role\":\"system\",\"parts\":[{\"text\":\"Be terse.\"}]}]}'"
+        }
+      ],
+      "record": "downstream verbose + body; mock wire log line count UNCHANGED (no upstream request)",
+      "expect_downstream": {
+        "status": "expected",
+        "http_status": 400,
+        "body": "{\"error\":{\"message\":\"Claude token count request messages must be a non-empty array\",\"type\":\"invalid_request_error\"}}"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id"
+      ],
+      "deterministic": "pure translation+validation, no upstream dependency",
+      "fixture": "tests/fixtures/S2d7/S2d7-25-counttokens-validation/"
+    },
+    {
+      "id": "S2d7-26-empty-stream",
+      "purpose": "Stream validator string 1: aggregated upstream 200 with ZERO events (clean chunked close, no data lines) -> 502 'claude executor: upstream returned empty stream response'.",
+      "client_protocol": "gemini",
+      "upstream_provider_type": "claude-api-key",
+      "stream": false,
+      "mock": {
+        "mode": "happy",
+        "variant": "empty",
+        "control_file": {
+          "mode": "happy",
+          "variant": "empty"
+        },
+        "variant_events": "send_sse with an EMPTY event list: 200, Content-Type text/event-stream, chunked, immediately send the terminating 0-chunk (zero frames)"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/cm:generateContent",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}",
+          "curl": "curl -sS -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/cm:generateContent' -H 'x-goog-api-key: oracle-local-key-1' -H 'Content-Type: application/json' -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}'"
+        }
+      ],
+      "record": "downstream verbose + body; upstream wire request (should be present, delta 1); mock-response.json = the empty-variant script",
+      "expect_downstream": {
+        "status": "expected",
+        "http_status": 502,
+        "body": "{\"error\":{\"message\":\"claude executor: upstream returned empty stream response\",\"type\":\"server_error\",\"code\":\"internal_server_error\"}}"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id"
+      ],
+      "deterministic": "fixed empty-variant upstream",
+      "fixture": "tests/fixtures/S2d7/S2d7-26-empty-stream/"
+    },
+    {
+      "id": "S2d7-27-missing-message-start",
+      "purpose": "Stream validator string 2: upstream data lines present but NO message_start event -> 502 'claude executor: upstream stream response is missing message_start'.",
+      "client_protocol": "gemini",
+      "upstream_provider_type": "claude-api-key",
+      "stream": false,
+      "mock": {
+        "mode": "happy",
+        "variant": "nostart",
+        "control_file": {
+          "mode": "happy",
+          "variant": "nostart"
+        },
+        "variant_events": [
+          [
+            "content_block_start",
+            {
+              "type": "content_block_start",
+              "index": 0,
+              "content_block": {
+                "type": "text",
+                "text": ""
+              }
+            }
+          ],
+          [
+            "content_block_delta",
+            {
+              "type": "content_block_delta",
+              "index": 0,
+              "delta": {
+                "type": "text_delta",
+                "text": "Hi"
+              }
+            }
+          ],
+          [
+            "content_block_stop",
+            {
+              "type": "content_block_stop",
+              "index": 0
+            }
+          ],
+          [
+            "message_delta",
+            {
+              "type": "message_delta",
+              "delta": {
+                "stop_reason": "end_turn",
+                "stop_sequence": null
+              },
+              "usage": {
+                "output_tokens": 1
+              }
+            }
+          ],
+          [
+            "message_stop",
+            {
+              "type": "message_stop"
+            }
+          ]
+        ]
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/cm:generateContent",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}",
+          "curl": "curl -sS -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/cm:generateContent' -H 'x-goog-api-key: oracle-local-key-1' -H 'Content-Type: application/json' -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}'"
+        }
+      ],
+      "record": "downstream verbose + body; upstream wire request; mock-response.json = variant script",
+      "expect_downstream": {
+        "status": "expected",
+        "http_status": 502,
+        "body": "{\"error\":{\"message\":\"claude executor: upstream stream response is missing message_start\",\"type\":\"server_error\",\"code\":\"internal_server_error\"}}"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id"
+      ],
+      "deterministic": "fixed variant SSE",
+      "fixture": "tests/fixtures/S2d7/S2d7-27-missing-message-start/"
+    },
+    {
+      "id": "S2d7-28-missing-message-delta",
+      "purpose": "Stream validator string 3: message_start present, NO message_delta -> 502 'claude executor: upstream stream response ended before message completion'.",
+      "client_protocol": "gemini",
+      "upstream_provider_type": "claude-api-key",
+      "stream": false,
+      "mock": {
+        "mode": "happy",
+        "variant": "truncated",
+        "control_file": {
+          "mode": "happy",
+          "variant": "truncated"
+        },
+        "variant_events": [
+          [
+            "message_start",
+            {
+              "type": "message_start",
+              "message": {
+                "id": "msg_mock_05",
+                "type": "message",
+                "role": "assistant",
+                "model": "<echo body model>",
+                "content": [],
+                "stop_reason": null,
+                "stop_sequence": null,
+                "usage": {
+                  "input_tokens": 9,
+                  "output_tokens": 1
+                }
+              }
+            }
+          ],
+          [
+            "content_block_start",
+            {
+              "type": "content_block_start",
+              "index": 0,
+              "content_block": {
+                "type": "text",
+                "text": ""
+              }
+            }
+          ],
+          [
+            "content_block_delta",
+            {
+              "type": "content_block_delta",
+              "index": 0,
+              "delta": {
+                "type": "text_delta",
+                "text": "Hi"
+              }
+            }
+          ],
+          [
+            "content_block_stop",
+            {
+              "type": "content_block_stop",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/cm:generateContent",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}",
+          "curl": "curl -sS -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/cm:generateContent' -H 'x-goog-api-key: oracle-local-key-1' -H 'Content-Type: application/json' -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}'"
+        }
+      ],
+      "record": "downstream verbose + body; upstream wire request; mock-response.json = variant script",
+      "expect_downstream": {
+        "status": "expected",
+        "http_status": 502,
+        "body": "{\"error\":{\"message\":\"claude executor: upstream stream response ended before message completion\",\"type\":\"server_error\",\"code\":\"internal_server_error\"}}"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id"
+      ],
+      "deterministic": "fixed variant SSE (clean close after content_block_stop)",
+      "fixture": "tests/fixtures/S2d7/S2d7-28-missing-message-delta/"
+    },
+    {
+      "id": "S2d7-29-malformed-stream",
+      "purpose": "Stream validator string 4: one data: payload that is NOT valid JSON -> 502 'claude executor: upstream returned malformed stream data'.",
+      "client_protocol": "gemini",
+      "upstream_provider_type": "claude-api-key",
+      "stream": false,
+      "mock": {
+        "mode": "happy",
+        "variant": "malformed",
+        "control_file": {
+          "mode": "happy",
+          "variant": "malformed"
+        },
+        "variant_events": [
+          [
+            "message_start",
+            {
+              "type": "message_start",
+              "message": {
+                "id": "msg_mock_06",
+                "type": "message",
+                "role": "assistant",
+                "model": "<echo body model>",
+                "content": [],
+                "stop_reason": null,
+                "stop_sequence": null,
+                "usage": {
+                  "input_tokens": 9,
+                  "output_tokens": 1
+                }
+              }
+            }
+          ],
+          [
+            "RAW",
+            "data: {\"type\":\"content_block_delta\""
+          ]
+        ],
+        "note": "the RAW entry is a literal SSE frame whose payload is truncated JSON (not wrapped by send_sse's json.dumps)"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/cm:generateContent",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}",
+          "curl": "curl -sS -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/cm:generateContent' -H 'x-goog-api-key: oracle-local-key-1' -H 'Content-Type: application/json' -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}'"
+        }
+      ],
+      "record": "downstream verbose + body; upstream wire request; mock-response.json = variant script",
+      "expect_downstream": {
+        "status": "expected",
+        "http_status": 502,
+        "body": "{\"error\":{\"message\":\"claude executor: upstream returned malformed stream data\",\"type\":\"server_error\",\"code\":\"internal_server_error\"}}"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id"
+      ],
+      "deterministic": "fixed variant SSE",
+      "fixture": "tests/fixtures/S2d7/S2d7-29-malformed-stream/"
+    },
+    {
+      "id": "S2d7-30-stream-empty-200",
+      "purpose": "Contrast pin: on the STREAM client path the same empty upstream does NOT 502 — handler commits SSE headers on the closed-without-data branch: HTTP 200, SSE headers, ZERO frames, stream ends cleanly.",
+      "client_protocol": "gemini",
+      "upstream_provider_type": "claude-api-key",
+      "stream": true,
+      "mock": {
+        "mode": "happy",
+        "variant": "empty",
+        "control_file": {
+          "mode": "happy",
+          "variant": "empty"
+        },
+        "note": "same empty variant as S2d7-26"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/cm:streamGenerateContent?alt=sse",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}",
+          "curl": "curl -sS -N -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/cm:streamGenerateContent?alt=sse' -H 'x-goog-api-key: oracle-local-key-1' -H 'Content-Type: application/json' -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}'"
+        }
+      ],
+      "record": "downstream verbose + full body bytes (expect zero frames)",
+      "expect_downstream": {
+        "status": "expected",
+        "http_status": 200,
+        "headers_hint": [
+          "Content-Type: text/event-stream",
+          "Cache-Control: no-cache",
+          "Connection: keep-alive"
+        ],
+        "body": "(empty — zero data frames, stream ends cleanly)"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id"
+      ],
+      "deterministic": "fixed empty-variant upstream",
+      "fixture": "tests/fixtures/S2d7/S2d7-30-stream-empty-200/"
     }
   ]
 }
