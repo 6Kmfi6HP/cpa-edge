@@ -197,10 +197,28 @@ interface ValueSpan {
  * schema fragments are embedded with their original spacing, so the
  * translation needs the original bytes, not a re-serialization.
  */
+/** Byte offsets of one located value inside its JSON document. */
+export interface RawSpan {
+  readonly valueStart: number
+  readonly valueEnd: number
+}
+
+/**
+ * Locates the RAW byte span of the value at a path inside a JSON document
+ * that `JSON.parse` already accepted. Path segments name object members or
+ * array indices (as strings). Tool arguments, tool-result blocks and
+ * schema fragments are embedded with their original spacing, so the
+ * translation needs the original bytes, not a re-serialization.
+ */
+export function rawSpanAt(text: string, path: readonly string[]): RawSpan | undefined {
+  return locatePath(text, path)
+}
+
+/** Raw text of the value at a path (see {@link rawSpanAt}). */
 export function rawValueAt(text: string, path: readonly string[]): string | undefined {
-  const root = locatePath(text, path)
-  if (root === undefined) return undefined
-  return text.slice(root.valueStart, root.valueEnd)
+  const span = locatePath(text, path)
+  if (span === undefined) return undefined
+  return text.slice(span.valueStart, span.valueEnd)
 }
 
 /** Path lookup that also exposes the enclosing object span (schema surgery). */

@@ -194,7 +194,14 @@ export function createGem2ClaService(options: Gem2ClaServiceOptions): Gem2ClaSer
         return jsonBody(400, unknownProviderEnvelope(parsed.model))
       }
 
-      if (parsed.action === 'countTokens') return countTokensOutcome(request.body)
+      if (parsed.action === 'countTokens') {
+        // An ACTIVE credential window gates the local count too: no
+        // tokens are computed and the upstream is never contacted
+        // (recorded: S2d7-31).
+        const cooling = await countTokensCooldown(candidates)
+        if (cooling !== undefined) return cooldownResponse(parsed.model, cooling)
+        return countTokensOutcome(request.body)
+      }
 
       try {
         if (!isPlainObject(JSON.parse(request.body))) return jsonBody(400, invalidRequestEnvelope())
@@ -216,15 +223,7 @@ export function createGem2ClaService(options: Gem2ClaServiceOptions): Gem2ClaSer
         // request-retry: fall through to the next credential for retryable
         // upstream failures (429 / empty stream / pre-commit transport).
       }
-      if (lastCooldown !== undefined) {
-        const cooldown = buildModelCooldownResponse({
-          model: parsed.model,
-          provider: PROVIDER,
-          lastUpstreamError: lastCooldown.lastError,
-          resetSeconds: lastCooldown.resetSeconds,
-        })
-        return jsonBody(cooldown.status, cooldown.body, [['Retry-After', cooldown.retryAfter]])
-      }
+      if (lastCooldown !== undefined) return cooldownResponse(parsed.model, lastCooldown)
       return jsonBody(500, serverErrorEnvelope('no credential available for the requested model'))
     },
   }
@@ -304,6 +303,9 @@ export function createGem2ClaService(options: Gem2ClaServiceOptions): Gem2ClaSer
   ): Promise<AttemptOutcome> {
     try {
       const bootstrap = await bootstrapGeminiStream(readableToAsyncIterable(upstream.body), {
+        // Stream chunks stamp `modelVersion` from the upstream
+        // message_start echo, so the non-stream model name the context
+        // type requires is never read on this path.
         resolvedModel: '',
         now,
       })
@@ -376,6 +378,36 @@ export function createGem2ClaService(options: Gem2ClaServiceOptions): Gem2ClaSer
     if (!validation.ok) return jsonBody(400, tokenCountEnvelope(validation.message))
     const total = estimateClaudeInputTokens(assembly)
     return jsonBody(200, geminiTokenCountBody(total))
+  }
+
+  /**
+   * The cooldown record gating a `:countTokens` request, or undefined when
+   * at least one candidate credential sits outside a live window. The count
+   * never contacts the upstream, so the window is its only gate (recorded:
+   * S2d7-31 — an all-cooling model returns the model_cooldown surface and
+   * computes nothing).
+   */
+  async function countTokensCooldown(
+    candidates: readonly { readonly credentialIndex: number }[],
+  ): Promise<CooldownRecord | undefined> {
+    let last: CooldownRecord | undefined
+    for (const candidate of candidates) {
+      const record = await readCooldown(options.store, candidate.credentialIndex)
+      if (record === undefined || now() >= record.untilMs) return undefined
+      last = record
+    }
+    return last
+  }
+
+  /** 429 model_cooldown surface shared by the generation and count paths. */
+  function cooldownResponse(model: string, record: CooldownRecord): Gem2ClaResponse {
+    const cooldown = buildModelCooldownResponse({
+      model,
+      provider: PROVIDER,
+      lastUpstreamError: record.lastError,
+      resetSeconds: record.resetSeconds,
+    })
+    return jsonBody(cooldown.status, cooldown.body, [['Retry-After', cooldown.retryAfter]])
   }
 
   /** Pre-commit transport failure: plain 500 envelope. */

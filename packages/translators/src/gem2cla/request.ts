@@ -102,7 +102,14 @@ function assembleFromRequest(request: Record<string, unknown>, rawBody: string):
     const mapped = mapTurnRole(turn['role'])
     if (mapped === undefined) continue
     const blocks = turnBlocks(turn, mapped, index, rawBody, state)
-    appendMerged(messages, { role: mapped, content: blocks }, systemText !== undefined)
+    // The barrier guards ONE boundary: while the system turn is still the
+    // only message, no contents turn may merge into it. From the first
+    // contents message on, same-role merging resumes (S2d7 2.3).
+    appendMerged(
+      messages,
+      { role: mapped, content: blocks },
+      systemText !== undefined && messages.length === 1,
+    )
   }
 
   const tools = translateTools(request)

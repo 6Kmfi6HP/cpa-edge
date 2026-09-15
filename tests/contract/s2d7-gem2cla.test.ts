@@ -1,7 +1,7 @@
 /**
  * S2d7 golden contract — Gemini client → Claude (Anthropic Messages) upstream.
  *
- * Spec source of truth: spec/sections/S2d7-gem2cla.md (admitted). Goldens: the 31 recorded
+ * Spec source of truth: spec/sections/S2d7-gem2cla.md (admitted). Goldens: the 32 recorded
  * fixture cases under tests/fixtures/S2d7/ — oracle wire transcripts of CLIProxyAPI v7.3.4
  * against the deterministic claude mock (RECORDABLE-LOCALLY per R-FIXTURE; transcripts only,
  * no upstream source text). Rulings applied: R-SSE (downstream stream bodies compare as
@@ -97,7 +97,9 @@
  * the 400 countTokens validation family, the pre-commit 500 `empty_stream` gate, and the
  * 429 → credential rate-limit cooldown whose envelope carries `Retry-After: 1`).
  * `:countTokens` counts locally over the translated body with js-tiktoken o200k_base
- * (R-TOK; recorded N=4 in S2d7-12) and must NOT call `send` (S2d7-12/25).
+ * (R-TOK; recorded N=4 in S2d7-12) and must NOT call `send` (S2d7-12/25). An ACTIVE
+ * credential cooldown also gates `:countTokens` (recorded ruling, S2d7-31): the request
+ * short-circuits to the 429 model_cooldown envelope — no local count, no upstream call.
  * A mid-stream upstream transport failure surfaces the pinned terminal message
  * "unexpected EOF" regardless of the transport error's own text (§4.4).
  * OUT of scope here (owned by S1/the runtime, asserted by no fixture in this suite):
@@ -116,17 +118,24 @@
  *   step 1 replays the S2d7-10 fixture (the recorded 429 that starts the cooldown) and
  *   step 2 replays S2d7-19's own request. Both steps share ONE service + Store, so the
  *   cooldown state persists between them; step 2 also pins "no upstream call while
- *   cooling". Every other case is single-step.
+ *   cooling". S2d7-31 records BOTH steps of the countTokens-cooldown ruling inside its
+ *   own fixture (request.http carries `### step` dividers, one downstream-N.md per step,
+ *   `upstream_wire_step1/2` wire counts, `control_file_step1`), so the harness loads its
+ *   two steps directly: step 1 trips the 429 cooldown, step 2 fires :countTokens inside
+ *   the window. Every other case is single-step.
  * • The mock upstream is played from each fixture's own mock-response.json
- *   (`control_file` + `script_sse` +, for error mode, the embedded `reply`): `[eventName,
- *   data]` pairs are emitted as `event: <name>\ndata: <python-json>\n\n` frames; a
- *   `["RAW", text]` entry emits the raw text verbatim (the malformed-variant line of
- *   S2d7-29); `mode:"error"` replies with the recorded status and the reply body embedded
- *   in the fixture (`{"type": "error", …}` rate-limit JSON — the bytes S2d7-10 pins
- *   verbatim downstream); `mode:"disconnect"` hard-aborts the stream after `after` frames
- *   (a rejected read). Script `message.model` values echo the model read from the
- *   translated upstream body, so a mis-translated model breaks the downstream
- *   `modelVersion` too, not just the wire compare.
+ *   (`control_file` — or `control_file_stepN` for the multi-step layout — + `script_sse`
+ *   +, for error mode, the embedded `reply`): `[eventName, data]` pairs are emitted as
+ *   `event: <name>\ndata: <python-json>\n\n` frames; a `["RAW", text]` entry emits the
+ *   raw text verbatim (the malformed-variant line of S2d7-29); `mode:"error"` replies
+ *   with the recorded status and the reply body embedded in the fixture
+ *   (`{"type": "error", …}` rate-limit JSON — the bytes S2d7-10 pins verbatim
+ *   downstream); `mode:"disconnect"` hard-aborts the stream after `after` frames (a
+ *   rejected read). Script `message.model` values echo the model read from the translated
+ *   upstream body, so a mis-translated model breaks the downstream `modelVersion` too,
+ *   not just the wire compare. A step whose fixture scripts no control (S2d7-31 step 2:
+ *   the ruling proves no upstream call may happen) makes the harness fail any `send()`
+ *   for that step loudly.
  * • Upstream calls are captured; at the end of a case the captured sequence must equal the
  *   recorded upstream.jsonl lines of the replayed steps (count + bytes). The countTokens,
  *   auth-401, unknown-model and cooldown-step fixtures therefore also pin "no upstream
@@ -164,11 +173,13 @@
  * MASKS — applied identically to recorded and produced bytes, derived from each case's
  * meta.yaml `dynamic_fields` (unknown entries fail the suite loudly so new volatility
  * must be added consciously):
- *   - `Date`, `X-Cpa-Trace-Id`, `mock wire log ts field`: never reach a compared surface
- *     (not asserted downstream; not part of the upstream request); declared for completeness.
+ *   - `Date`, `X-Cpa-Trace-Id`, the mock-wire `ts` field (recorded as `mock wire log ts
+ *     field` / `mock wire ts`): never reach a compared surface (not asserted downstream;
+ *     not part of the upstream request); declared for completeness.
  *   - `createTime`: `"createTime":"<RFC3339>"` in downstream JSON bodies and SSE data
  *     frames → `"createTime":"<CREATE_TIME>"`.
- *   - upstream Host port: trailing `:port` of the upstream `Host` header value → `:<PORT>`.
+ *   - upstream Host port (recorded as `upstream Host header port (21002)` / `upstream Host
+ *     port (21002)`): trailing `:port` of the upstream `Host` header value → `:<PORT>`.
  * Deliberately NOT masked (each is deterministic; masking would weaken a recorded pin):
  *   - `metadata.user_id` sha256 derivations (spec §3.3, byte-pinned by the wire body).
  *   - generated `toolu_gemini_%016d` ids (request-local counter starting at 1; spec §3.5
@@ -261,7 +272,7 @@ async function loadAdapter(): Promise<AdapterLoadResult> {
     }
     return {
       skipReason: `\`${ADAPTER_MODULE}\` does not export \`${ADAPTER_EXPORT}(options)\` yet. ` +
-        'All 31 S2d7 golden cases SKIP until the gem2cla adapter ships; the required interface is documented in the header of this file.',
+        'All 32 S2d7 golden cases SKIP until the gem2cla adapter ships; the required interface is documented in the header of this file.',
     }
   } catch (error) {
     return { skipReason: `import of \`${ADAPTER_MODULE}\` failed: ${String(error)}` }
@@ -323,6 +334,7 @@ const EXPECTED_CASES = [
   'S2d7-28-missing-message-delta',
   'S2d7-29-malformed-stream',
   'S2d7-30-stream-empty-200',
+  'S2d7-31-counttokens-cooldown',
 ] as const
 
 type CaseId = (typeof EXPECTED_CASES)[number]
@@ -361,6 +373,28 @@ async function readFixtureJson<T>(caseId: string, name: string): Promise<T> {
 }
 
 // ─── Fixture file parsers (request.http / downstream.md / meta.yaml / mock-response.json)
+
+/**
+ * Splits a recorded request.http into its steps. Single-step fixtures (every case except
+ * S2d7-31) have no dividers and yield one request; multi-step fixtures carry
+ * `### step N (…)` divider comment lines, one recorded request per step.
+ */
+function parseRequestSteps(text: string): SurfaceRequest[] {
+  const lines = text.split('\n')
+  const dividerIndices: number[] = []
+  for (let index = 0; index < lines.length; index += 1) {
+    if ((lines[index] ?? '').startsWith('### step ')) dividerIndices.push(index)
+  }
+  if (dividerIndices.length === 0) return [parseRequestHttp(text)]
+  const steps: SurfaceRequest[] = []
+  for (let number = 0; number < dividerIndices.length; number += 1) {
+    const start = (dividerIndices[number] ?? 0) + 1
+    const end = number + 1 < dividerIndices.length ? (dividerIndices[number + 1] ?? lines.length) : lines.length
+    const chunk = lines.slice(start, end).join('\n').replace(/\n+$/, '')
+    steps.push(parseRequestHttp(chunk))
+  }
+  return steps
+}
 
 function parseRequestHttp(text: string): SurfaceRequest {
   const boundary = text.indexOf('\n\n')
@@ -421,7 +455,11 @@ function parseDownstreamMarkdown(text: string): RecordedResponse {
 interface CaseMeta {
   readonly case: string
   readonly dynamic_fields: readonly string[]
-  readonly upstream_wire_delta_lines: number
+  /** Single-step layout: total recorded upstream.jsonl lines. */
+  readonly upstream_wire_delta_lines?: number
+  /** Multi-step layout (S2d7-31): per-step recorded upstream.jsonl line counts. */
+  readonly upstream_wire_step1?: number
+  readonly upstream_wire_step2?: number
   readonly stream: boolean
 }
 
@@ -441,16 +479,16 @@ function maskProfile(caseId: string, dynamicFields: readonly string[]): MaskProf
     if (field === 'Date' || field === 'X-Cpa-Trace-Id') {
       continue // response-head values; never asserted on any compared surface
     }
-    if (field === 'mock wire log ts field') {
-      continue // recording-only upstream.jsonl fields, excluded from the wire compare
-    }
     if (field === 'createTime') {
       profile.createTime = true
       continue
     }
-    if (field === 'upstream Host header port (21002)') {
+    if (field === 'upstream Host header port (21002)' || field === 'upstream Host port (21002)') {
       profile.port = true
       continue
+    }
+    if (field === 'mock wire log ts field' || field === 'mock wire ts') {
+      continue // recording-only upstream.jsonl fields, excluded from the wire compare
     }
     throw new Error(
       `S2d7[${caseId}]: unrecognized meta.yaml dynamic_fields entry ${JSON.stringify(field)} — ` +
@@ -490,7 +528,10 @@ interface MockReply {
 }
 
 interface MockFile {
-  readonly control_file: MockControl
+  readonly control_file?: MockControl
+  /** Multi-step layout (S2d7-31): one scripted control per recorded step. */
+  readonly control_file_step1?: MockControl
+  readonly control_file_step2?: MockControl
   readonly script_sse?: readonly unknown[]
   readonly reply?: MockReply
 }
@@ -596,11 +637,16 @@ interface MockResponseSpec {
 const encoder = new TextEncoder()
 
 function buildMockResponse(
-  control: MockControl,
+  control: MockControl | undefined,
   reply: MockReply | undefined,
   script: readonly MockScriptEntry[],
   upstreamRequest: UpstreamRequest,
 ): MockResponseSpec {
+  if (control === undefined) {
+    // The recorded fixture scripts no reply for this step because the ruling proves no
+    // upstream call may happen on it (S2d7-31 step 2, the cooldown-gated countTokens).
+    throw new Error('harness: fixture records no mock control for this step — no upstream call may happen')
+  }
   const mode = control.mode ?? 'happy'
   if (mode === 'error') {
     const status = control.status ?? reply?.status ?? 500
@@ -787,40 +833,87 @@ interface StepPlan {
   readonly caseId: string
   readonly request: SurfaceRequest
   readonly expected: RecordedResponse
-  readonly control: MockControl
+  readonly control: MockControl | undefined
   readonly reply: MockReply | undefined
   readonly script: readonly MockScriptEntry[]
   readonly recordedUpstream: readonly RecordedUpstreamLine[]
   readonly mask: MaskProfile
 }
 
-async function loadStep(caseId: string): Promise<StepPlan> {
+/** Multi-step meta must declare the recorded upstream wire count for every step. */
+function stepWireCount(meta: CaseMeta, stepNumber: number, caseId: string): number {
+  const value = stepNumber === 1 ? meta.upstream_wire_step1 : meta.upstream_wire_step2
+  if (typeof value !== 'number') {
+    throw new Error(`S2d7[${caseId}]: multi-step fixture must declare upstream_wire_step${stepNumber}`)
+  }
+  return value
+}
+
+/**
+ * Loads every recorded step of a fixture. Single-step fixtures yield one plan
+ * (request.http + downstream.md + control_file + the full upstream.jsonl delta);
+ * multi-step fixtures (S2d7-31) yield one plan per `### step` divider, each with its own
+ * downstream-N.md, control_file_stepN and its slice of the upstream.jsonl delta.
+ */
+async function loadCaseSteps(caseId: string): Promise<readonly StepPlan[]> {
   const meta = await readFixtureJson<CaseMeta>(caseId, 'meta.yaml')
   const mockFile = await readFixtureJson<MockFile>(caseId, 'mock-response.json')
-  const request = parseRequestHttp(await readFixtureText(caseId, 'request.http'))
-  const expected = parseDownstreamMarkdown(await readFixtureText(caseId, 'downstream.md'))
-  const upstreamText = await readFixtureText(caseId, 'upstream.jsonl')
-  const recordedUpstream = upstreamText
+  const requests = parseRequestSteps(await readFixtureText(caseId, 'request.http'))
+  const upstreamLines = (await readFixtureText(caseId, 'upstream.jsonl'))
     .split('\n')
     .filter((line) => line.trim() !== '')
     .map((line) => JSON.parse(line) as RecordedUpstreamLine)
-  return {
-    caseId,
-    request,
-    expected,
-    control: mockFile.control_file,
-    reply: mockFile.reply,
-    script: parseScriptEntries(mockFile.script_sse ?? [], caseId),
-    recordedUpstream,
-    mask: maskProfile(caseId, meta.dynamic_fields),
+  const mask = maskProfile(caseId, meta.dynamic_fields)
+  const script = parseScriptEntries(mockFile.script_sse ?? [], caseId)
+
+  if (requests.length === 1) {
+    const request = requests[0]
+    if (request === undefined) throw new Error(`S2d7[${caseId}]: request.http parses to no request`)
+    return [
+      {
+        caseId,
+        request,
+        expected: parseDownstreamMarkdown(await readFixtureText(caseId, 'downstream.md')),
+        control: mockFile.control_file,
+        reply: mockFile.reply,
+        script,
+        recordedUpstream: upstreamLines,
+        mask,
+      },
+    ]
   }
+
+  const plans: StepPlan[] = []
+  let wireCursor = 0
+  for (let index = 0; index < requests.length; index += 1) {
+    const stepNumber = index + 1
+    const request = requests[index]
+    if (request === undefined) throw new Error(`S2d7[${caseId}]: request.http has no step ${stepNumber}`)
+    const count = stepWireCount(meta, stepNumber, caseId)
+    const recordedUpstream = upstreamLines.slice(wireCursor, wireCursor + count)
+    wireCursor += count
+    plans.push({
+      caseId,
+      request,
+      expected: parseDownstreamMarkdown(await readFixtureText(caseId, `downstream-${stepNumber}.md`)),
+      control: stepNumber === 1 ? mockFile.control_file_step1 : mockFile.control_file_step2,
+      reply: stepNumber === 1 ? mockFile.reply : undefined,
+      script,
+      recordedUpstream,
+      mask,
+    })
+  }
+  if (wireCursor !== upstreamLines.length) {
+    throw new Error(`S2d7[${caseId}]: per-step upstream wire counts do not sum to the recorded lines`)
+  }
+  return plans
 }
 
 async function replayCase(caseId: CaseId): Promise<void> {
   if (adapterFactory === undefined) throw new Error('adapter factory missing')
   const stepCaseIds = COMPOSED_STEPS[caseId] ?? [caseId]
   const steps: StepPlan[] = []
-  for (const stepCaseId of stepCaseIds) steps.push(await loadStep(stepCaseId))
+  for (const stepCaseId of stepCaseIds) steps.push(...(await loadCaseSteps(stepCaseId)))
 
   const service = adapterFactory({
     apiKeys: GATEWAY_API_KEYS,
@@ -875,7 +968,7 @@ async function replayCase(caseId: CaseId): Promise<void> {
 // ─── Suites ──────────────────────────────────────────────────────────────────────────
 
 describe('S2d7 fixture inventory (harness self-check, adapter-independent)', () => {
-  it('exposes exactly the 31 admitted golden cases, each internally consistent', async () => {
+  it('exposes exactly the 32 admitted golden cases, each internally consistent', async () => {
     expect([...fixtureCaseDirs]).toEqual([...EXPECTED_CASES].sort())
     for (const caseId of EXPECTED_CASES) {
       const meta = await readFixtureJson<CaseMeta>(caseId, 'meta.yaml')
@@ -883,29 +976,65 @@ describe('S2d7 fixture inventory (harness self-check, adapter-independent)', () 
       expect(meta.case, `${caseId}: meta.case echoes the directory name`).toBe(caseId)
       maskProfile(caseId, meta.dynamic_fields) // fails loudly on unknown dynamic fields
       parseScriptEntries(mockFile.script_sse ?? [], caseId)
-      if ((mockFile.control_file.mode ?? 'happy') !== 'error') {
+
+      const requests = parseRequestSteps(await readFixtureText(caseId, 'request.http'))
+      const upstreamLines = (await readFixtureText(caseId, 'upstream.jsonl'))
+        .split('\n')
+        .filter((line) => line.trim() !== '')
+
+      const step1Control = requests.length === 1 ? mockFile.control_file : mockFile.control_file_step1
+      expect(step1Control, `${caseId}: fixture must script a mock control for step 1`).toBeDefined()
+      if ((step1Control?.mode ?? 'happy') !== 'error') {
         expect(mockFile.script_sse, `${caseId}: non-error mock controls must embed their event script`).toBeDefined()
       } else {
         expect(
-          mockFile.reply?.body !== undefined || mockFile.control_file.error_body !== undefined,
+          mockFile.reply?.body !== undefined || step1Control?.error_body !== undefined,
           `${caseId}: error-mode mock controls must embed a reply body`,
         ).toBe(true)
       }
 
-      const request = parseRequestHttp(await readFixtureText(caseId, 'request.http'))
-      const contentLength = Number(headerValue(request.headers, 'content-length'))
-      expect(contentLength, `${caseId}: parsed body length matches the recorded Content-Length`).toBe(
-        new TextEncoder().encode(request.body).length,
-      )
-      expect(request.method, `${caseId}: route method`).toBe('POST')
-      expect(request.path, `${caseId}: /v1beta generation surface path`).toMatch(V1BETA_PATH_RE)
-      expect(() => JSON.parse(request.body), `${caseId}: request body is well-formed JSON (NE-LENIENT)`).not.toThrow()
+      if (requests.length === 1) {
+        expect(
+          typeof meta.upstream_wire_delta_lines,
+          `${caseId}: single-step meta must declare upstream_wire_delta_lines`,
+        ).toBe('number')
+        expect(upstreamLines.length, `${caseId}: upstream.jsonl line count matches meta.upstream_wire_delta_lines`).toBe(
+          meta.upstream_wire_delta_lines,
+        )
+      } else {
+        expect(
+          typeof meta.upstream_wire_step1 === 'number' && typeof meta.upstream_wire_step2 === 'number',
+          `${caseId}: multi-step meta must declare upstream_wire_step1/2`,
+        ).toBe(true)
+        expect(
+          (meta.upstream_wire_step1 ?? 0) + (meta.upstream_wire_step2 ?? 0),
+          `${caseId}: per-step upstream wire counts sum to the recorded lines`,
+        ).toBe(upstreamLines.length)
+        if (mockFile.control_file_step2 === undefined) {
+          expect(
+            meta.upstream_wire_step2,
+            `${caseId}: an unscripted step 2 must record zero upstream calls`,
+          ).toBe(0)
+        }
+        if (caseId === 'S2d7-31-counttokens-cooldown') {
+          // Recorded ruling: an ACTIVE credential cooldown gates :countTokens — step 2
+          // made no upstream call, so the fixture scripts no mock control for it either.
+          expect(meta.upstream_wire_step2, `${caseId}: cooldown-gated countTokens records no upstream call`).toBe(0)
+          expect(mockFile.control_file_step2, `${caseId}: the gated step scripts no mock control`).toBeUndefined()
+        }
+      }
 
-      const upstreamText = await readFixtureText(caseId, 'upstream.jsonl')
-      const upstreamLines = upstreamText.split('\n').filter((line) => line.trim() !== '')
-      expect(upstreamLines.length, `${caseId}: upstream.jsonl line count matches meta.upstream_wire_delta_lines`).toBe(
-        meta.upstream_wire_delta_lines,
-      )
+      for (const [index, request] of requests.entries()) {
+        const stepNumber = index + 1
+        const contentLength = Number(headerValue(request.headers, 'content-length'))
+        expect(contentLength, `${caseId} step ${stepNumber}: parsed body length matches the recorded Content-Length`).toBe(
+          new TextEncoder().encode(request.body).length,
+        )
+        expect(request.method, `${caseId} step ${stepNumber}: route method`).toBe('POST')
+        expect(request.path, `${caseId} step ${stepNumber}: /v1beta generation surface path`).toMatch(V1BETA_PATH_RE)
+        expect(() => JSON.parse(request.body), `${caseId} step ${stepNumber}: request body is well-formed JSON (NE-LENIENT)`).not.toThrow()
+      }
+
       for (const line of upstreamLines) {
         const recorded = JSON.parse(line) as RecordedUpstreamLine
         expect(recorded.method, `${caseId}: recorded upstream method`).toBe('POST')
@@ -918,8 +1047,12 @@ describe('S2d7 fixture inventory (harness self-check, adapter-independent)', () 
         )
       }
 
-      const recorded = parseDownstreamMarkdown(await readFixtureText(caseId, 'downstream.md'))
-      expect(headerValue(recorded.headers, 'content-type'), `${caseId}: fixture must record Content-Type`).toBeDefined()
+      const downstreamFiles = requests.length === 1 ? ['downstream.md'] : ['downstream-1.md', 'downstream-2.md']
+      for (const file of downstreamFiles) {
+        const recorded = parseDownstreamMarkdown(await readFixtureText(caseId, file))
+        expect(headerValue(recorded.headers, 'content-type'), `${caseId} ${file}: fixture must record Content-Type`).toBeDefined()
+      }
+
       if (caseId === 'S2d7-19-cooldown-after-429') {
         // The composed cooldown case: its own delta is zero-call, and the composition must
         // have the recorded 429 trigger as its first step.

@@ -53,7 +53,11 @@ function stripOneLeadingSpace(text: string): string {
 /** Extracts the data lines of an aggregated upstream SSE buffer. */
 export function scanDataLines(buffer: string): readonly AggregatedEvent[] {
   const events: AggregatedEvent[] = []
-  for (const line of buffer.split('\n')) {
+  for (const terminated of buffer.split('\n')) {
+    // CRLF-framed upstreams leave a trailing CR on every split line; strip
+    // it exactly like the stream decoder's line splitter, or empty and
+    // `[DONE]` payloads parse as malformed data (spurious 502).
+    const line = terminated.endsWith('\r') ? terminated.slice(0, -1) : terminated
     if (!line.startsWith('data:')) continue
     const data = stripOneLeadingSpace(line.slice(5))
     let value: Record<string, unknown> | undefined
