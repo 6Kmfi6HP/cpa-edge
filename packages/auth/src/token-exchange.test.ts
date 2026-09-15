@@ -254,11 +254,14 @@ describe('code login waiter (§2.5)', () => {
   it('times out with the recorded status message and marks the session', async () => {
     const { store, registry } = fixture()
     await registry.register('state-1', 'anthropic', { metadata: { code_verifier: 'v' } })
+    let clock = 0
     const outcome = await runCodeLoginWaiter(store, registry, 'anthropic', 'state-1', {
-      now: () => 0,
+      now: () => clock,
       timeoutMs: 100,
       pollIntervalMs: 50,
-      sleep: async () => undefined,
+      sleep: async (ms: number) => {
+        clock += ms
+      },
       fetch: async () => {
         throw new Error('must not be called')
       },

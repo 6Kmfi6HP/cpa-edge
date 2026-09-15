@@ -40,6 +40,8 @@ describe('Go duration rendering', () => {
 })
 
 describe('model_cooldown response (429)', () => {
+  const escapedBody = MOCK_ERROR_BODY.replaceAll('"', '\\"')
+
   it('reproduces the recorded S4-06 body byte for byte', () => {
     const response = buildModelCooldownResponse({
       model: 'mock-model',
@@ -50,7 +52,7 @@ describe('model_cooldown response (429)', () => {
     expect(response.status).toBe(429)
     expect(response.headers).toEqual({ 'Retry-After': '1' })
     expect(response.body).toBe(
-      '{"error":{"code":"model_cooldown","last_upstream_error":"{\"error\": {\"message\": \"mock rate limit\", \"type\": \"mock_error\", \"code\": \"mock_error\"}}","message":"All credentials for model mock-model are cooling down via provider openai-compatible-mock-openai (last error: {\"error\": {\"message\": \"mock rate limit\", \"type\": \"mock_error\", \"code\": \"mock_error\"}})","model":"mock-model","provider":"openai-compatible-mock-openai","reset_seconds":1,"reset_time":"1s"}}',
+      `{"error":{"code":"model_cooldown","last_upstream_error":"${escapedBody}","message":"All credentials for model mock-model are cooling down via provider openai-compatible-mock-openai (last error: ${escapedBody})","model":"mock-model","provider":"openai-compatible-mock-openai","reset_seconds":1,"reset_time":"1s"}}`,
     )
   })
 
@@ -77,6 +79,8 @@ describe('model_cooldown response (429)', () => {
 })
 
 describe('auth selection responses (503)', () => {
+  const escapedBody = MOCK_ERROR_BODY.replaceAll('"', '\\"')
+
   it('reproduces the recorded S4-05 auth_unavailable body byte for byte', () => {
     const response = buildAuthUnavailableResponse({
       reason: 'auth_unavailable',
@@ -86,7 +90,7 @@ describe('auth selection responses (503)', () => {
     })
     expect(response.status).toBe(503)
     expect(response.body).toBe(
-      '{"error":{"message":"auth_unavailable: no auth available (providers=openai-compatible-mock-openai, model=mock-model; last upstream error: {\"error\": {\"message\": \"mock rate limit\", \"type\": \"mock_error\", \"code\": \"mock_error\"}})","type":"server_error","code":"internal_server_error"}}',
+      `{"error":{"message":"auth_unavailable: no auth available (providers=openai-compatible-mock-openai, model=mock-model; last upstream error: ${escapedBody})","type":"server_error","code":"internal_server_error"}}`,
     )
   })
 
@@ -99,7 +103,7 @@ describe('auth selection responses (503)', () => {
     })
     expect(response.status).toBe(503)
     expect(response.body).toBe(
-      '{"error":{"message":"auth_unavailable: no auth available (providers=openai-compatible-mock-openai, model=mock-model; last upstream error: {\"error\": {\"message\": \"mock rate limit\", \"type\": \"mock_error\", \"code\": \"mock_error\"}})","type":"authentication_error","code":"upstream_authentication_required","retryable":false}}',
+      `{"error":{"message":"auth_unavailable: no auth available (providers=openai-compatible-mock-openai, model=mock-model; last upstream error: ${escapedBody})","type":"authentication_error","code":"upstream_authentication_required","retryable":false}}`,
     )
   })
 

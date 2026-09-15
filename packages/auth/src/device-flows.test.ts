@@ -132,7 +132,8 @@ describe('kimi poll semantics', () => {
     const fetchFn: FetchLike = async () => {
       const response = responses[call]
       call += 1
-      return response as Response
+      if (response === undefined) throw new Error('unexpected extra poll')
+      return response
     }
     const result = await pollKimiDeviceToken(
       { start: base, deadlineAtMs: 60_000 },

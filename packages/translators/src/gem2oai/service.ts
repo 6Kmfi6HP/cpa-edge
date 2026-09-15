@@ -251,7 +251,7 @@ export function createGem2OaiService(options: Gem2OaiServiceOptions): Gem2OaiSer
     if (primary === undefined) return jsonBody(400, modelNotFoundBody(parsed.model), { charset: false, trace: false })
 
     const stream = method === 'streamGenerateContent'
-    const framing = framingForAlt(target.query.get('alt') ?? target.query.get('$alt'))
+    const framing = framingForAlt(target.query.get('alt') ?? target.query.get('$alt') ?? undefined)
 
     // Request translation + thinking pipeline: the handler stage runs
     // before execution, so its 400s win over the cooldown gate.

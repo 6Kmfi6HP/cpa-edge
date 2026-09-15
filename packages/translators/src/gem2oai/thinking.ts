@@ -130,7 +130,7 @@ export function extractSourceThinkingConfig(source: unknown): SourceThinkingConf
   const level = levelRaw !== undefined ? levelRaw.trim().toLowerCase() : undefined
   const budgetRaw = record['thinkingBudget'] ?? record['thinking_budget']
   const budget = typeof budgetRaw === 'number' && Number.isFinite(budgetRaw) ? budgetRaw : undefined
-  const out: SourceThinkingConfig = {}
+  const out: { level?: string; budget?: number } = {}
   if (level !== undefined && level.length > 0) out.level = level
   if (budget !== undefined) out.budget = budget
   return out

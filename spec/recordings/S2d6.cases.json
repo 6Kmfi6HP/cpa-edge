@@ -977,13 +977,15 @@
           "error": {
             "message": "mock rate limit",
             "type": "rate_limit_exceeded",
-            "code": "rate_limit_exceeded"
+            "code": 429,
+            "status": "RESOURCE_EXHAUSTED"
           }
         }
       },
       "record": "downstream status+headers+body; upstream.jsonl",
       "expect_hints": {
-        "downstream_body": "{\"error\":{\"message\":\"mock rate limit\",\"type\":\"rate_limit_exceeded\",\"code\":\"rate_limit_exceeded\"}}"
+        "downstream_body": "{\"error\": {\"message\": \"mock rate limit\", \"type\": \"rate_limit_exceeded\", \"code\": 429, \"status\": \"RESOURCE_EXHAUSTED\"}}",
+        "note": "VERBATIM upstream body (byte-identical incl. spacing). CONFIRMED by recording 2026-09-16."
       },
       "dynamic_fields": [
         "Date",
@@ -1011,14 +1013,15 @@
           "error": {
             "message": "mock rate limit",
             "type": "rate_limit_exceeded",
-            "code": "rate_limit_exceeded"
+            "code": 429,
+            "status": "RESOURCE_EXHAUSTED"
           }
         }
       },
       "record": "downstream status+headers+body; upstream.jsonl",
       "expect_hints": {
-        "downstream_body_EXPECT_FROM_SOURCE": "{\"error\":{\"code\":\"rate_limit_exceeded\",\"message\":\"mock rate limit\",\"type\":\"rate_limit_exceeded\"}}",
-        "note": "spec section 5.1 precedence note: recorded bytes are authoritative; if verbatim passthrough is recorded instead, the section will be amended."
+        "downstream_body": "{\"error\":{\"code\":429,\"message\":\"mock rate limit\",\"status\":\"RESOURCE_EXHAUSTED\",\"type\":\"rate_limit_exceeded\"}}",
+        "note": "Sanitized re-marshal of the upstream error object: compact separators, keys sorted. CONFIRMED by recording 2026-09-16 (was the verify-against-recording case)."
       },
       "dynamic_fields": [
         "Date",
@@ -1127,8 +1130,8 @@
     },
     {
       "id": "S2d6-stream-slow",
-      "status": "OPTIONAL-DEFERRED",
-      "purpose": "Slow-chunks mode (300ms between upstream events): byte stream must equal S2d6-stream-basic; only inter-event timing differs. Defer unless the recording pass has budget; if recorded, timing goes to meta.yaml dynamic fields only.",
+      "status": "RECORDED-OPTIONAL",
+      "purpose": "Slow-chunks mode (300ms between upstream events): byte stream must equal S2d6-stream-basic; only inter-event timing differs. Defer unless the recording pass has budget; if recorded, timing goes to meta.yaml dynamic fields only. RECORDED 2026-09-16: bytes equal S2d6-stream-basic; timing in meta dynamic fields only.",
       "request": {
         "method": "POST",
         "path": "/v1/responses",
@@ -1151,5 +1154,6 @@
         "inter-event timing"
       ]
     }
-  ]
+  ],
+  "recording_status": "ALL 23 cases recorded 2026-09-16 by @oracle-runner into tests/fixtures/S2d6/<case-id>/ (full RECIPES layout). 429 cases ran last with a ~2.5s gap (rate-limit cooldown). Mock 429 error body: {\"error\": {\"message\": \"mock rate limit\", \"type\": \"rate_limit_exceeded\", \"code\": 429, \"status\": \"RESOURCE_EXHAUSTED\"}}."
 }

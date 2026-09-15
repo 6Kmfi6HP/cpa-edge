@@ -180,10 +180,11 @@ export function isModelNotFoundShape(bodyText: string | undefined): boolean {
  */
 export function isItemNotPersistedShape(bodyText: string | undefined): boolean {
   if (bodyText === undefined) return false
+  const lowered = bodyText.toLowerCase()
   return (
-    bodyText.includes('item with id') &&
-    bodyText.includes('not found') &&
-    bodyText.includes('items are not persisted when `store` is set to false')
+    lowered.includes('item with id') &&
+    lowered.includes('not found') &&
+    lowered.includes('items are not persisted when `store` is set to false')
   )
 }
 

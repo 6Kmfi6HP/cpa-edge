@@ -89,7 +89,7 @@ export async function translateGeminiToOpenAI(
   ctx: GeminiToOpenAIContext,
 ): Promise<GeminiUpstreamRequest> {
   const request = requireObject(parseStrictJson(rawBody))
-  const body = buildBody(request, rawBody, ctx)
+  const body = await buildBody(request, rawBody, ctx)
   return { body: serializeOrdered(body), value: body }
 }
 
@@ -104,7 +104,7 @@ export async function translateGeminiRequest(
   ctx: GeminiToOpenAIContext,
 ): Promise<GeminiUpstreamRequest> {
   const request = requireObject(parseStrictJson(rawBody))
-  const body = buildBody(request, rawBody, ctx)
+  const body = await buildBody(request, rawBody, ctx)
   applyRequestThinking(body, request, ctx.thinking ?? DEFAULT_OPENAI_COMPAT_THINKING)
   return { body: serializeOrdered(body), value: body }
 }
@@ -118,11 +118,11 @@ export function withStreamOptions(body: WireObject): void {
 // Body assembly
 // ---------------------------------------------------------------------------
 
-function buildBody(
+async function buildBody(
   request: Record<string, unknown>,
   rawBody: string,
   ctx: GeminiToOpenAIContext,
-): WireObject {
+): Promise<WireObject> {
   const messages: WireObject[] = []
 
   const system = readObject(request, 'systemInstruction') ?? readObject(request, 'system_instruction')
@@ -133,15 +133,13 @@ function buildBody(
 
   const callQueues = new Map<string, string[]>()
   const contents = readArray(request, 'contents') ?? []
-  const turns: Array<Promise<void>> = []
   for (let turnIndex = 0; turnIndex < contents.length; turnIndex++) {
     const content = contents[turnIndex]
     if (!isRecord(content)) continue
-    turns.push(appendTurn(messages, callQueues, content, turnIndex, rawBody))
+    // Turn order is part of the wire contract: awaiting in sequence keeps
+    // the emitted message order deterministic.
+    await appendTurn(messages, callQueues, content, turnIndex, rawBody)
   }
-  // Turn order is part of the wire contract; awaiting in sequence keeps the
-  // emitted message order deterministic.
-  for (const turn of turns) await turn
 
   const body: WireObject = {
     model: ctx.upstreamModel,
@@ -230,7 +228,7 @@ function applyThinkingStage1(body: WireObject, request: Record<string, unknown>)
 /** One rendered turn part, before the text-only/content-array decision. */
 type RenderedPart =
   | { readonly kind: 'text'; readonly text: string }
-  | { readonly kind: 'media'; readonly value: WireValue }
+  | { readonly kind: 'media'; readonly value: WireObject }
 
 async function appendTurn(
   messages: WireObject[],
@@ -389,7 +387,7 @@ function normalizedMime(mime: string): string {
   return 'application/octet-stream'
 }
 
-function inlineDataPart(inline: Record<string, unknown>): WireValue | undefined {
+function inlineDataPart(inline: Record<string, unknown>): WireObject | undefined {
   const data = readString(inline, 'data')
   if (data === undefined || data.length === 0) return undefined
   const mime = normalizedMime(readString(inline, 'mimeType') ?? readString(inline, 'mime_type') ?? '')
@@ -472,7 +470,7 @@ function translateTools(tools: readonly unknown[]): WireObject[] {
         name: readString(declaration, 'name') ?? '',
         description: readString(declaration, 'description') ?? '',
       }
-      if (parameters !== undefined) function_['parameters'] = parameters
+      if (parameters !== undefined) function_['parameters'] = parameters as unknown as WireValue
       out.push({ type: 'function', function: function_ })
     }
   }

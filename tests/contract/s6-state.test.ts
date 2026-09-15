@@ -226,7 +226,7 @@
  *   mounted. S6-02 instead seeds the `config.yaml.before-boot` disk capture (the
  *   PLAINTEXT secret-key) and asserts the after-boot capture.
  * • FIXTURE STEP → ADAPTER OPERATION mapping (client-protocol steps are NOT HTTP
- *   replays; their translation layer is S2d*/I-exec territory and out of scope):
+ *   replays; their translation layer is S2d-direction / I-exec territory and out of scope):
  *     - POST /v1/chat/completions (S6-05/07/08/18 steps, S6-07 seeds): the harness
  *       calls recordUsage(...) with the completion facts transcribed from the case's
  *       OWN golden record (the recorded bytes are the source; latency/ttft/request
@@ -756,8 +756,7 @@ function parseRespTranscript(text: string, context: string): readonly RespConnTr
       throw new Error(`${context} conn ${index}: no escaped literal block`)
     }
     // Only \r\n sequences are recorder escapes; embedded \" / \u… are payload bytes.
-    const literal = literalMatch[1].replaceAll('\\r\\n', '\r
-')
+    const literal = literalMatch[1].replaceAll('\\r\\n', '\r\n')
     if (byteLength(literal) !== statedBytes) {
       throw new Error(`${context} conn ${index}: decoded ${byteLength(literal)} bytes, stated ${statedBytes}`)
     }

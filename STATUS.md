@@ -18,7 +18,7 @@
 | S2d3 | spec: OpenAI client → Claude upstream | 1 | spec-s2d3-oai2cla | merged | 2 | ADMITTED round 2. 26 goldens. Unlocks I-tr-S2d3. |
 | S2d4 | spec: Claude client → OpenAI upstream | 1 | spec-s2d4-cla2oai | spec | 0 |  |
 | S2d5 | spec: OpenAI client → Codex/Responses upstream | 1 | spec-s2d5-oai2codex | merged | 2 | ADMITTED round 2 (R1-R7 text rider to writer). 26 goldens; union->enum MUST + type-selection pinned. Unlocks I-tr-S2d5. |
-| S2d6 | spec: Responses client → OpenAI chat upstream | 1 | spec-s2d6-res2oai | spec | 0 |  |
+| S2d6 | spec: Responses client → OpenAI chat upstream | 1 | spec-s2d6-res2oai | spec-adv | 0 | section+23 goldens done; review assigned adv-spec-1 |
 | S2d7 | spec: Gemini client → Claude upstream | 1 | spec-s2d7-gem2cla | merged | 2 | ADMITTED round 2. 31 goldens; validator families byte-pinned; empty-stream conductor gate recorded-deviation integrated. Unlocks I-tr-S2d7. |
 | S2d8 | spec: Claude client → Gemini upstream | 1 | spec-s2d8-cla2gem | spec-adv | 0 | section+18 goldens done; review assigned adv-spec-3 |
 | S2d9 | spec: Codex/Responses passthrough semantics | 1 | spec-s2d9-codex | spec | 0 |  |

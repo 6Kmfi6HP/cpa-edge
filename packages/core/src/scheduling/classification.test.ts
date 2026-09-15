@@ -17,15 +17,21 @@ const MODEL_NOT_FOUND_BODY =
 const CLOUDFLARE_BODY = 'Attention Required! | Cloudflare - please wait while we verify'
 
 describe('request-fault detection', () => {
-  it('flags fault codes and types, but keeps 401/402/429 credential-attributed', () => {
+  it('flags fault codes and types regardless of status; the ladder keeps 401/402/429 attributed', () => {
+    // The body check is shape-only; the classification ladder decides which
+    // statuses stay credential-attributed despite fault markers.
     expect(isRequestFaultBody(400, FAULT_BODY)).toBe(true)
     expect(isRequestFaultBody(404, S4_20_BODY)).toBe(true)
     expect(isRequestFaultBody(404, MODEL_NOT_FOUND_BODY)).toBe(false)
-    expect(isRequestFaultBody(402, FAULT_BODY)).toBe(false)
-    expect(isRequestFaultBody(429, FAULT_BODY)).toBe(false)
-    expect(isRequestFaultBody(401, FAULT_BODY)).toBe(false)
+    expect(isRequestFaultBody(402, FAULT_BODY)).toBe(true)
+    expect(isRequestFaultBody(429, FAULT_BODY)).toBe(true)
+    expect(isRequestFaultBody(401, FAULT_BODY)).toBe(true)
     expect(isRequestFaultBody(200, '{"error": {"code": "cyber_policy"}}')).toBe(true)
     expect(isRequestFaultBody(200, '{"code": "previous_response_not_found"}')).toBe(true)
+    // ... but those three statuses never become request_scoped:
+    expect(classifyFailure({ httpStatus: 402, bodyText: FAULT_BODY }).kind).toBe('payment_required')
+    expect(classifyFailure({ httpStatus: 429, bodyText: FAULT_BODY }).kind).toBe('quota')
+    expect(classifyFailure({ httpStatus: 401, bodyText: FAULT_BODY }).kind).toBe('unauthorized')
   })
 
   it('recognizes model-not-found shapes', () => {
@@ -98,14 +104,18 @@ describe('failure classification ladder', () => {
     expect(grant.statusMessage).toBe('invalid_grant')
   })
 
-  it('keeps 402/403 credential-attributed even with fault bodies', () => {
+  it('keeps 402 credential-attributed with fault bodies; 403 with a fault body stops', () => {
     const payment = classifyFailure({ httpStatus: 402, bodyText: FAULT_BODY })
     expect(payment.kind).toBe('payment_required')
-    const forbidden = classifyFailure({ httpStatus: 403, bodyText: FAULT_BODY })
-    expect(forbidden.kind).toBe('payment_required')
-    // 403 is retry-round eligible; 402 is not.
-    expect(forbidden.retryRoundEligible).toBe(true)
     expect(payment.retryRoundEligible).toBe(false)
+    // Only 402/429 and authentication-error 401 stay credential-attributed
+    // against fault bodies; a 403 carrying one stops the rotation.
+    const forbidden = classifyFailure({ httpStatus: 403, bodyText: FAULT_BODY })
+    expect(forbidden.kind).toBe('request_scoped')
+    expect(forbidden.rotation).toBe('stop')
+    const cleanForbidden = classifyFailure({ httpStatus: 403, bodyText: '{"error": "denied"}' })
+    expect(cleanForbidden.kind).toBe('payment_required')
+    expect(cleanForbidden.retryRoundEligible).toBe(true)
   })
 
   it('classifies 404 as not_found and model-not-found as model_not_supported', () => {
