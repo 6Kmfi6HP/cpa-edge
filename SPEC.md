@@ -7,7 +7,9 @@ once admitted.
 
 ## 0. Upstream anchor
 - Reference project: CLIProxyAPI — https://github.com/router-for-me/CLIProxyAPI (MIT License).
-- Version anchor: **PENDING** — @oracle-runner records release tag + commit; every golden sample cites this anchor.
+- Version anchor: **CLIProxyAPI v7.3.4** — commit `8335eac731946bd4eff18f500653f93736df53d6` (tag dated 2026-09-15).
+- Oracle binary: docker image `eceasy/cli-proxy-api:v7.3.4` (digest `sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266`); source build requires go 1.26 (not available locally).
+- Recording harness, probe transcripts, fixture RECIPES layout: `reports/oracle/BOOTSTRAP.md` (sandbox: `~/projects/llm-api/_cpa_edge_ref`).
 
 Precedence when sources conflict: (1) recorded upstream behavior (@oracle-runner fixtures) > (2) this SPEC > (3) any implementation.
 
@@ -57,8 +59,10 @@ Every admitted section must contain:
 3. Schemas: request/response/stream-event field-by-field semantics.
 4. Streaming: exact SSE event sequence rules (contract-test material; byte-exact comparisons ignore only whitelisted volatile fields).
 5. Error semantics.
-6. Golden samples index: paths under `tests/fixtures/<id>/`, each recorded by @oracle-runner against the anchored version.
+6. Golden samples index: paths under `tests/fixtures/<id>/`, each recorded by @oracle-runner against the anchored version, following the RECIPES layout in `reports/oracle/BOOTSTRAP.md`.
 7. Explicit open questions and intentional non-equivalences.
 
-## 5. Intentional non-equivalence registry
-(empty — populated from S7 and orchestrator verdicts)
+## 5. Compatibility rulings & intentional non-equivalence registry
+- **Ruling R-404 (2026-09-15, from recorded upstream behavior):** HTTP 404 responses have an EMPTY body (gin-style), and a wrong method on a known route also yields 404 (not 405). CPA-Edge mirrors this exactly for behavioral compatibility. S1 must encode it. Nobody may "improve" this unless registered here as a degradation.
+- **Ruling R-FIXTURE (2026-09-15):** Upstream behaviors classified RECORDABLE-LOCALLY (all client protocols over api-key/base-url-override upstreams: openai-compatibility, gemini-api-key, claude-api-key, codex-api-key, xai-api-key, meta-api-key, interactions-api-key, vertex-api-key) MUST have oracle-recorded goldens. CREDENTIALED-ONLY behaviors (OAuth providers: Gemini CLI/AIStudio, Claude, Codex, xAI, Meta, Kimi-native, Devin, Antigravity) are specified from upstream docs with cases marked `FIXTURE-DEFERRED` (documented behavior; error paths that ARE recordable still get goldens).
+- (S7 degradations will be appended here.)

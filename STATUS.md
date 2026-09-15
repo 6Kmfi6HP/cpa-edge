@@ -10,8 +10,8 @@
 | step | scope | phase | assignee (lock) | pipeline | gate rounds | notes |
 |---|---|---|---|---|---|---|
 | P0.1 | repo skeleton (root configs, SPEC/STATUS) | 0 | — | pending | 0 |  |
-| P0.2 | packages/core: Store interface + memory impl + error registry | 0 | — | pending | 0 |  |
-| ORACLE | reference env at _cpa_edge_ref (outside repo) | — | oracle-runner | impl | 0 |  |
+| P0.2 | packages/core: Store interface + memory impl + error registry | 0 | impl-p0-core | impl | 0 |  |
+| ORACLE | reference env at _cpa_edge_ref (outside repo) | — | — | merged | 0 | v7.3.4 anchor; image digest recorded; 17 probes; recordable/credentialed table; harness proven |
 | S1 | spec: endpoint inventory | 1 | — | pending | 0 |  |
 | S2d1 | spec: OpenAI client → Gemini upstream | 1 | — | pending | 0 |  |
 | S2d2 | spec: Gemini client → OpenAI upstream | 1 | — | pending | 0 |  |
