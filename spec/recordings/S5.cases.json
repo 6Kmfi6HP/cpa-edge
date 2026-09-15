@@ -12,7 +12,8 @@
       "Date response header",
       "X-Cpa-* values (build metadata)",
       "Content-Length recomputed after masking",
-      "port numbers (8387 / 19999-20007) when the contract harness substitutes ports"
+      "port numbers (8387 / 19999-20007) when the contract harness substitutes ports",
+      "per-case dynamic_fields lists below contain ONLY case-specific fields; Date and port numbers are global (this note is the N8 gate-round-1 dedupe)"
     ],
     "port_substitution": "Case bodies below are drafted against the oracle-runner-2 stack (base_url 127.0.0.1:8387; mocks 19999 openai, 20001 gemini, 20002 claude, 20003 codex, 20004 xai, 20005 meta, 20006 interactions, 20007 vertex). The assigned recording worker oracle-runner-4 executes them with the mechanical port map 8387->8407, 19999->21999, 20001->22001, 20002->22002, 20003->22003, 20004->22004, 20005->22005, 20006->22006, 20007->22007. Port numbers anywhere in a transcript are masked dynamic fields for contract replay; everything else is compared byte-exactly."
   },
@@ -34,10 +35,7 @@
         "status": 401,
         "body": "{\"error\":\"missing management key\"}"
       },
-      "dynamic_fields": [
-        "Date",
-        "port numbers in URLs/paths"
-      ],
+      "dynamic_fields": [],
       "classification": "RECORDABLE"
     },
     {
@@ -59,10 +57,7 @@
         "status": 401,
         "body": "{\"error\":\"invalid management key\"}"
       },
-      "dynamic_fields": [
-        "Date",
-        "port numbers in URLs/paths"
-      ],
+      "dynamic_fields": [],
       "classification": "RECORDABLE"
     },
     {
@@ -84,10 +79,7 @@
         "status": 200,
         "body": "{\"api-keys\":[\"oracle-local-key-1\"]}"
       },
-      "dynamic_fields": [
-        "Date",
-        "port numbers in URLs/paths"
-      ],
+      "dynamic_fields": [],
       "classification": "RECORDABLE"
     },
     {
@@ -109,10 +101,7 @@
         "status": 404,
         "body": ""
       },
-      "dynamic_fields": [
-        "Date",
-        "port numbers in URLs/paths"
-      ],
+      "dynamic_fields": [],
       "classification": "RECORDABLE"
     },
     {
@@ -144,10 +133,7 @@
           "\"port\""
         ]
       },
-      "dynamic_fields": [
-        "Date",
-        "port numbers in URLs/paths"
-      ],
+      "dynamic_fields": [],
       "classification": "RECORDABLE"
     },
     {
@@ -251,10 +237,7 @@
           "{\"debug\":false}"
         ]
       },
-      "dynamic_fields": [
-        "Date",
-        "port numbers in URLs/paths"
-      ],
+      "dynamic_fields": [],
       "classification": "RECORDABLE"
     },
     {
@@ -422,10 +405,7 @@
           "step 8 back to [\"oracle-local-key-1\"]"
         ]
       },
-      "dynamic_fields": [
-        "Date",
-        "port numbers in URLs/paths"
-      ],
+      "dynamic_fields": [],
       "classification": "RECORDABLE"
     },
     {
@@ -517,10 +497,7 @@
           "{\"status\":\"ok\"}"
         ]
       },
-      "dynamic_fields": [
-        "Date",
-        "port numbers in URLs/paths"
-      ],
+      "dynamic_fields": [],
       "classification": "RECORDABLE"
     },
     {
@@ -646,9 +623,7 @@
         ]
       },
       "dynamic_fields": [
-        "Date",
-        "auth-index values in list responses",
-        "port numbers in URLs/paths"
+        "auth-index values in list responses"
       ],
       "classification": "RECORDABLE"
     },
@@ -820,9 +795,7 @@
         ]
       },
       "dynamic_fields": [
-        "Date",
-        "auth-index values in list responses",
-        "port numbers in URLs/paths"
+        "auth-index values in list responses"
       ],
       "classification": "RECORDABLE"
     },
@@ -903,9 +876,7 @@
         ]
       },
       "dynamic_fields": [
-        "Date",
-        "auth-index values in list responses",
-        "port numbers in URLs/paths"
+        "auth-index values in list responses"
       ],
       "classification": "RECORDABLE"
     },
@@ -1042,7 +1013,6 @@
         ]
       },
       "dynamic_fields": [
-        "Date",
         "observed_at",
         "auth_index",
         "id",
@@ -1052,8 +1022,7 @@
         "recent_requests bucket timestamps",
         "quota.observed_at",
         "cooldowns",
-        "path (container paths)",
-        "port numbers in URLs/paths"
+        "path (container paths)"
       ],
       "classification": "RECORDABLE"
     },
@@ -1264,10 +1233,7 @@
           "step 15: {\"error\":\"name is required\"}"
         ]
       },
-      "dynamic_fields": [
-        "Date",
-        "port numbers in URLs/paths"
-      ],
+      "dynamic_fields": [],
       "classification": "RECORDABLE"
     },
     {
@@ -1332,10 +1298,8 @@
         ]
       },
       "dynamic_fields": [
-        "Date",
         "recent_requests bucket timestamps",
-        "observed_at-like fields",
-        "port numbers in URLs/paths"
+        "observed_at-like fields"
       ],
       "classification": "RECORDABLE"
     },
@@ -1429,10 +1393,7 @@
         ],
         "aux_note": "AUX-1 GET /v0/management/gemini-api-key supplies a real auth-index for step 4; the openai-compatibility entry exposes an EMPTY entry-level auth-index while its api-key-entries carry real ones"
       },
-      "dynamic_fields": [
-        "Date",
-        "port numbers in URLs/paths"
-      ],
+      "dynamic_fields": [],
       "classification": "RECORDABLE"
     },
     {
@@ -1556,10 +1517,7 @@
           "step 11 (RECORDED): {\"error\":\"log directory not found\"} (logging-to-file:false and no log dir present)"
         ]
       },
-      "dynamic_fields": [
-        "Date",
-        "port numbers in URLs/paths"
-      ],
+      "dynamic_fields": [],
       "classification": "RECORDABLE"
     },
     {
@@ -1625,10 +1583,7 @@
           "step 5 (ADDENDUM, recorded): GET /model-definitions/unknown -> 400 {\"channel\":\"unknown\",\"error\":\"unknown channel\"} (gin.H alphabetical)"
         ]
       },
-      "dynamic_fields": [
-        "Date",
-        "port numbers in URLs/paths"
-      ],
+      "dynamic_fields": [],
       "classification": "RECORDABLE"
     },
     {
@@ -1762,10 +1717,7 @@
           "step 12 (ADDENDUM, recorded): POST /oauth-callback with body \"not json\" -> 400 {\"error\":\"invalid body\",\"status\":\"error\"}"
         ]
       },
-      "dynamic_fields": [
-        "Date",
-        "port numbers in URLs/paths"
-      ],
+      "dynamic_fields": [],
       "classification": "RECORDABLE"
     },
     {
@@ -1876,10 +1828,8 @@
         ]
       },
       "dynamic_fields": [
-        "Date",
         "header map values inside api-call response (mock Server/Date)",
-        "ts field in upstream.jsonl",
-        "port numbers in URLs/paths"
+        "ts field in upstream.jsonl"
       ],
       "classification": "RECORDABLE"
     },
@@ -1991,10 +1941,8 @@
         ]
       },
       "dynamic_fields": [
-        "Date",
         "auth-file path",
-        "observed_at/auth_index/created_at/modtime/updated_at/recent_requests/quota/cooldowns/path in step 2 list body",
-        "port numbers in URLs/paths"
+        "observed_at/auth_index/created_at/modtime/updated_at/recent_requests/quota/cooldowns/path in step 2 list body"
       ],
       "classification": "RECORDABLE"
     },
@@ -2092,9 +2040,7 @@
         ]
       },
       "dynamic_fields": [
-        "Date",
-        "bcrypt secret-key hash string in YAML bytes (step 1; steps 4/6 bodies are the request bytes as sent)",
-        "port numbers in URLs/paths"
+        "bcrypt secret-key hash string in YAML bytes (step 1; steps 4/6 bodies are the request bytes as sent)"
       ],
       "classification": "RECORDABLE"
     },
@@ -2187,9 +2133,7 @@
         ]
       },
       "dynamic_fields": [
-        "Date",
-        "plugins_dir resolved absolute path if the binary returns one",
-        "port numbers in URLs/paths"
+        "plugins_dir resolved absolute path if the binary returns one"
       ],
       "classification": "RECORDABLE"
     }

@@ -1,4 +1,4 @@
-# S5-vertex-import downstream (exact bytes, 8 steps)
+# S5-vertex-import downstream (exact bytes, 9 steps)
 
 ## STEP 1 — POST /v0/management/vertex/import
 
@@ -199,3 +199,28 @@ Content-Length: 31
 ```
 
 HTTP status: 404
+
+## STEP 9 — POST /v0/management/vertex/import
+
+### Status + response headers (received order)
+```
+HTTP/1.1 400 Bad Request
+Access-Control-Allow-Headers: *
+Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS
+Access-Control-Allow-Origin: *
+Access-Control-Expose-Headers: X-CPA-TRACE-ID, X-CPA-VERSION, X-CPA-COMMIT, X-CPA-BUILD-DATE, X-CPA-SUPPORT-PLUGIN, X-CPA-HOME-VERSION, X-CPA-HOME-BUILD-DATE, X-SERVER-VERSION, X-SERVER-BUILD-DATE, Location, Retry-After, X-Request-Id, OpenAI-Request-Id
+Content-Type: application/json; charset=utf-8
+X-Cpa-Build-Date: 2026-09-15T14:07:06Z
+X-Cpa-Commit: 8335eac
+X-Cpa-Support-Plugin: 1
+X-Cpa-Version: v7.3.4
+Date: Tue, 15 Sep 2026 18:04:45 GMT
+Content-Length: 97
+```
+
+### Body
+```
+{"error":"invalid service account","message":"private_key is not valid pem: missing pem markers"}
+```
+
+HTTP status: 400

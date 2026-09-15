@@ -96,6 +96,16 @@
    "aux": false,
    "http_status": 404,
    "expect_status": 404
+  },
+  {
+   "seq": 9,
+   "label": "STEP 9 \u2014 POST /v0/management/vertex/import",
+   "method": "POST",
+   "path": "/v0/management/vertex/import",
+   "note": "addendum step: drafted fake-PEM service account (gate round-1 ruling B2)",
+   "aux": false,
+   "http_status": 400,
+   "expect_status": 400
   }
  ],
  "mismatches": [],
@@ -104,5 +114,18 @@
   "steps 1/6: the cases-file drafted service-account content ({\"private_key\":\"mock\"}) is REJECTED by the reference: 400 {\"error\":\"invalid service account\",\"message\":\"private_key is not valid pem: missing pem markers\"}. The reference parses private_key as a real PEM key BEFORE checking project_id. To record the intended success path, the SA content embeds a locally generated synthetic RSA-2048 PKCS#8 PEM key (throwaway, included verbatim in request.http).",
   "step 5: adapted to valid PEM WITHOUT project_id so the predicted {\"error\":\"project_id missing\"} validation is reached (the drafted no-PEM content fails earlier with 'service account missing private_key').",
   "the drafted-content recording (all steps rejected, import never succeeds) is preserved as a side transcript: _cpa_edge_ref/run4/probes/S5/S5-vertex-import-drafted-content/ \u2014 it documents the validation order private_key-PEM-before-project_id and the exact error messages."
+ ],
+ "addendum": [
+  {
+   "step": 9,
+   "recorded_at": "2026-09-16T01:05:09",
+   "reason": "appended per spec-s5-mgmt gate-round-1 fix request (reports/adversary/S5.md B2): the fake-PEM rejection exchange. Re-run live on a fresh S5-baseline container; sent bytes byte-identical to the preserved drafted-content side probe (probes/S5/S5-vertex-import-drafted-content/step-1.req)",
+   "expectation_source": "gate round-1 ruling B2 (recorded-expectation from the drafted-content run)",
+   "expected": {
+    "status": 400,
+    "body": "{\"error\":\"invalid service account\",\"message\":\"private_key is not valid pem: missing pem markers\"}"
+   },
+   "mismatch": "none \u2014 matches expectation byte-exactly"
+  }
  ]
 }

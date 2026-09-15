@@ -12,7 +12,7 @@
 | P0.1 | repo skeleton (root configs, SPEC/STATUS) | 0 | — | pending | 0 |  |
 | P0.2 | packages/core: Store interface + memory impl + error registry | 0 | — | merged | 2 | impl-p0-core impl; adv round1 FAIL (B1 aliasing) -> fix-p0-core -> round2 PASS; N8 portability note carried to S6/T2 |
 | ORACLE | reference env at _cpa_edge_ref (outside repo) | — | — | merged | 0 | v7.3.4 anchor; image digest recorded; 17 probes; recordable/credentialed table; harness proven |
-| S1 | spec: endpoint inventory | 1 | spec-s1-endpoints | spec-adv-r2 | 1 | round-2 re-review queued on adv-spec-1 (after its S4 review) |
+| S1 | spec: endpoint inventory | 1 | spec-s1-endpoints | merged | 2 | ADMITTED round 2. 25 goldens (283 files). Feeds T1 routing + all handler contracts. 4 residual nits -> writer cleanup, no re-gate per reviewer. |
 | S2d1 | spec: OpenAI client → Gemini upstream | 1 | spec-s2d1-oai2gem | spec | 0 |  |
 | S2d2 | spec: Gemini client → OpenAI upstream | 1 | spec-s2d2-gem2oai | spec-fix | 1 | R1: adv-spec-4 FAIL (B1 alt=json raw mode; B2 auth transports; B3 post-translation thinking pipeline; B4 countTokens formula; B5 truncated-body re-record); NE-LENIENT registered |
 | S2d3 | spec: OpenAI client → Claude upstream | 1 | spec-s2d3-oai2cla | spec | 0 |  |
@@ -57,4 +57,4 @@
 
 ## Verdict / escalation log
 (appended by orchestrator)
-- 2026-09-16 01:3x S7 GATE: PASS (round 3). NE-S7-01..11 registry authoritative; SPEC §5 pointer added. RuntimeCapabilities adopted for I-core.
+- 2026-09-16 01:3x S1 GATE: PASS (round 2). Endpoint inventory admitted: /v1,/v1beta,/backend-api/codex,/openai/v1,/v1/realtime*,OAuth callbacks,/v0/management envelope,meta routes; R-404 encoded + pinned.

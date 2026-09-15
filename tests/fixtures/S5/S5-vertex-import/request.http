@@ -104,3 +104,18 @@ User-Agent: curl/8.7.1
 Accept: */*
 Authorization: Bearer oracle-mgmt-key-1
 
+### S5-vertex-import STEP 9 — POST /v0/management/vertex/import [drafted fake-PEM content, gate B2]
+POST /v0/management/vertex/import HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Type: multipart/form-data; boundary=X
+Content-Length: 238
+
+--X
+Content-Disposition: form-data; name="file"; filename="sa.json"
+Content-Type: application/json
+
+{"type":"service_account","project_id":"s5-project","client_email":"s5@fixture.iam.gserviceaccount.com","private_key":"mock"}
+--X--

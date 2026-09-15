@@ -387,7 +387,7 @@ FIXTURE-DEFERRED (specified, not recorded; reasons):
 - `POST /auth-files/refresh` success (`{"ok":true,"auth":...}` / `results`): performs real vendor token refresh over the network; the validation errors (400 `name or all=true is required`, 404 `auth file not found`) are recorded in S5-auth-files-errors.
 - `GET /latest-version`: response is the live GitHub release tag — version-dependent, non-deterministic; specified shape only.
 - Plugin store endpoints (`GET /plugin-store`, `POST /plugin-store/:id/install`, plugin release/quota success paths): depend on the external plugin registry network and content; only the local no-plugin envelopes are recorded (S5-plugins-list).
-- Log endpoints with `logging-to-file:true`: require a populated rotating log dir; the disabled-state envelopes are recorded (S5-logs-disabled). OPTIONAL: a follow-up recording with logs enabled may be added later.
+- Log endpoints with `logging-to-file:true`: enabled-state goldens EXIST in `tests/fixtures/S7/S7-10` (`logs-enabled-lines-and-clear`, recorded by oracle-runner-3) — S5 defers to those for the enabled-state bodies (`/logs` lines/cursor, `DELETE /logs` success, error-log listing); S5-logs-disabled pins the disabled-state envelopes on the management surface. No S5 follow-up recording needed.
 - `auth-files` list with live OAuth credentials (quota/usage fields populated): CREDENTIALED-ONLY; the synthetic-file entry shape is recorded instead.
 
 ---
