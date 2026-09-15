@@ -48,7 +48,7 @@
 | I-exec-antigravity | packages/executors: antigravity executor | 2 | — | merged | 0 | SATISFIED via direction modules per R-EXECS |
 | I-exec-custom-openai | packages/executors: custom-openai executor | 2 | — | merged | 0 | SATISFIED via direction modules per R-EXECS |
 | I-mgmt | packages/management: /v0/management | 2 | — | merged | 2 | MERGED: management complete (impl gate 2 rounds). 50 unit + S5 24/24 + S6 20/20. Ledger: NR1 overflow-record off-by-one, NR2 callback now()-stamp, N3-N10. |
-| T1 | runtimes/node integration + full contract tests | 3 | integrator-t1 | impl | 0 |  |
+| T1 | runtimes/node integration + full contract tests | 3 | — | merged | 0 | CLOSED: node runtime complete (route layer + 11 facades + management + auth plane; s1-routes 150/150; full suite 2053/2053; mgmt-gate parity fix landed). Seam inventory = ruled v1 boundary. |
 | T2 | runtimes/cloudflare (DO store, alarms, WS hibernation) | 3 | integrator-t2 | impl | 0 |  |
 | T3 | runtimes/vercel (degraded per S7) | 3 | integrator-t3 | impl | 0 |  |
 | T4 | end-to-end smoke: fixture replay vs upstream diff | 3 | — | pending | 0 |  |
@@ -57,3 +57,4 @@
 
 ## Verdict / escalation log
 (appended by orchestrator)
+- 2026-09-16 08:2x T1 CLOSED. Node runtime complete: S1 inventory full coverage, 10+1 facades wired, security gate parity fixed. Full suite 2053/2053, 0 skipped.

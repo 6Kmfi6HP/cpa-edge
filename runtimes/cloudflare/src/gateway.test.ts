@@ -651,3 +651,71 @@ describe('direction-facade smoke through the gateway', () => {
     ])
   })
 })
+
+// ---------------------------------------------------------------------------
+// S1 transport: zstd request bodies (S1-25 parity, fzstd decoder)
+// ---------------------------------------------------------------------------
+
+describe('S1 transport: zstd request bodies', () => {
+  /** Decodes embedded base64 into bytes (fixture keeps the test node-free). */
+  function b64Bytes(b64: string): Uint8Array {
+    const raw = atob(b64)
+    const out = new Uint8Array(raw.length)
+    for (let index = 0; index < raw.length; index++) {
+      out[index] = raw.charCodeAt(index)
+    }
+    return out
+  }
+
+  /**
+   * One deterministic zstd frame of the smoke chat body (produced with
+   * the reference toolchain, embedded verbatim so the test bundle stays
+   * dependency-free).
+   */
+  const ZSTD_FRAME_B64 =
+    'KLUv/SBXTQIAEkUQFaClbRVahBLa3/3/kjjL/17pMP/DEOsp13zkuWoxLAsCNi/6IiwWzmuy+QfTSjDrAUT1ZzEGBW/cJHKKzecGzyoBAG6YTQ=='
+  const ZSTD_HEADERS: ReadonlyArray<readonly [string, string]> = [
+    ['Authorization', `Bearer ${API_KEY}`],
+    ['Content-Encoding', 'zstd'],
+  ]
+
+  it('decodes a zstd body and serves the request through the facade end-to-end', async () => {
+    const { fetch, calls } = scriptedFetch(() => ({
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+      body: CLAUDE_SSE,
+    }))
+    const gateway = gatewayWith({ fetch })
+    const response = await gateway.handle(
+      makeRequest('POST', '/v1/chat/completions', ZSTD_HEADERS, b64Bytes(ZSTD_FRAME_B64)),
+    )
+    expect(response.status).toBe(200)
+    const body = await text(response)
+    expect(body).toContain('"object":"chat.completion.chunk"')
+    expect(body).toContain('Hello from mock claude upstream more')
+    // The decoded JSON reached the facade: the upstream call carries the
+    // translated request for the decoded model.
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.url).toContain('127.0.0.1:20002')
+    expect(calls[0]?.body).toContain('claude-mock-model')
+  })
+
+  it('renders the pinned magic-mismatch wording for undecodable zstd bodies', async () => {
+    const { fetch, calls } = scriptedFetch(() => ({ status: 200, headers: {}, body: '' }))
+    const gateway = gatewayWith({ fetch })
+    const response = await gateway.handle(
+      makeRequest(
+        'POST',
+        '/v1/chat/completions',
+        ZSTD_HEADERS,
+        Uint8Array.of(1, 2, 3, 4, 5, 6, 7, 8),
+      ),
+    )
+    expect(response.status).toBe(400)
+    expect(header(response, 'Content-Type')).toBe('application/json; charset=utf-8')
+    expect(await text(response)).toBe(
+      '{"error":{"message":"Invalid request: failed to decode zstd request body: invalid input: magic number mismatch","type":"invalid_request_error"}}',
+    )
+    expect(calls).toHaveLength(0)
+  })
+})
