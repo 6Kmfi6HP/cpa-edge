@@ -106,7 +106,12 @@ async function writeGatewayResponse(
         }
       }
       response.end()
-    } catch {
+    } catch (error) {
+      // Mid-stream socket failure (client gone / write error): the
+      // response cannot be completed, so drop the connection. The
+      // facade-owned stream is released below; upstream teardown is the
+      // facade's cancel() concern, not ours.
+      console.error('[gateway] response stream failed', error)
       response.destroy()
     } finally {
       reader.releaseLock()

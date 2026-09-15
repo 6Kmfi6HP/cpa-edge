@@ -14,7 +14,8 @@
  * presence, equality, stability, verbatim passthrough - are contract.
  */
 import { deriveCodexSessionId, truncateRunes } from '../oai2codex'
-import { isPlainObject, wireValueOf } from './json'
+import type { WireValue as CodexWireValue } from '../oai2codex'
+import { isPlainObject } from './json'
 
 /** Instructions text cap of the identity root (per the shared chain). */
 const IDENTITY_INSTRUCTION_RUNES = 50
@@ -89,7 +90,7 @@ function systemItemTexts(parsed: Record<string, unknown>): readonly string[] {
 }
 
 /** Canonical parts of the FIRST user message item (empty when none). */
-function identityUserParts(parsed: Record<string, unknown>): readonly unknown[] {
+function identityUserParts(parsed: Record<string, unknown>): readonly CodexWireValue[] {
   const input = parsed['input']
   if (typeof input === 'string') {
     return [{ type: 'input_text', text: input }]
@@ -100,9 +101,22 @@ function identityUserParts(parsed: Record<string, unknown>): readonly unknown[] 
     if (raw['role'] !== 'user') continue
     const content = raw['content']
     if (typeof content === 'string') return [{ type: 'input_text', text: content }]
-    if (Array.isArray(content)) return content.map((part) => wireValueOf(part))
+    if (Array.isArray(content)) return content.map((part) => toCodexWireValue(part))
   }
   return []
+}
+
+/** Narrows parsed JSON to the shared Codex wire-value type. */
+function toCodexWireValue(value: unknown): CodexWireValue {
+  if (value === null || typeof value !== 'object') return value as CodexWireValue
+  if (Array.isArray(value)) return value.map((element) => toCodexWireValue(element))
+  const out: { [key: string]: CodexWireValue } = {}
+  for (const key of Object.keys(value)) {
+    const member = (value as Record<string, unknown>)[key]
+    if (member === undefined) continue
+    out[key] = toCodexWireValue(member)
+  }
+  return out
 }
 
 /** Joined text of a message content (string or part array). */

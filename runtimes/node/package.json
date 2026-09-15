@@ -10,11 +10,12 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@cpa-edge/core": "workspace:*",
-    "@cpa-edge/translators": "workspace:*",
-    "@cpa-edge/executors": "workspace:*",
     "@cpa-edge/auth": "workspace:*",
-    "@cpa-edge/management": "workspace:*"
+    "@cpa-edge/core": "workspace:*",
+    "@cpa-edge/executors": "workspace:*",
+    "@cpa-edge/management": "workspace:*",
+    "@cpa-edge/translators": "workspace:*",
+    "fzstd": "^0.1.1"
   },
   "devDependencies": {
     "typescript": "~6.0.3",

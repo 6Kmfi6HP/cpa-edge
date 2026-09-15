@@ -536,7 +536,7 @@ export function buildTools(
   const requestTools: WireObject[] = []
   for (const tool of tools) {
     if (!isPlainObject(tool)) continue
-    requestTools.push(tool)
+    requestTools.push(tool as WireObject)
     const name = rawStringMember(tool, 'name')
     const description = rawStringMember(tool, 'description')
     const schema = tool['input_schema']

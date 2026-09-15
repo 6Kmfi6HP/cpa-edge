@@ -39,7 +39,7 @@ import {
   tryParseJson,
   wireValueOf,
 } from './json'
-import type { RawMember, RawSpan, WireObject } from './json'
+import type { RawMember, RawSpan, WireObject, WireValue } from './json'
 
 /** The image-generation tool the gateway appends under the default mode. */
 export const IMAGE_GENERATION_TOOL_JSON = '{"type":"image_generation","output_format":"png"}'
@@ -234,7 +234,7 @@ export async function translateResponsesPassthrough(
   for (const key of DELETED_RESPONSES_MEMBERS) {
     text = removeMember(text, key)
   }
-  const serviceTier = tryParseJson(rawValueAt(text, ['service_tier']))
+  const serviceTier = tryParseJson(rawValueAt(text, ['service_tier']) ?? '')
   if (serviceTier !== 'priority') text = removeMember(text, 'service_tier')
   if (ctx.thinking !== true) text = removeMember(text, 'reasoning')
 
@@ -426,7 +426,7 @@ function rebuildMessageItem(
  * cache-breakpoint member dropped on the /responses route), non-objects
  * splice verbatim.
  */
-function rebuildContentParts(content: unknown, options: InputRewriteOptions): unknown {
+function rebuildContentParts(content: unknown, options: InputRewriteOptions): WireValue {
   if (!Array.isArray(content)) return wireValueOf(content)
   return content.map((part) => {
     if (!isPlainObject(part)) return wireValueOf(part)
@@ -502,12 +502,14 @@ function rebuildReasoningItem(raw: string, parsed: Record<string, unknown>, acti
 }
 
 /** `reasoning_text` parts of a content array as `summary_text` parts. */
-function promoteReasoningParts(content: readonly unknown[]): unknown {
-  const out: unknown[] = []
+function promoteReasoningParts(content: readonly unknown[]): readonly WireValue[] {
+  const out: WireValue[] = []
   for (const part of content) {
     if (!isPlainObject(part)) continue
     if (part['type'] !== 'reasoning_text') continue
-    out.push({ type: 'summary_text', text: part['text'] })
+    const text = part['text']
+    if (typeof text !== 'string') continue
+    out.push({ type: 'summary_text', text })
   }
   return out
 }

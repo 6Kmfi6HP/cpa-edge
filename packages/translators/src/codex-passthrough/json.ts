@@ -358,6 +358,7 @@ export function rawSpanAt(text: string, path: readonly string[]): RawSpan | unde
     const index = Number(segment)
     if (!Number.isInteger(index) || index < 0 || index >= elements.length) return undefined
     const element = elements[index]
+    if (element === undefined) return undefined
     cursor = element.span.start
     end = element.span.end
   }

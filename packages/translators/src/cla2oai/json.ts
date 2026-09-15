@@ -218,11 +218,11 @@ export interface RawSpan {
 /**
  * Locates the RAW byte span of the value at a path inside a JSON document
  * that `JSON.parse` already accepted. Path segments name object members
- * or array indices (as strings). Tool arguments and tool-result payloads
+ * or array indices. Tool arguments and tool-result payloads
  * are embedded with their original spacing, so the translation needs the
  * original bytes, not a re-serialization.
  */
-export function rawSpanAt(text: string, path: readonly string[]): RawSpan | undefined {
+export function rawSpanAt(text: string, path: readonly (string | number)[]): RawSpan | undefined {
   let cursor = skipWs(text, 0)
   let end = scanValue(text, cursor)
   for (const segment of path) {
@@ -246,13 +246,13 @@ export function rawSpanAt(text: string, path: readonly string[]): RawSpan | unde
 }
 
 /** Raw text of the value at a path (see {@link rawSpanAt}). */
-export function rawValueAt(text: string, path: readonly string[]): string | undefined {
+export function rawValueAt(text: string, path: readonly (string | number)[]): string | undefined {
   const span = rawSpanAt(text, path)
   if (span === undefined) return undefined
   return text.slice(span.valueStart, span.valueEnd)
 }
 
-function locateObjectMember(text: string, start: number, key: string): RawSpan | undefined {
+function locateObjectMember(text: string, start: number, key: string | number): RawSpan | undefined {
   let member = start + 1
   for (;;) {
     member = skipWs(text, member)
@@ -263,7 +263,7 @@ function locateObjectMember(text: string, start: number, key: string): RawSpan |
     if (text[colon] !== ':') return undefined
     const valueStart = skipWs(text, colon + 1)
     const valueEnd = scanValue(text, valueStart)
-    if (name === key) return { valueStart, valueEnd }
+    if (name === String(key)) return { valueStart, valueEnd }
     const next = skipWs(text, valueEnd)
     if (text[next] === '}') return undefined
     if (text[next] !== ',') return undefined
@@ -271,8 +271,8 @@ function locateObjectMember(text: string, start: number, key: string): RawSpan |
   }
 }
 
-function locateArrayElement(text: string, start: number, index: string): RawSpan | undefined {
-  const wanted = Number(index)
+function locateArrayElement(text: string, start: number, index: string | number): RawSpan | undefined {
+  const wanted = typeof index === 'number' ? index : Number(index)
   if (!Number.isInteger(wanted) || wanted < 0) return undefined
   let element = start + 1
   if (text[skipWs(text, element)] === ']') return undefined

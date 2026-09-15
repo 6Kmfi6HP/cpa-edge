@@ -64,7 +64,7 @@ export function canonicalHeaderName(name: string): string {
   let out = ''
   let upperNext = true
   for (let i = 0; i < name.length; i++) {
-    const current = name[i]
+    const current = name.charAt(i)
     if (current === '-') {
       out += '-'
       upperNext = true

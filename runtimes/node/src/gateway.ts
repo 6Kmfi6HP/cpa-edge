@@ -976,13 +976,15 @@ export function createNodeGateway(options: NodeGatewayOptions): NodeGateway {
       }
       case 'live-sideband': {
         const callId = context.match.params['call_id'] ?? ''
+        // The id pattern validates before the upgrade check (recorded
+        // 400 for malformed ids on any transport).
+        if (!CALL_ID_PATTERN.test(callId)) {
+          return { response: charsetJson(400, plainErrorBody('Invalid Codex live call ID')) }
+        }
         if (!isWebSocketUpgrade(context)) {
           return {
             response: charsetJson(426, plainErrorBody('WebSocket upgrade required'), [['Upgrade', 'websocket']]),
           }
-        }
-        if (!CALL_ID_PATTERN.test(callId)) {
-          return { response: charsetJson(400, plainErrorBody('Invalid Codex live call ID')) }
         }
         // No live-session registry merged yet: every well-formed id is
         // the recorded unknown-call 404.
@@ -1017,20 +1019,22 @@ export function createNodeGateway(options: NodeGatewayOptions): NodeGateway {
       }
       case 'realtime-calls-sideband': {
         const callId = context.match.params['call_id'] ?? ''
+        // Id pattern first, then the upgrade check (same sideband
+        // handler semantics as /v1/live, nested envelope on this path).
+        if (!CALL_ID_PATTERN.test(callId)) {
+          return {
+            response: charsetJson(
+              400,
+              realtimeEnvelope('realtime_request_failed', 'Invalid Codex live call ID', 'invalid_request_error'),
+            ),
+          }
+        }
         if (!isWebSocketUpgrade(context)) {
           return {
             response: charsetJson(
               426,
               realtimeEnvelope('realtime_request_failed', 'WebSocket upgrade required', 'invalid_request_error'),
               [['Upgrade', 'websocket']],
-            ),
-          }
-        }
-        if (!CALL_ID_PATTERN.test(callId)) {
-          return {
-            response: charsetJson(
-              400,
-              realtimeEnvelope('realtime_request_failed', 'Invalid Codex live call ID', 'invalid_request_error'),
             ),
           }
         }

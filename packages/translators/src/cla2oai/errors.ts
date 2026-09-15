@@ -265,3 +265,52 @@ export function buildModelCooldownResponse(input: {
     body: buildClaudeErrorEnvelope(claudeErrorTypeForStatus(input.status), message),
   }
 }
+
+// ---------------------------------------------------------------------------
+// Upstream 429 hints (cooldown windows, section 5.2)
+// ---------------------------------------------------------------------------
+
+/** Case-insensitive header lookup on an ordered header list. */
+export function headerValue(headers: ReadonlyArray<readonly [string, string]>, name: string): string | undefined {
+  const key = name.toLowerCase()
+  for (const [headerName, value] of headers) {
+    if (headerName.toLowerCase() === key) return value
+  }
+  return undefined
+}
+
+/**
+ * Integer `Retry-After` seconds of an upstream 429. Only plain decimal
+ * digits count; anything else carries no usable hint. The oracle mock's
+ * 429 body carries none, so goldens assert absence.
+ */
+export function parseRetryAfterSeconds(headers: ReadonlyArray<readonly [string, string]>): number | undefined {
+  const raw = headerValue(headers, 'retry-after')
+  if (raw === undefined || !/^[0-9]+$/.test(raw)) return undefined
+  const value = Number(raw)
+  return Number.isSafeInteger(value) ? value : undefined
+}
+
+/**
+ * Tokens-per-minute pattern of an upstream 429 body: an `error.code`
+ * containing `TPMRateLimitExceeded`, or a message naming the
+ * tokens-per-minute limit as exceeded. Without a `Retry-After` header
+ * such a failure opens the 60-second fallback window.
+ */
+export function isTpmRateLimitBody(body: string): boolean {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(body)
+  } catch {
+    return false
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return false
+  const error = (parsed as Record<string, unknown>)['error']
+  if (typeof error !== 'object' || error === null || Array.isArray(error)) return false
+  const record = error as Record<string, unknown>
+  const code = typeof record['code'] === 'string' ? record['code'] : ''
+  if (code.includes('TPMRateLimitExceeded')) return true
+  const message = typeof record['message'] === 'string' ? record['message'] : ''
+  const lower = message.toLowerCase()
+  return lower.includes('tokens per minute') && lower.includes('limit') && lower.includes('exceeded')
+}

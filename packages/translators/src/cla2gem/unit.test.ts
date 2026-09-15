@@ -198,7 +198,7 @@ describe('schema cleaning and identifiers', () => {
     // parses as JSON (raw splicing corrupted it before the fix).
     const requestText =
       '{"model":"gm","tools":[{"name":"t","input_schema":{"type":"object","properties":{"q":' +
-      '{"enum": ["AT&T", "5\\" socket", "a<b>"]}}}],' +
+      '{"enum": ["AT&T", "5\\" socket", "a<b>"]}}}}],' +
       '"messages":[{"role":"user","content":"go"}]}'
     const upstream = translate(requestText)
     expect(() => JSON.parse(upstream)).not.toThrow()
@@ -206,6 +206,7 @@ describe('schema cleaning and identifiers', () => {
       tools: Array<{ functionDeclarations: Array<{ parametersJsonSchema: Record<string, unknown> }> }>
     }
     const schema = body.tools[0]?.functionDeclarations[0]?.parametersJsonSchema
+    if (schema === undefined) throw new Error('cleaned schema missing from the upstream body')
     const property = (schema['properties'] as Record<string, { description?: string }>)['q']
     expect(property?.description).toBe('Allowed: AT&T, 5" socket, a<b>')
     expect(upstream).toContain('\\u0026')
@@ -947,7 +948,7 @@ async function readBody(response: Cla2GemResponse): Promise<string> {
   return out + decoder.decode()
 }
 
-function facade(store = new MemoryStore()) {
+function facade(store: Store = new MemoryStore()) {
   return createCla2GemService({
     apiKeys: ['oracle-local-key-1'],
     credentials: [{ apiKey: 'mock-gem-key', baseUrl: BASE, models: [{ name: UPSTREAM_MODEL, alias: 'gm' }] }],
@@ -1198,7 +1199,7 @@ describe('service facade', () => {
   it('a deep-but-legal tool argument still translates and streams (the cap does not over-reject)', async () => {
     const service = facade()
     const deepInput = '{"a":'.repeat(2_000) + '1' + '}'.repeat(2_000)
-    const sseReply = 'data: {"candidates":[{"content":{"parts":[{"text":"hi"}]}]}}\n\n'
+    const sseReply = 'data: {"candidates":[{"content":{"parts":[{"text":"hi"}]}}]}\n\n'
     const send: Cla2GemUpstreamSender = async () => ({
       status: 200,
       headers: [['Content-Type', 'text/event-stream']],
@@ -1223,9 +1224,9 @@ describe('service facade', () => {
     const service = facade()
     const deepArgs = '{"a":'.repeat(15_000) + '1' + '}'.repeat(15_000)
     const sseReply =
-      'data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"f","args":' + deepArgs + '}}]}}]}
-    const sseReply =
-      'data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"f","args":' + deepArgs + '}]}}]}\n\n'
+      'data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"f","args":' + deepArgs + '}}]}}]}\n\n'
+    const send: Cla2GemUpstreamSender = async () => ({
+      status: 200,
       headers: [['Content-Type', 'text/event-stream']],
       body: new Response(sseReply).body as ReadableStream<Uint8Array>,
     })

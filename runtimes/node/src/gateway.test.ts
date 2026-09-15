@@ -12,7 +12,6 @@ import {
   makeGatewayRequest,
   type NodeGateway,
   type NodeGatewayOptions,
-  type UpstreamWireRequest,
 } from './index'
 import type { GatewayRequest, GatewayResponse, HeaderList } from './index'
 
@@ -321,7 +320,9 @@ describe('S1 client auth gate', () => {
   })
 
   it('open mode: empty api-keys leaves every client route open', async () => {
-    const gateway = createNodeGateway({ config: { ...BASE_CONFIG, 'api-keys': [] } })
+    // Recorded variant V1: baseline config (no providers) minus api-keys.
+    const { 'openai-compatibility': _compat, 'claude-api-key': _claude, ...rest } = BASE_CONFIG
+    const gateway = createNodeGateway({ config: { ...rest, 'api-keys': [] } })
     const models = await gateway.handle(request('GET', '/v1/models'))
     expect(models.status).toBe(200)
     expect(await text(models)).toBe('{"data":[],"object":"list"}')
@@ -367,7 +368,7 @@ describe('S1 model lists', () => {
     expect(body).toContain('"max_tokens":64000')
     expect(body).toContain('"first_id":"claude-fable-5-dd-ledom-kcom"')
     expect(body).toContain('"has_more":false')
-    expect(body).toContain('"last_id":"claude-fable-5-dd-ledom-kcom"')
+    expect(body).toContain('"last_id":"claude-mock-model"')
     const byUa = await gateway.handle(
       request('GET', '/v1/models', [...bearer(API_KEY), ['User-Agent', 'claude-cli/1.0.72 (external, cli)']]),
     )
@@ -879,12 +880,16 @@ describe('S1 content-encoding handling', () => {
 // ---------------------------------------------------------------------------
 
 describe('route-layer hostile-input guard', () => {
+  // Nesting depth goes into a position the facades re-serialize (a
+  // tool-parameters schema), mirroring the >=10k-depth RangeError escapes
+  // found in the gem2oai/res2oai impl reviews; the guard answers 400 for
+  // the whole chat/v1beta family uniformly.
+  const deepSchema = '{"a":'.repeat(20000) + '1' + '}'.repeat(20000)
+
   it('deeply nested chat bodies surface the depth 400, not a crash', async () => {
     const gateway = gatewayWith()
-    const deep = '['.repeat(100000) + ']'.repeat(100000)
-    const response = await gateway.handle(
-      request('POST', '/v1/chat/completions', bearer(API_KEY), deep),
-    )
+    const body = `{"model":"claude-mock-model","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"t","parameters":${deepSchema}}}]}`
+    const response = await gateway.handle(request('POST', '/v1/chat/completions', bearer(API_KEY), body))
     expect(response.status).toBe(400)
     expect(await text(response)).toBe(
       '{"error":{"message":"Invalid request: exceeded max depth","type":"invalid_request_error"}}',
@@ -893,9 +898,9 @@ describe('route-layer hostile-input guard', () => {
 
   it('deeply nested v1beta bodies are caught around the facade too', async () => {
     const gateway = gatewayWith()
-    const deep = '['.repeat(100000) + ']'.repeat(100000)
+    const body = `{"contents":[{"parts":[{"text":"hi"}]}],"tools":[{"functionDeclarations":[{"name":"t","parameters":${deepSchema}}]}]}`
     const response = await gateway.handle(
-      request('POST', '/v1beta/models/mock-model:generateContent', bearer(API_KEY), deep),
+      request('POST', '/v1beta/models/mock-model:generateContent', bearer(API_KEY), body),
     )
     expect(response.status).toBe(400)
     expect(await text(response)).toBe(
