@@ -452,6 +452,8 @@ export interface ModelCooldownResponse {
 /**
  * Builds the `model_cooldown` response: HTTP 429 with a `Retry-After` of
  * the remaining seconds and the alphabetical body recorded in S2d9-12.
+ * `last_upstream_error` carries the same 256-rune summary the message
+ * suffix embeds (the sibling S2d5 envelope truncates both members).
  */
 export function buildModelCooldownResponse(input: {
   readonly model: string
@@ -464,7 +466,7 @@ export function buildModelCooldownResponse(input: {
   const message = `All credentials for model ${input.model} are cooling down via provider ${input.provider} (last error: ${summary})`
   const error: WireObject = {
     code: 'model_cooldown',
-    last_upstream_error: input.lastUpstreamError,
+    last_upstream_error: summary,
     message,
     model: input.model,
     provider: input.provider,

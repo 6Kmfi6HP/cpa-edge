@@ -421,6 +421,40 @@ describe('stream payload transforms', () => {
     expect(out).toBe('{"type":"response.completed","response":{"id":"r","output":[{"id":"one"},{"id":"two"},{"id":"unindexed"}]}}')
   })
 
+  test('a terminal missing the output member reconstructs it exactly like an empty one (4.6)', () => {
+    const state: FrameTransformState = {
+      items: [
+        { outputIndex: 1, raw: '{"id":"two"}' },
+        { outputIndex: 0, raw: '{"id":"one"}' },
+      ],
+    }
+    const missing = repairEmptyOutput('{"type":"response.completed","response":{"id":"r"}}', state)
+    expect(missing).toBe('{"type":"response.completed","response":{"id":"r","output":[{"id":"one"},{"id":"two"}]}}')
+    const empty = repairEmptyOutput('{"type":"response.completed","response":{"id":"r","output":[]}}', state)
+    expect(empty).toBe('{"type":"response.completed","response":{"id":"r","output":[{"id":"one"},{"id":"two"}]}}')
+    // Without recorded items a missing member stays missing.
+    const bare = repairEmptyOutput('{"type":"response.completed","response":{"id":"r"}}', { items: [] })
+    expect(bare).toBe('{"type":"response.completed","response":{"id":"r"}}')
+  })
+
+  test('the live transform forwards a reconstructed output when the terminal carried none', () => {
+    const ctx = { clientModel: undefined, outputRepair: { rebuild: true, hydrate: true } }
+    const state: FrameTransformState = { items: [] }
+    const done = transformFramePayload(
+      '{"type":"response.output_item.done","output_index":0,"item":{"id":"msg","type":"message"}}',
+      ctx,
+      state,
+    )
+    expect(done.kind).toBe('forward')
+    const terminal = transformFramePayload('{"type":"response.completed","response":{"id":"r"}}', ctx, state)
+    expect(terminal.kind).toBe('terminal-success')
+    if (terminal.kind !== 'terminal-success') return
+    expect(JSON.parse(terminal.payload)).toEqual({
+      type: 'response.completed',
+      response: { id: 'r', output: [{ id: 'msg', type: 'message' }] },
+    })
+  })
+
   test('id hydration fills missing ids of a non-empty output from matching done items', () => {
     const payload =
       '{"type":"response.completed","response":{"output":[{"type":"message","content":[]},{"id":"kept"}]}}'
@@ -621,6 +655,35 @@ describe('stream pipeline', () => {
       '\nevent: error\ndata: {"type":"error","error":{"code":"request_timeout","message":"' +
         'stream error: stream disconnected before completion: stream closed before response.completed' +
         '","param":null,"type":"invalid_request_error"},"sequence_number":2}\n\n',
+    ])
+  })
+
+  test('lines outside the SSE grammar are dropped, never glued into frames', async () => {
+    // Between two frames: the annotation line must not start the next one.
+    const between = await collectStream([
+      'event: response.created\ndata: {"type":"response.created","response":{"id":"r"}}\n\n',
+      'MOCK: wait 300ms after last frame\n',
+      'event: response.completed\ndata: {"type":"response.completed","response":{"id":"r","output":[]}}\n\n',
+    ])
+    expect(between).toEqual([
+      'event: response.created\ndata: {"type":"response.created","response":{"id":"r","model":"codex-mock"}}\n\n',
+      'event: response.completed\ndata: {"type":"response.completed","response":{"id":"r","output":[]}}\n\n',
+      '\n',
+    ])
+    expect(between.join('')).not.toContain('MOCK')
+
+    // The recorded S2d9-08 shape: an annotation after the last data line,
+    // then a close without a terminal - the frame flushes clean and the
+    // synthesized disconnect follows it.
+    const trailing = await collectStream([
+      'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"partial answer"}\n',
+      'MOCK: wait 300ms after last frame, then close the socket\n',
+    ])
+    expect(trailing).toEqual([
+      'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"partial answer"}\n\n',
+      '\nevent: error\ndata: {"type":"error","error":{"code":"request_timeout","message":"' +
+        'stream error: stream disconnected before completion: stream closed before response.completed' +
+        '","param":null,"type":"invalid_request_error"},"sequence_number":1}\n\n',
     ])
   })
 
@@ -1022,6 +1085,43 @@ describe('cooldown families', () => {
     })
   })
 
+  test('a >300-rune upstream error truncates in BOTH model_cooldown members', async () => {
+    const service = createCodexPassthroughService({
+      apiKeys: ['oracle-local-key-1'],
+      credentials: [
+        { apiKey: 'k', baseUrl: 'http://u', models: [{ name: 'mock-codex-upstream', alias: 'codex-mock' }] },
+      ],
+      store: new MemoryStore(),
+      now: () => FROZEN_NOW,
+    })
+    const longMessage = 'x'.repeat(320)
+    const body = `{"error":{"message":"${longMessage}","type":"usage_limit_reached","code":"usage_limit_reached","resets_in_seconds":3600}}`
+    const first = await service.handleResponses(
+      request('/v1/responses', '{"model": "codex-mock", "input": "hi", "stream": true}'),
+      async () => ({ status: 429, headers: [], body: streamOf([body]) }),
+    )
+    expect(first.status).toBe(429)
+    const second = await service.handleResponses(
+      request('/v1/responses', '{"model": "codex-mock", "input": "hi", "stream": true}'),
+      async () => {
+        throw new Error('no upstream call expected')
+      },
+    )
+    expect(second.status).toBe(429)
+    const parsed = JSON.parse(second.body as string) as {
+      error: { last_upstream_error: string; message: string }
+    }
+    const truncated = parsed.error.last_upstream_error
+    // 253 runes of the summary plus the literal `...` - on the standalone
+    // member AND inside the message suffix, like the S2d5 sibling.
+    expect(Array.from(truncated).length).toBe(256)
+    expect(truncated.startsWith('usage_limit_reached: ')).toBe(true)
+    expect(truncated.endsWith('...')).toBe(true)
+    expect(parsed.error.message).toBe(
+      `All credentials for model codex-mock are cooling down via provider codex (last error: ${truncated})`,
+    )
+  })
+
   test('an upstream 404 model_not_found arms the not-found window rendered as the enriched 503', async () => {
     const store = new MemoryStore()
     const service = createCodexPassthroughService({
@@ -1219,6 +1319,34 @@ describe('stream facade units', () => {
     expect(names).not.toContain('Keep-Alive')
     // The gateway's own CORS value wins over the upstream's.
     expect(response.headers.find(([name]) => name === 'Access-Control-Allow-Origin')?.[1]).toBe('*')
+  })
+
+  test('upstream names the gateway already set never duplicate on the SSE commit', async () => {
+    const service = buildService()
+    const response = await service.handleResponses(
+      request('/v1/responses', '{"model": "codex-mock", "input": "hi", "stream": true}'),
+      async () => ({
+        status: 200,
+        headers: [
+          ['Content-Type', 'text/event-stream'],
+          ['cache-control', 'no-transform'],
+          ['X-Extra-Note', 'one'],
+        ],
+        body: streamOf(['data: {"type":"response.completed","response":{"id":"r","output":[]}}\n\n']),
+      }),
+    )
+    expect(response.status).toBe(200)
+    // One Content-Type on the wire - the gateway-set value - whatever the
+    // upstream casing; unclaimed upstream names still copy once.
+    expect(response.headers.filter(([name]) => name.toLowerCase() === 'content-type')).toEqual([
+      ['Content-Type', 'text/event-stream'],
+    ])
+    expect(response.headers.filter(([name]) => name.toLowerCase() === 'cache-control')).toEqual([
+      ['Cache-Control', 'no-cache'],
+    ])
+    expect(response.headers.filter(([name]) => name.toLowerCase() === 'x-extra-note')).toEqual([
+      ['X-Extra-Note', 'one'],
+    ])
   })
 
   test('request-retry falls through cooling candidates to a live one', async () => {

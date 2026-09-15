@@ -268,17 +268,38 @@ export function renameTypeValue(payload: string, target: string): string {
  */
 export function repairEmptyOutput(payload: string, state: FrameTransformState): string {
   const outputSpan = rawSpanAt(payload, ['response', 'output'])
-  if (outputSpan === undefined) return payload
+  if (outputSpan === undefined) return appendMissingOutput(payload, state)
   const elements = scanArrayElements(payload, outputSpan) ?? []
   if (elements.length > 0) return payload
-  if (state.items.length === 0) return payload
+  const rebuilt = rebuiltOutputOf(state)
+  if (rebuilt === undefined) return payload
+  return payload.slice(0, outputSpan.start) + rebuilt + payload.slice(outputSpan.end)
+}
+
+/**
+ * RECONSTRUCTS the `output` member a terminal frame never carried: the
+ * rebuilt array appends at the end of the response object, mirroring the
+ * empty-`output` splice (missing-or-empty rebuilds, 4.6).
+ */
+function appendMissingOutput(payload: string, state: FrameTransformState): string {
+  const rebuilt = rebuiltOutputOf(state)
+  if (rebuilt === undefined) return payload
+  const responseSpan = rawSpanAt(payload, ['response'])
+  if (responseSpan === undefined) return payload
+  const responseText = payload.slice(responseSpan.start, responseSpan.end)
+  const updated = appendMember(responseText, { start: 0, end: responseText.length }, `"output":${rebuilt}`)
+  return payload.slice(0, responseSpan.start) + updated + payload.slice(responseSpan.end)
+}
+
+/** Serialized rebuilt output array; `undefined` when no items were recorded. */
+function rebuiltOutputOf(state: FrameTransformState): string | undefined {
+  if (state.items.length === 0) return undefined
   const indexed = state.items
     .filter((item) => item.outputIndex !== undefined)
     .sort((left, right) => (left.outputIndex ?? 0) - (right.outputIndex ?? 0))
   const unindexed = state.items.filter((item) => item.outputIndex === undefined)
   const ordered = [...indexed, ...unindexed]
-  const rebuilt = `[${ordered.map((item) => item.raw).join(',')}]`
-  return payload.slice(0, outputSpan.start) + rebuilt + payload.slice(outputSpan.end)
+  return `[${ordered.map((item) => item.raw).join(',')}]`
 }
 
 /**

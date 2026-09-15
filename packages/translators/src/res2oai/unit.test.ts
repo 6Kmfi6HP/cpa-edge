@@ -682,13 +682,62 @@ describe('S2d6 stream state machine (§3.4/§4)', () => {
   })
 
   it('finalizes open items at clean EOF without [DONE] and fails in-stream', async () => {
-    const out = await collectFrames(
-      [`data: ${chunk({ content: 'A' })}\n\n`, 'data: [DONE_MISSING]\n\n'],
-      streamContext(),
-    )
+    const out = await collectFrames([`data: ${chunk({ content: 'A' })}\n\n`], streamContext())
     expect(out).toContain('event: response.output_item.done')
     expect(out).toContain('upstream stream closed before [DONE]')
     expect(out).not.toMatch(/\n\n\n$/)
+  })
+
+  it('translates chunks whose payload carries trailing garbage after the JSON value (S1-17/S1-18 pin)', async () => {
+    const artifact = (delta: Record<string, unknown>, finish: string | null = null): string => {
+      const raw = chunk(delta, finish)
+      // The recorded mock appended one stray closing brace to every SSE chunk.
+      return `${raw.slice(0, -1)}}`
+    }
+    const out = await collectFrames(
+      [
+        `data: ${artifact({ role: 'assistant' })}\n\n`,
+        `data: ${artifact({ content: 'Hello from mock openai upstream' })}\n\n`,
+        `data: ${artifact({}, 'stop')}\n\n`,
+        'data: [DONE]\n\n',
+      ],
+      streamContext(),
+    )
+    expect(out).toContain('"delta":"Hello from mock openai upstream"')
+    expect(out).toContain('event: response.completed')
+    expect(out.endsWith('\n\n\n')).toBe(true)
+  })
+
+  it('takes the terminal-error path for completely-non-JSON payloads', async () => {
+    const out = await collectFrames(
+      [`data: ${chunk({ role: 'assistant' })}\n\n`, 'data: not json at all\n\n', 'data: [DONE]\n\n'],
+      streamContext(),
+    )
+    expect(out).toContain(
+      '\nevent: error\ndata: {"type":"error","error":{"code":"internal_server_error","message":"not json at all","param":null,"type":"server_error"},"sequence_number":2}\n\n',
+    )
+    expect(out).not.toContain('response.completed')
+  })
+
+  it('translates non-stream replies whose body carries trailing garbage (S1-18 pin)', () => {
+    const upstream = JSON.stringify({
+      id: 'chatcmpl-1',
+      object: 'chat.completion',
+      created: 1770000000,
+      model: 'mock-gpt-model',
+      choices: [{ index: 0, message: { role: 'assistant', content: 'hello' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 9, completion_tokens: 6, total_tokens: 15 },
+    })
+    const body = translateChatToResponses(`${upstream}}`, {
+      resolvedModel: 'mock-gpt-model',
+      tools: [],
+      chatTools: [],
+      toolChoice: undefined,
+      maxTokens: undefined,
+      now: () => FROZEN,
+    })
+    expect(body).toContain('"id":"chatcmpl-1"')
+    expect(body).toContain('"usage":{"input_tokens":9,"output_tokens":6,"total_tokens":15,"output_tokens_details":{"reasoning_tokens":0},"input_tokens_details":{"cached_tokens":0}}')
   })
 
   it('drops [DONE] before any choices chunk: zero frames upstream of the empty-stream gate', async () => {

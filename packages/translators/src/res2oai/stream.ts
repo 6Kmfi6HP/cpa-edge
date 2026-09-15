@@ -31,7 +31,7 @@ import {
   upstreamStreamFailure,
 } from './errors'
 import type { StreamFailure } from './errors'
-import { isPlainObject, isValidJson, readString, serializeOrdered, sortKeysDeep, tryParseJson, wireValueOf } from './json'
+import { isPlainObject, isValidJson, parseLeadingJson, readString, serializeOrdered, sortKeysDeep, wireValueOf } from './json'
 import type { WireObject } from './json'
 import { resolveCallName } from './tools'
 import { customInputOf } from './response'
@@ -47,6 +47,8 @@ export interface EmittedEvent {
 /** Result of one translator step. */
 interface StepResult {
   readonly events: readonly EmittedEvent[]
+  /** True when the payload carried no complete leading JSON value (S1-17 family pin). */
+  readonly malformed: boolean
 }
 
 /** Choices the terminal-event builder echoes from the original request, in wire order. */
@@ -141,7 +143,7 @@ export class ChatToResponsesStreamTranslator {
     this.requestedModel = ctx.requestedModel.length > 0 ? ctx.requestedModel : ctx.resolvedModel
     this.resolvedModel = ctx.resolvedModel
     this.declared = ctx.tools
-    const original = tryParseJson(ctx.originalBody)
+    const original = parseLeadingJson(ctx.originalBody)
     this.original = isPlainObject(original) ? original : undefined
   }
 
@@ -170,16 +172,21 @@ export class ChatToResponsesStreamTranslator {
    */
   acceptDataLine(data: string): StepResult {
     const events: EmittedEvent[] = []
-    const parsed = tryParseJson(data)
-    if (!isPlainObject(parsed)) return { events }
+    // Leading-value parse (S1-17/S1-18 pin): trailing bytes after the
+    // JSON value are ignored (the recorded mock appends a stray closing
+    // brace to every SSE chunk); a payload without a complete leading
+    // value is the completely-non-JSON case.
+    const parsed = parseLeadingJson(data)
+    if (parsed === undefined) return { events, malformed: true }
+    if (!isPlainObject(parsed)) return { events, malformed: false }
 
     const usage = parsed['usage']
     if (isPlainObject(usage)) this.captureUsage(usage)
 
     const objectField = parsed['object']
-    if (objectField !== undefined && objectField !== 'chat.completion.chunk') return { events }
+    if (objectField !== undefined && objectField !== 'chat.completion.chunk') return { events, malformed: false }
     const choices = parsed['choices']
-    if (!Array.isArray(choices)) return { events }
+    if (!Array.isArray(choices)) return { events, malformed: false }
 
     if (!this.started) {
       this.started = true
@@ -225,7 +232,7 @@ export class ChatToResponsesStreamTranslator {
         this.finalizeChoice(choiceIndex, events)
       }
     }
-    return { events }
+    return { events, malformed: false }
   }
 
   /**
@@ -241,9 +248,9 @@ export class ChatToResponsesStreamTranslator {
     for (const choiceIndex of [...this.choices.keys()].sort((a, b) => a - b)) {
       this.finalizeChoice(choiceIndex, events)
     }
-    if (!this.messageItemAdded && !this.functionItemAdded) return { events }
+    if (!this.messageItemAdded && !this.functionItemAdded) return { events, malformed: false }
     this.emitTerminal(events)
-    return { events }
+    return { events, malformed: false }
   }
 
   /** Clean EOF without `[DONE]`: finalizes open items, emits NO terminal. */
@@ -252,7 +259,7 @@ export class ChatToResponsesStreamTranslator {
     for (const choiceIndex of [...this.choices.keys()].sort((a, b) => a - b)) {
       this.finalizeChoice(choiceIndex, events)
     }
-    return { events }
+    return { events, malformed: false }
   }
 
   // -------------------------------------------------------------------------
@@ -721,7 +728,7 @@ export function classifyStreamError(frame: SseFrame): StreamFailure | undefined 
   if (eventName === 'error' || eventName === 'response.error' || eventName === 'response.failed') {
     return upstreamFailureOf(frame.data)
   }
-  const parsed = tryParseJson(frame.data)
+  const parsed = parseLeadingJson(frame.data)
   if (!isPlainObject(parsed)) return undefined
   const errorObject = errorObjectOf(parsed)
   if (errorObject !== undefined) return upstreamStreamFailure(errorObject)
@@ -743,7 +750,7 @@ function errorObjectOf(parsed: Record<string, unknown>): unknown | undefined {
 }
 
 function upstreamFailureOf(data: string): StreamFailure {
-  const parsed = tryParseJson(data)
+  const parsed = parseLeadingJson(data)
   if (isPlainObject(parsed)) {
     const errorObject = errorObjectOf(parsed)
     if (errorObject !== undefined) return upstreamStreamFailure(errorObject)
@@ -810,7 +817,19 @@ export async function* translateChatSseToResponsesFrames(
         }
         return
       }
-      for (const event of translator.acceptDataLine(frame.data).events) {
+      const step = translator.acceptDataLine(frame.data)
+      if (step.malformed) {
+        // Completely-non-JSON payload: the terminal-error path (the
+        // lenient leading-value parse tolerated trailing garbage above).
+        const failure = statusStreamFailure(frame.data, 502)
+        if (!committed) throw new PreCommitStreamError(failure)
+        yield {
+          kind: 'error-frame',
+          text: formatTerminalErrorFrame(options.failureEvent, failure, translator.frameCount),
+        }
+        return
+      }
+      for (const event of step.events) {
         committed = true
         yield { kind: 'event', event: event.event, data: event.data }
       }

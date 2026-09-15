@@ -22,7 +22,7 @@
  *   request inside the window answers with the 500 `model_cooldown` shape.
  */
 import { sanitizeUpstreamErrorSummary } from '@cpa-edge/core'
-import { isPlainObject, isValidJson, marshalSorted, serializeOrdered, tryParseJson, wireValueOf } from './json'
+import { isPlainObject, isValidJson, marshalSorted, parseLeadingJson, serializeOrdered, wireValueOf } from './json'
 import type { WireObject } from './json'
 import { RawJson } from './json'
 
@@ -205,7 +205,7 @@ export function sanitizeErrorDetail(value: unknown): unknown {
  * compact with sorted keys; every other body becomes `{"error":{"message":...}}`.
  */
 export function sanitizeInitialStreamError(body: string): string {
-  const parsed = tryParseJson(body)
+  const parsed = parseLeadingJson(body)
   if (isPlainObject(parsed)) {
     const error = parsed['error'] ?? (isPlainObject(parsed['response']) ? parsed['response']['error'] : undefined)
     if (error !== undefined && error !== null) {

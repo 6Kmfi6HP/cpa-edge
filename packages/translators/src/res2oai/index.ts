@@ -20,7 +20,7 @@ export type {
 } from './types'
 export type { WireObject, WireValue } from './json'
 
-export { RawJson, isPlainObject, marshalSorted, parseStrictJson, remarshalJson, serializeOrdered, sortKeysDeep, tryParseJson, wireValueOf } from './json'
+export { RawJson, isPlainObject, marshalSorted, parseLeadingJson, parseStrictJson, remarshalJson, serializeOrdered, sortKeysDeep, tryParseJson, wireValueOf } from './json'
 
 export {
   CUSTOM_TOOL_PARAMETERS,

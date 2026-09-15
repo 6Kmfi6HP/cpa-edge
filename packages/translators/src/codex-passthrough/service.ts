@@ -486,7 +486,7 @@ export function createCodexPassthroughService(options: CodexPassthroughServiceOp
       retryable: false,
       response: {
         status: 200,
-        headers: [...SSE_HEADERS, ...filterUpstreamHeaders(upstream.headers)],
+        headers: [...SSE_HEADERS, ...filterUpstreamHeaders(upstream.headers, SSE_HEADERS)],
         body: framesToReadable(bootstrap.firstFrame, bootstrap.rest),
       },
     }
@@ -780,10 +780,13 @@ function cooldownFromDocument(value: JsonValue | undefined): CooldownRecord | un
 /**
  * Copies upstream response headers downstream minus hop-by-hop pairs,
  * `Set-Cookie`, length/encoding, the gateway-reserved CORS names, the
- * gateway-proxy prefixes, and every header the upstream `Connection`
- * names.
+ * gateway-proxy prefixes, every header the upstream `Connection` names,
+ * and - case-insensitively - the names the gateway itself already set on
+ * the commit (the recorded wire carries one Content-Type, the one the
+ * gateway wrote).
  */
-function filterUpstreamHeaders(upstreamHeaders: HeaderList): HeaderList {
+function filterUpstreamHeaders(upstreamHeaders: HeaderList, gatewaySet: HeaderList): HeaderList {
+  const owned = new Set(gatewaySet.map(([name]) => name.toLowerCase()))
   const connection = headerListToRecord(upstreamHeaders)['Connection'] ?? ''
   const named = new Set(
     connection
@@ -794,6 +797,7 @@ function filterUpstreamHeaders(upstreamHeaders: HeaderList): HeaderList {
   const out: Array<[string, string]> = []
   for (const [rawName, value] of upstreamHeaders) {
     const lower = rawName.toLowerCase()
+    if (owned.has(lower)) continue
     if (HOP_BY_HOP.has(lower)) continue
     if (RESERVED_CORS.has(lower)) continue
     if (named.has(lower)) continue

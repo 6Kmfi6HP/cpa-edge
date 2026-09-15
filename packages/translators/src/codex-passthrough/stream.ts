@@ -6,8 +6,11 @@
  * downstream chunk per COMPLETE frame, with the arriving line endings
  * preserved and extended (LF -> `\n\n`, CRLF -> `\r\n\r\n`); comment and
  * `event:` lines that arrive without their data line are held and glued
- * onto the following frame. `event:` names pass through byte-identical
- * and `data:` lines re-prefix as `data: <payload>`.
+ * onto the following frame, while lines the SSE grammar does not know
+ * (no `data:`/`event:`/`id:` field, no comment, not blank) are dropped -
+ * the recorded S2d9-08 wire never carries the mock's annotation line.
+ * `event:` names pass through byte-identical and `data:` lines re-prefix
+ * as `data: <payload>`.
  *
  * Terminal handling: a `response.completed`/`response.incomplete` frame
  * (or the `response.done` alias, renamed before it is forwarded) closes
@@ -97,6 +100,10 @@ export async function* translatePassthroughStream(
       if (item.kind === 'end') break
       lastEnding = item.ending
       if (item.data === undefined) {
+        // A line outside the SSE grammar - no `event:`/`id:` field, no
+        // comment - never reaches the wire (recorded S2d9-08: the mock's
+        // plain annotation line is dropped from the forwarded bytes).
+        if (!isSseFieldLine(item.raw)) continue
         // A new `event:` line starts the next frame: one already holding
         // data completes first (recorded S2d9-13/14 - the upstream sends
         // its blocks without blank separators there). Comments and id
@@ -162,6 +169,15 @@ export async function* translatePassthroughStream(
   }
   const detail = synthesizedDetailForStatus(408, STREAM_DISCONNECTED_MESSAGE)
   yield failureAfterCommit(detail, emittedFrames)
+}
+
+/**
+ * True for non-data lines the SSE grammar recognizes: `event:`/`id:`
+ * fields and `:`-prefixed comments. Anything else is transport noise the
+ * reference framer never forwards.
+ */
+function isSseFieldLine(raw: string): boolean {
+  return raw.startsWith('event:') || raw.startsWith('id:') || raw.startsWith(':')
 }
 
 /** True when a data payload carries the response.done alias type. */

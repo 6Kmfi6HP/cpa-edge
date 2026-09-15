@@ -14,7 +14,7 @@
  * detail objects AFTER `total_tokens` (output_tokens_details first) -
  * the recorded sjson append artifact.
  */
-import { isPlainObject, readObject, readString, scanObjectMembers, serializeOrdered, sortKeysDeep, tryParseJson, wireObject } from './json'
+import { isPlainObject, parseLeadingJson, readObject, readString, scanObjectMembers, serializeOrdered, sortKeysDeep, wireObject } from './json'
 import type { WireObject } from './json'
 import { appendObjectMember } from './json'
 import { resolveCallName } from './tools'
@@ -30,7 +30,9 @@ export const COMPACTION_OBJECT = 'response.compaction'
  * output items.
  */
 export function translateChatToResponses(upstreamBody: string, ctx: ChatToResponsesContext): string {
-  const parsed = tryParseJson(upstreamBody)
+  // Leading-value parse (S1-18 pin): trailing bytes after the JSON value
+  // are ignored, mirroring the reference's best-effort upstream read.
+  const parsed = parseLeadingJson(upstreamBody)
   const record = isPlainObject(parsed) ? parsed : {}
 
   const upstreamId = readString(record, 'id') ?? ''
@@ -172,7 +174,7 @@ function toolCallArguments(call: Record<string, unknown>): string {
 
 /** Custom tool input: the `input` member of parsed arguments, else the raw arguments. */
 export function customInputOf(argumentsText: string): string {
-  const parsed = tryParseJson(argumentsText)
+  const parsed = parseLeadingJson(argumentsText)
   if (isPlainObject(parsed) && typeof parsed['input'] === 'string') return parsed['input'] as string
   return argumentsText
 }
@@ -226,7 +228,7 @@ function reasoningTokensOf(usage: Record<string, unknown>): number | undefined {
  * other bytes of the body survive untouched.
  */
 export function ensureResponsesUsageDetails(body: string): string {
-  const parsed = tryParseJson(body)
+  const parsed = parseLeadingJson(body)
   if (!isPlainObject(parsed)) return body
   if (readString(parsed, 'object') === COMPACTION_OBJECT) return body
 
@@ -251,7 +253,7 @@ export function ensureResponsesUsageDetails(body: string): string {
 /** Ensures the two detail members inside the usage object spanning [start, end). */
 function ensureInSpan(body: string, start: number, end: number): string {
   const usageText = body.slice(start, end)
-  const usage = tryParseJson(usageText)
+  const usage = parseLeadingJson(usageText)
   if (!isPlainObject(usage)) return body
   let updated = usageText
   updated = ensureDetail(updated, 'output_tokens_details', 'reasoning_tokens')
@@ -266,7 +268,7 @@ function ensureInSpan(body: string, start: number, end: number): string {
  * without the inner key gains it inside.
  */
 function ensureDetail(usageText: string, detailKey: string, innerKey: string): string {
-  const usage = tryParseJson(usageText)
+  const usage = parseLeadingJson(usageText)
   if (!isPlainObject(usage)) return usageText
   const detail = usage[detailKey]
   if (detail === undefined) {
