@@ -31,7 +31,8 @@ interface WireDeps {
   readonly verifyKey: (presented: string) => Promise<boolean>
   readonly popRecords: (count: number) => Promise<string[]>
   readonly popRecord: () => Promise<string | undefined>
-  readonly subscribe: (channel: 'usage' | 'errors') => void
+  /** Registers the live-payload sink of one subscribed connection. */
+  readonly subscribe: (channel: 'usage' | 'errors', deliver: (payload: string) => void) => void
   readonly unsubscribe: (channel: 'usage' | 'errors') => void
 }
 
@@ -46,8 +47,12 @@ function errorFrame(value: string): Uint8Array {
   return encoder.encode(`-${value}\r\n`)
 }
 
+function byteLengthOf(value: string): number {
+  return encoder.encode(value).length
+}
+
 function bulk(value: string): Uint8Array {
-  return encoder.encode(`$${value.length}\r\n${value}\r\n`)
+  return encoder.encode(`$${byteLengthOf(value)}\r\n${value}\r\n`)
 }
 
 function nilBulk(): Uint8Array {
@@ -202,7 +207,9 @@ export function openUsageWireConnection(deps: WireDeps): UsageWireConnection {
           return
         }
         subscribed = channel
-        deps.subscribe(channel)
+        deps.subscribe(channel, (payload: string): void => {
+          emit(array([bulk('message'), bulk(channel), bulk(payload)]))
+        })
         emit(array([bulk('subscribe'), bulk(channel), integer(1)]))
         if (channel === 'usage') {
           emit(array([bulk('message'), bulk(channel), bulk('{"support_refresh":true}')]))

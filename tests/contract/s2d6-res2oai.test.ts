@@ -263,20 +263,21 @@
  *     Cache-Control and Connection (exact recorded values on SSE-committed responses,
  *     ABSENT otherwise — pins "no SSE headers before commit" for the pre-frame
  *     failures: error-stream-429, stream-empty200, and the JSON 400/401 family);
- *     X-Cpa-Trace-Id — PRESENCE ONLY, matching the recorded head (the recorded
- *     absences are auth-missing, model-notfound, badbody-notfound and
- *     compact-stream-rejected — the gateway-local middleware surfaces; the suite pins
- *     that the adapter mirrors them instead of papering over them).
- *   - `Date`, `Content-Length`, `Transfer-Encoding` and the CORS block are S1/transport
- *     territory and are not compared (Content-Length is consistency-checked when the
- *     adapter emits it; the recorded Content-Length is verified against the recorded
- *     body bytes by the inventory).
+ *   - `Date`, `X-Cpa-Trace-Id`, `Content-Length`, `Transfer-Encoding` and the CORS
+ *     block are S1/transport/middleware territory and are not compared (same stance as
+ *     the S2d3/S2d7 suites; the recorded trace absences on the four gateway-local
+ *     surfaces — auth-missing, model-notfound, badbody-notfound,
+ *     compact-stream-rejected — are middleware-vs-handler split documentation, not a
+ *     facade obligation). Content-Length is consistency-checked when the adapter emits
+ *     it; the recorded Content-Length is verified against the recorded body bytes by
+ *     the inventory.
  *
  * MASKS — applied identically to recorded and produced bytes, derived from each case's
  * meta.yaml `dynamic_fields` (unknown entries fail the suite loudly):
  *   - Date: response-header only; never compared (no mask needed on bodies — the only
  *     date-like value, `created_at`, is a canned mock constant, byte-pinned).
- *   - X-Cpa-Trace-Id: presence-only comparison (see above).
+ *   - X-Cpa-Trace-Id: declared dynamic by every meta; never compared (S1 middleware
+ *     owns the header — see COMPARISON RULES).
  *   - Host/port numbers: the upstream wire-log `Host` port suffix (`:18999`) → `:<PORT>`
  *     on both sides. The client-request Host and the base-url port are harness constants.
  *   - error.message if transport-prefixed (disconnect cases only): the recorded canonical
@@ -1181,14 +1182,6 @@ async function assertDownstreamStep(
     expect(connection, `${context}: Connection`).toBe(expectedConnection)
   }
 
-  // Presence-only: the trace id VALUE is dynamic; the recorded absences (the
-  // gateway-local middleware surfaces) are part of the contract surface.
-  const expectedTrace = headerValue(expected.headers, 'x-cpa-trace-id') !== undefined
-  expect(
-    headerValue(produced.headers, 'x-cpa-trace-id') !== undefined,
-    `${context}: X-Cpa-Trace-Id presence must match the recorded head`,
-  ).toBe(expectedTrace)
-
   const producedContentLength = headerValue(produced.headers, 'content-length')
   if (producedContentLength !== undefined) {
     expect(producedContentLength, `${context}: Content-Length must match the body byte length when emitted`).toBe(
@@ -1653,6 +1646,9 @@ describe('S2d6 fixture inventory (harness self-check, adapter-independent)', () 
           String(encoder.encode(recorded.body).length),
         )
       }
+      // Fixture-shape documentation: the recording shows X-Cpa-Trace-Id on
+      // handler-written surfaces and none on the middleware-abort ones; the adapter is
+      // not bound to mirror it (S1 territory), so only the fixture is checked here.
       expect(
         (headerValue(recorded.headers, 'x-cpa-trace-id') !== undefined) === !TRACE_ABSENT_CASES.has(caseId),
         `${context}: recorded trace-header presence matches the middleware-vs-handler split`,

@@ -95,16 +95,33 @@ Field-by-field MUSTs:
 | `cache_control` (any block) | — | **Dropped** (not representable upstream). |
 | everything else (unknown fields) | — | **Dropped.** The upstream body contains only the keys listed here. |
 
-Thinking → reasoning_effort table (evidence: `openai_claude_request.go` + `internal/thinking/convert.go` `ConvertBudgetToLevel`):
+#### Thinking → `reasoning_effort` (two stages; the EFFECTIVE mapping is the contract)
 
-| `thinking` object | `reasoning_effort` |
+Stage 1 — translator (`openai_claude_request.go` + `internal/thinking/convert.go` `ConvertBudgetToLevel`): writes a PROVISIONAL `reasoning_effort` — `budget_tokens`: `-1`→`auto`, `0`→`none`, `1..512`→`minimal`, `513..1024`→`low`, `1025..8192`→`medium`, `8193..24576`→`high`, `≥24577`→`xhigh`; enabled without budget → `auto`; `adaptive`/`auto` → `output_config.effort` (lowercased/trimmed) or `xhigh`; disabled → `none`.
+
+Stage 2 — thinking pipeline (`helps.ApplyRequestThinking` → `internal/thinking/{apply,validate}.go` + `internal/thinking/provider/openai/apply.go`): runs AFTER translation, re-reads the thinking config from the ORIGINAL Claude body (`extractClaudeConfig`), validates it against the selected model's capability, and REWRITES `reasoning_effort` in the already-translated body in place (key position preserved). For openai-compatibility models configured WITHOUT a per-model `thinking:` block, the capability is `ThinkingSupport{Levels:["low","medium","high"]}` with disable not allowed and dynamic not allowed (evidence: `sdk/cliproxy/auth/api_key_model_capabilities.go` `compileOpenAICompatibleModelCapabilities`; `internal/modelconfig/model_info.go` — `UserDefined=false` for configured models, so the validated stage-2 path runs). The EFFECTIVE mapping for that default capability — the values the upstream actually receives (goldens: S2d4-thinking-budget round 1; S2d4-thinking-* round 2 below; cross-evidence: the same executor+capability shape is recorded in S2d2 goldens `gem2oai-thinking-clamps` and `gem2oai-thinking-invalid`):
+
+| Claude `thinking` | Effective upstream `reasoning_effort` |
 |---|---|
-| `{"type":"enabled","budget_tokens":B}` | `-1`→`"auto"`; `0`→`"none"`; `1..512`→`"minimal"`; `513..1024`→`"low"`; `1025..8192`→`"medium"`; `8193..24576`→`"high"`; `≥24577`→`"xhigh"` |
-| `{"type":"enabled"}` (no budget) | `"auto"` |
-| `{"type":"adaptive"}` or `{"type":"auto"}` | `output_config.effort` (lowercased/trimmed) when a non-empty string, else `"xhigh"` |
-| `{"type":"disabled"}` | `"none"` |
+| `{"type":"disabled"}` | `low` (disable not allowed → first supported level) |
+| `{"type":"enabled","budget_tokens":0}` | `low` (0 → `none` → clamped to lowest supported) |
+| `{"type":"enabled","budget_tokens":-1}` | `medium` (auto → mid-range level; dynamic not allowed) |
+| `{"type":"enabled"}` (no budget) | `medium` |
+| `{"type":"enabled","budget_tokens":1..1024}` | `low` (`minimal`/`low` clamp to the supported set) |
+| `{"type":"enabled","budget_tokens":1025..8192}` | `medium` |
+| `{"type":"enabled","budget_tokens":8193..24576}` | `high` |
+| `{"type":"enabled","budget_tokens":≥24577}` | `high` (`xhigh` clamps to the nearest supported level) |
+| `{"type":"enabled","budget_tokens":<-1}` | request fails **400** — `budget <N> cannot be converted to a valid level` (§5.2; fails before dispatch) |
+| `{"type":"adaptive"}` or `{"type":"auto"}` + `output_config.effort:"none"` | `low` |
+| `… + output_config.effort:"auto"` | `medium` |
+| `… + output_config.effort:"minimal"` | `low` |
+| `… + output_config.effort:"low"/"medium"/"high"` | unchanged |
+| `… + output_config.effort:"xhigh"` | `high` |
+| `… + output_config.effort:"max"` | `high` |
+| `… + output_config.effort:<any other string>` | request fails **400** — `level "<value>" not supported, valid levels: low, medium, high` (§5.2; fails before dispatch) |
+| `{"type":"adaptive"}` WITHOUT `output_config.effort` | `high` (stage 2 re-reads the stage-1 provisional `xhigh` from the translated body and clamps it; recorded in S2d4-thinking-adaptive-noeffort) |
 
-MUST: the effort value is then applied by the thinking layer; for user-defined (config-declared) models like the oracle's it passes through unchanged (`internal/thinking/apply.go` `applyUserDefinedModel` → `internal/thinking/provider/openai/apply.go` `applyCompatibleOpenAI`). For models with a known registry entry the effort is clamped/validated by that entry — config-dependent, out of golden scope.
+MUST: stage-1 values are never visible to the upstream on their own — only the effective (stage-2) values are. Models configured WITH a per-model `thinking:` block (or a registry entry) take their effective values from that capability definition — config-dependent, out of golden scope.
 
 ### 3.2 Message and content conversion
 

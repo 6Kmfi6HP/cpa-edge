@@ -314,22 +314,17 @@ export interface ChannelSubscriber {
 }
 
 /**
- * Pops up to `count` records oldest-first and destructively. Records whose
- * bytes are not valid JSON surface as JSON strings, matching the pop
- * envelope.
+ * Pops up to `count` record payloads oldest-first and destructively,
+ * returning the raw stored bytes (the record JSON as enqueued). Callers
+ * decide how to embed non-JSON payloads.
  */
-export async function popUsageRecords(store: Store, count: number): Promise<JsonValue[]> {
-  const out: JsonValue[] = []
+export async function popUsageRecords(store: Store, count: number): Promise<string[]> {
+  const out: string[] = []
   for (let i = 0; i < count; i += 1) {
     const claim = await store.claim(USAGE_QUEUE, 30_000)
     if (claim === undefined) break
     await store.ack(USAGE_QUEUE, claim)
-    const text = typeof claim.payload === 'string' ? claim.payload : JSON.stringify(claim.payload)
-    try {
-      out.push(JSON.parse(text) as JsonValue)
-    } catch {
-      out.push(text)
-    }
+    out.push(typeof claim.payload === 'string' ? claim.payload : JSON.stringify(claim.payload))
   }
   return out
 }
