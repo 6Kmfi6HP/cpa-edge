@@ -235,7 +235,10 @@ function parseDownstreamSse(text: string): ReadonlyArray<{ event?: string; data:
 function assertUpstreamWire(recorded: RecordedUpstream, call: Cla2OaiUpstreamRequest, caseId: string): void {
   const context = `${caseId} upstream wire`
   expect(call.method, `${context}: method`).toBe(recorded.method)
-  expect(call.url, `${context}: url`).toBe(`${BASE_URL}${recorded.path}`)
+  // The recorded wire log separates host and path; the base-url override
+  // already ends with `/v1`, so the absolute URL is rebuilt from them.
+  const expectedUrl = `http://${recorded.headers['Host'] ?? ''}${recorded.path}`
+  expect(call.url, `${context}: url`).toBe(expectedUrl)
   const expectedPairs: Array<[string, string]> = []
   for (const [name, value] of Object.entries(recorded.headers)) {
     if (name.toLowerCase() === 'content-length') continue

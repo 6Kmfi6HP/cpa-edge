@@ -422,6 +422,10 @@ export function createGem2ClaService(options: Gem2ClaServiceOptions): Gem2ClaSer
 // ---------------------------------------------------------------------------
 
 function checkGatewayKey(request: Gem2ClaRequest, apiKeys: readonly string[]): Gem2ClaResponse | undefined {
+  // An empty configured key list leaves the surface open: the auth layer
+  // is not registered at all, so no presentation is required or checked
+  // (recorded: S1-25 config variant V1; gem2oai runs the same branch).
+  if (apiKeys.length === 0) return undefined
   const headers = headerListToRecord(request.headers)
   const googKey = readHeaderValue(headers, 'x-goog-api-key')
   const authorization = readHeaderValue(headers, 'authorization')

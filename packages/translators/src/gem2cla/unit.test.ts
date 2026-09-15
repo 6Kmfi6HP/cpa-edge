@@ -1148,6 +1148,28 @@ describe('service facade', () => {
     expect(calls).toBe(0)
   })
 
+  it('an empty apiKeys list opens the surface: no auth header still dispatches', async () => {
+    const service = makeService({ apiKeys: [] })
+    let calls = 0
+    const send: Gem2ClaUpstreamSender = async () => {
+      calls += 1
+      return { status: 200, headers: [], body: happyStream() }
+    }
+    const open = await service.handleV1beta(
+      serviceRequest('/v1beta/models/cm:generateContent', { contents: [] }, {}),
+      send,
+    )
+    expect(open.status).toBe(200)
+    expect(calls).toBe(1)
+    // Open means no auth layer runs at all: an unmatched key passes too.
+    const unmatched = await service.handleV1beta(
+      serviceRequest('/v1beta/models/cm:generateContent', { contents: [] }, { 'x-goog-api-key': 'nope' }),
+      send,
+    )
+    expect(unmatched.status).toBe(200)
+    expect(calls).toBe(2)
+  })
+
   it('unroutable paths render 404 with an empty body (R-404 style)', async () => {
     const service = makeService()
     const response = await service.handleV1beta(serviceRequest('/v1beta/models', {}), async () => {

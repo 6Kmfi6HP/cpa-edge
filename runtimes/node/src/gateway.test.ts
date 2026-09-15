@@ -873,6 +873,32 @@ describe('S1 content-encoding handling', () => {
     expect(response.status).toBe(400)
     expect(await text(response)).toContain('unsupported content encoding: br')
   })
+
+  it('a valid zstd frame decodes and reaches model resolution (fzstd round trip)', async () => {
+    const gateway = gatewayWith()
+    const content = new TextEncoder().encode('{"model": "no-such-model", "messages": []}')
+    const size = content.length
+    // Minimal zstd frame: magic (LE), single-segment header with a 1-byte
+    // frame-content-size, one last Raw block. Built by hand because the
+    // runtime ships a decoder only.
+    const header = 1 | (0 << 1) | (size << 3)
+    const frame = new Uint8Array(4 + 1 + 1 + 3 + size)
+    frame.set([0x28, 0xb5, 0x2f, 0xfd], 0)
+    frame.set([0x20], 4)
+    frame.set([size], 5)
+    frame.set([header & 0xff, (header >> 8) & 0xff, (header >> 16) & 0xff], 6)
+    frame.set(content, 9)
+    const response = await gateway.handle(
+      makeGatewayRequest('POST', '/v1/chat/completions', [...bearer(API_KEY), ['Content-Encoding', 'zstd']], frame),
+    )
+    // The body decoded and parsed: the model resolution 400 proves the
+    // JSON reached the handler (a decode failure would be the pinned
+    // magic-mismatch body instead).
+    expect(response.status).toBe(400)
+    expect(await text(response)).toBe(
+      '{"error":{"message":"unknown provider for model no-such-model","type":"invalid_request_error","code":"model_not_found","param":"model"}}',
+    )
+  })
 })
 
 // ---------------------------------------------------------------------------

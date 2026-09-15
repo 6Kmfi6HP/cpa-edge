@@ -34,8 +34,12 @@ interface WireDeps {
   readonly popRecord: () => Promise<string | undefined>
   /** Registers the live-payload sink of one subscribed connection. */
   readonly subscribe: (channel: 'usage' | 'errors', deliver: (payload: string) => void) => void
-  readonly unsubscribe: (channel: 'usage' | 'errors') => void
+  /** Removes exactly the sink that `subscribe` registered for this connection. */
+  readonly unsubscribe: (channel: 'usage' | 'errors', deliver: (payload: string) => void) => void
 }
+
+/** Live records one connection may buffer undrained before it is dropped (S6 3.5.3). */
+const SUBSCRIBER_BUFFER_RECORDS = 256
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
@@ -172,8 +176,9 @@ export function openUsageWireConnection(deps: WireDeps): UsageWireConnection {
   const reader = new RespReader()
   let output: Uint8Array[] = []
   let authenticated = false
-  let subscribed: 'usage' | 'errors' | undefined
+  let subscribed: { readonly channel: 'usage' | 'errors'; readonly deliver: (payload: string) => void } | undefined
   let closed = false
+  let bufferedRecords = 0
 
   const emit = (frame: Uint8Array): void => {
     output.push(frame)
@@ -201,13 +206,23 @@ export function openUsageWireConnection(deps: WireDeps): UsageWireConnection {
           return
         }
         if (subscribed !== undefined) {
-          emit(errorFrame(`ERR already subscribed to '${subscribed}'`))
+          emit(errorFrame(`ERR already subscribed to '${subscribed.channel}'`))
           return
         }
-        subscribed = channel
-        deps.subscribe(channel, (payload: string): void => {
+        const deliver = (payload: string): void => {
+          if (bufferedRecords >= SUBSCRIBER_BUFFER_RECORDS) {
+            // Slow subscriber: the connection is dropped and closed; the
+            // record is not buffered and later records take the queue path.
+            deps.unsubscribe(channel, deliver)
+            subscribed = undefined
+            closed = true
+            return
+          }
+          bufferedRecords += 1
           emit(array([bulk('message'), bulk(channel), bulk(payload)]))
-        })
+        }
+        subscribed = { channel, deliver }
+        deps.subscribe(channel, deliver)
         emit(array([bulk('subscribe'), bulk(channel), integer(1)]))
         if (channel === 'usage') {
           emit(array([bulk('message'), bulk(channel), bulk('{"support_refresh":true}')]))
@@ -224,8 +239,9 @@ export function openUsageWireConnection(deps: WireDeps): UsageWireConnection {
           emit(errorFrame('ERR not subscribed to any channel'))
           return
         }
+        const sink = subscribed
         subscribed = undefined
-        deps.unsubscribe(channel)
+        deps.unsubscribe(sink.channel, sink.deliver)
         emit(array([bulk('unsubscribe'), bulk(channel), integer(0)]))
         closed = true
         return
@@ -312,6 +328,7 @@ export function openUsageWireConnection(deps: WireDeps): UsageWireConnection {
     takeOutput(): Uint8Array {
       const chunks = output
       output = []
+      bufferedRecords = 0
       const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0)
       const out = new Uint8Array(total)
       let offset = 0
@@ -325,7 +342,10 @@ export function openUsageWireConnection(deps: WireDeps): UsageWireConnection {
       return closed
     },
     close(): void {
-      if (subscribed !== undefined) deps.unsubscribe(subscribed)
+      if (subscribed !== undefined) {
+        deps.unsubscribe(subscribed.channel, subscribed.deliver)
+        subscribed = undefined
+      }
       closed = true
     },
   }

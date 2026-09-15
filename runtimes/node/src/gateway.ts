@@ -28,6 +28,7 @@ import {
 } from '@cpa-edge/auth'
 import type { ManagementApi } from '@cpa-edge/management'
 import { gem2cla, gem2oai, oai2cla } from '@cpa-edge/translators'
+import { decompress as fzstdDecompress } from 'fzstd'
 import {
   claudeCredentialsForChat,
   claudeCredentialsForGemini,
@@ -108,7 +109,10 @@ export interface NodeGatewayOptions {
    * the auth-plane subset answers and every payload route 404-empties.
    */
   readonly managementApi?: ManagementApi
-  /** zstd request-body decoder (dependency requested from the orchestrator). */
+  /**
+   * zstd request-body decoder override (tests); defaults to fzstd, the
+   * node runtime's decoder (orchestrator-installed, commit de16281).
+   */
   readonly zstdDecode?: (input: Uint8Array) => Uint8Array
   /** Served control-panel HTML asset (upstream downloads it on first use). */
   readonly managementPanelHtml?: string
@@ -246,7 +250,7 @@ interface RequestContext {
 function decodeBodyBytes(
   body: Uint8Array,
   contentEncoding: string | undefined,
-  zstdDecode: ((input: Uint8Array) => Uint8Array) | undefined,
+  zstdDecode: (input: Uint8Array) => Uint8Array,
 ): BodyDecode {
   const chain = (contentEncoding ?? '')
     .split(',')
@@ -260,14 +264,12 @@ function decodeBodyBytes(
     if (token.toLowerCase() !== 'zstd') {
       return { ok: false, text: '', message: `unsupported content encoding: ${token}` }
     }
-    if (zstdDecode === undefined) {
-      // No decoder linked yet (dependency requested): every zstd body
-      // fails decode and surfaces the pinned magic-mismatch wording.
-      return { ok: false, text: '', message: ZSTD_MAGIC_MISMATCH }
-    }
     try {
       bytes = zstdDecode(bytes)
     } catch {
+      // Any decoder failure surfaces the pinned Go-parity wording
+      // (recorded S1-25 magic-mismatch golden), regardless of the
+      // library's own error text.
       return { ok: false, text: '', message: ZSTD_MAGIC_MISMATCH }
     }
   }
@@ -468,6 +470,8 @@ export function createNodeGateway(options: NodeGatewayOptions): NodeGateway {
   const capabilities = options.capabilities ?? NODE_RUNTIME_CAPABILITIES
   const fetchLike: FetchLike = options.fetch ?? ((input, init) => fetch(input, init))
   const send = makeSender(fetchLike)
+  const zstdDecode: (input: Uint8Array) => Uint8Array =
+    options.zstdDecode ?? ((input) => fzstdDecompress(input))
 
   const envManagementPassword =
     typeof process !== 'undefined' ? (process.env['MANAGEMENT_PASSWORD'] ?? '') : ''
@@ -1171,7 +1175,7 @@ export function createNodeGateway(options: NodeGatewayOptions): NodeGateway {
           bodyDecoded = decodeBodyBytes(
             request.body,
             headerValue(request.headers, 'content-encoding'),
-            options.zstdDecode,
+            zstdDecode,
           )
         }
         return bodyDecoded

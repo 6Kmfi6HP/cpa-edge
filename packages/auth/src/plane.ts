@@ -119,7 +119,16 @@ export interface AuthPlane {
   safeModeProxyResponse(request: Request): Response | null
   serveSafeModePage(request: Request): Response | null
   managementAvailable(): boolean
-  authenticateManagement(request: Request): Promise<AuthManagementVerdict>
+  /**
+   * Management key middleware (§2.2). `options.remoteAddress` overrides the
+   * construction-time transport address for this request only, so runtimes
+   * can feed each request's own socket address; when absent the
+   * construction-time dep applies.
+   */
+  authenticateManagement(
+    request: Request,
+    options?: { readonly remoteAddress?: string },
+  ): Promise<AuthManagementVerdict>
   handlePlainCallback(
     request: Request,
     provider: 'anthropic' | 'codex' | 'antigravity',
@@ -306,13 +315,16 @@ export function createAuthPlane(config: AuthPlaneConfig, deps: AuthPlaneDeps = {
       return managementService.isManagementEnabled()
     },
 
-    async authenticateManagement(request: Request): Promise<AuthManagementVerdict> {
+    async authenticateManagement(
+      request: Request,
+      options: { readonly remoteAddress?: string } = {},
+    ): Promise<AuthManagementVerdict> {
       const authorization = request.headers.get('authorization')
       const managementKey = request.headers.get('x-management-key')
       const forwardedFor = request.headers.get('x-forwarded-for')
       const realIp = request.headers.get('x-real-ip')
       const headers: ManagementRequestHeaders = {
-        remoteAddr: remoteAddress,
+        remoteAddr: options.remoteAddress ?? remoteAddress,
         ...(authorization === null ? {} : { authorization }),
         ...(managementKey === null ? {} : { 'x-management-key': managementKey }),
         ...(forwardedFor === null ? {} : { 'x-forwarded-for': forwardedFor }),
