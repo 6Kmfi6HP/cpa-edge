@@ -1,0 +1,47 @@
+# Exact downstream requests in order (file edits between steps 1/3 and 4/6)
+
+### step 1: external host file edit — file-edit add oracle-hot-key-2 (external)
+(config.yaml api-keys list edited in place; no API call; sleep 2s for the watcher)
+
+### step 2: 30 api-keys echo
+GET /v0/management/api-keys HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+
+
+### step 3: 30 /v1/models with NEW key
+GET /v1/models HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-hot-key-2
+
+
+
+
+### step 4: external host file edit — file-edit revert (external)
+(config.yaml api-keys list edited in place; no API call; sleep 2s for the watcher)
+
+### step 5: 30 api-keys echo reverted
+GET /v0/management/api-keys HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+
+
+### step 6: 30 /v1/models with removed key
+GET /v1/models HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-hot-key-2
+
+
+

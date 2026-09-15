@@ -84,7 +84,6 @@
     "Date",
     "X-CPA-* build headers",
     "ban countdown duration in body (mask; format is Go duration string like 29m59s)",
-    "Date",
     "Content-Length (recomputed after masking)",
     "instance port in Host header / redirect_uri URLs (8387 vs 18317)"
   ],

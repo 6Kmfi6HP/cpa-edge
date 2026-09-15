@@ -1,0 +1,43 @@
+{
+  "case": "S7-14",
+  "title": "config-hot-reload-external-edit",
+  "feature": "file-watcher",
+  "recorded_at": "2026-09-15T16:57:51Z",
+  "recorder": "oracle-runner-3",
+  "version": {
+    "image": "eceasy/cli-proxy-api:v7.3.4",
+    "digest": "sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+    "commit": "8335eac731946bd4eff18f500653f93736df53d6",
+    "binary_self_report": "CLIProxyAPI Version: v7.3.4, Commit: 8335eac, BuiltAt: 2026-09-15T14:07:06Z"
+  },
+  "base_url": "http://127.0.0.1:8397",
+  "client_protocol": "HTTP/1.1 via curl against the reference binary directly",
+  "upstream_provider_type": "none",
+  "stream": false,
+  "config": "worker-3 pristine template run3/run/config.yaml (port 8397, 8 mock base-urls on worker-3 ports, api-keys [oracle-local-key-1], no real credentials)",
+  "port_adaptation": "cases file defaults 18317->8397 (reference), 18999->20999 (openai mock), forwarder host publish 54545->24545 (container-internal 54545 unchanged)",
+  "dynamic_fields": [
+    "Date response header",
+    "X-Cpa-Trace-Id response header",
+    "port numbers (worker-3: reference 8397, openai mock 20999, forwarder host publish 24545)",
+    "config file sha256 at each stage",
+    "watcher reload log lines",
+    "model list created epoch if /v1/models data non-empty"
+  ],
+  "files": [
+    "downstream-2.md",
+    "downstream-3.md",
+    "downstream-5.md",
+    "downstream-6.md",
+    "request.http",
+    "upstream.jsonl",
+    "mock-response.json"
+  ],
+  "notes": [
+    "Demonstrate the file-watcher feature vercel/cloudflare lose: an EXTERNAL edit of config.yaml (never via the API) is picked up live without restart. Add a second API key, observe it in the management echo, then remove it and observe removal.",
+    "config sha256 initial: a33508ee63d2551bee3de9cb0922a0f7869cf312cd74ab24d8b8595657adace5",
+    "config sha256 after add: 35ff7d728852bca2a5c4691c4d8a1fd012c2e13458ad8f07b705fc3ad6039e8f",
+    "config sha256 after revert: a33508ee63d2551bee3de9cb0922a0f7869cf312cd74ab24d8b8595657adace5"
+  ],
+  "sequence": "fresh container; the two external edits are the only mutations"
+}

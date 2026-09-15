@@ -1,0 +1,40 @@
+### S5-usage-telemetry STEP 1 — GET /v0/management/api-key-usage
+GET /v0/management/api-key-usage HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-usage-telemetry STEP 2 — GET /v0/management/usage-queue
+GET /v0/management/usage-queue HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-usage-telemetry STEP 3 — GET /v0/management/usage-queue?count=abc
+GET /v0/management/usage-queue?count=abc HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-usage-telemetry STEP 4 — GET /v0/management/usage-queue?count=0
+GET /v0/management/usage-queue?count=0 HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+### S5-usage-telemetry STEP 5 — GET /v0/management/usage-queue?count=3
+GET /v0/management/usage-queue?count=3 HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+

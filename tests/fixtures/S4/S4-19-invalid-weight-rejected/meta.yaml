@@ -1,0 +1,15 @@
+{
+ "id": "S4-19-invalid-weight-rejected",
+ "purpose": "Weight validation: a credential weight > 1,000,000 (or non-integer) makes the server refuse to start (config-load validation), and a reload that introduces it keeps the old config running.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image eceasy/cli-proxy-api:v7.3.4 (digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266)",
+ "recorded_at": "2026-09-15T23:59:18",
+ "steps": [
+  "startup-invalid",
+  "hot-reload-invalid-then-request"
+ ],
+ "dynamic_fields": [
+  "timestamps in logs",
+  "Date",
+  "X-Cpa-Trace-Id"
+ ]
+}

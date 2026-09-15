@@ -20,7 +20,7 @@
 | S2d5 | spec: OpenAI client → Codex/Responses upstream | 1 | spec-s2d5-oai2codex | spec | 0 |  |
 | S2d6 | spec: Responses client → OpenAI chat upstream | 1 | spec-s2d6-res2oai | spec | 0 |  |
 | S2d7 | spec: Gemini client → Claude upstream | 1 | spec-s2d7-gem2cla | spec | 0 |  |
-| S2d8 | spec: Claude client → Gemini upstream | 1 | spec-s2d8-cla2gem | spec | 0 |  |
+| S2d8 | spec: Claude client → Gemini upstream | 1 | spec-s2d8-cla2gem | spec | 0 | section+18 cases done; rulings sent; recording queued w5 |
 | S2d9 | spec: Codex/Responses passthrough semantics | 1 | spec-s2d9-codex | spec | 0 |  |
 | S2d10 | spec: Antigravity redirect rules | 1 | spec-s2d10-antigravity | spec | 0 |  |
 | S3 | spec: auth flows | 1 | spec-s3-auth | spec | 0 |  |

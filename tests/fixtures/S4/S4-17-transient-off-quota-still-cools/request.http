@@ -1,0 +1,47 @@
+### Step 1
+POST /v1/chat/completions HTTP/1.1
+Host: 127.0.0.1:18317
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-local-key-1
+Content-Type: application/json
+Content-Type: application/json
+Content-Length: 89
+
+{"model": "mock-model", "messages": [{"role": "user", "content": "s4"}], "stream": false}
+
+### Step 2
+POST /v1/chat/completions HTTP/1.1
+Host: 127.0.0.1:18317
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-local-key-1
+Content-Type: application/json
+Content-Type: application/json
+Content-Length: 89
+
+{"model": "mock-model", "messages": [{"role": "user", "content": "s4"}], "stream": false}
+
+### Step 4
+POST /v1/chat/completions HTTP/1.1
+Host: 127.0.0.1:18317
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-local-key-1
+Content-Type: application/json
+Content-Type: application/json
+Content-Length: 89
+
+{"model": "mock-model", "messages": [{"role": "user", "content": "s4"}], "stream": false}
+
+### Step 5
+POST /v1/chat/completions HTTP/1.1
+Host: 127.0.0.1:18317
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-local-key-1
+Content-Type: application/json
+Content-Type: application/json
+Content-Length: 89
+
+{"model": "mock-model", "messages": [{"role": "user", "content": "s4"}], "stream": false}

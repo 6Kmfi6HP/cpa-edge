@@ -1,0 +1,27 @@
+# Exact downstream requests in order (file ops between steps)
+
+### step 1: external host file op — file-write fake kimi auth json (external)
+(run3/run/auths/oracle-fake-kimi.json created/deleted; sleep 2s for the watcher)
+
+### step 2: 30 auth-files list with file present
+GET /v0/management/auth-files HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+
+
+### step 3: external host file op — file-delete (external)
+(run3/run/auths/oracle-fake-kimi.json created/deleted; sleep 2s for the watcher)
+
+### step 4: 30 auth-files list after delete
+GET /v0/management/auth-files HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+

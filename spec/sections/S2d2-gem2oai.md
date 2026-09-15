@@ -50,8 +50,9 @@ Registered once under the `/v1beta` group with the standard client auth middlewa
 MUST (path parsing, evidence: `sdk/api/handlers/gemini/gemini_handlers.go` `GeminiHandler`):
 - The `*action` wildcard captures everything after `/v1beta/models/`. The gateway strips one leading `/` and splits the remainder on `:`; the model segment is everything before the FIRST colon, the method segment everything after it.
 - If the split does not yield exactly 2 segments (no colon at all), the gateway returns **404** with body `{"error":{"message":"<full request path> not found.","type":"invalid_request_error"}}`. This is a handler-written JSON 404, distinct from the route-level empty-body 404 (R-404 applies to unregistered routes).
-- If the method segment is none of `generateContent` / `streamGenerateContent` / `countTokens`, the gateway returns **200 with an empty body** (the dispatcher has no default branch). OPTIONAL to replicate exactly; a deliberate 400 is a registered non-equivalence if chosen (see §7).
+- If the method segment is none of `generateContent` / `streamGenerateContent` / `countTokens`, the gateway returns **200 with an empty body**, with no upstream dispatch and no `X-Cpa-Trace-Id` response header **[WIRE, S1-recorded]**. OPTIONAL to replicate exactly; a deliberate 400 is a registered non-equivalence if chosen (see §7).
 - The request body is read before method dispatch; unknown methods still consume the body.
+- Trailing-slash variants of these routes trigger the S1-owned redirect behavior (GET 301 / POST 307 + `Location`, no CORS headers); not pinned here.
 - `POST /v1beta/models/models/{alias}:generateContent` (the `models/`-prefixed resource form) does NOT resolve: the model segment is the literal string `models/{alias}` and the gateway answers **400** `model_not_found`. The GET single-model endpoint accepts both forms; the POST endpoints accept only the bare alias. This asymmetry MUST be preserved.
 
 ### 2.2 Auth (client side)
@@ -73,7 +74,7 @@ MUST (evidence: `internal/runtime/executor/openai_compat_executor.go` `Execute` 
 - Client headers are NOT forwarded upstream (no `User-Agent`, no `x-goog-api-key`, no custom client headers). Exception: headers configured as provider-level custom headers — OPTIONAL, not exercised by goldens.
 - The upstream body `model` field is the **upstream model name** (config `models[].name`), not the client alias: the conductor resolves the alias to the credential's model before translation (evidence: `sdk/cliproxy/auth/oauth_model_alias.go` alias tables; recorded alias rewrite `mock-model` → `mock-gpt-model`).
 - Streaming requests MUST carry `"stream":true` and `"stream_options":{"include_usage":true}` (injected by the executor). Non-streaming requests carry `"stream":false` and MUST NOT carry `stream_options`.
-- `countTokens` NEVER sends an upstream HTTP request; counting is local (see §3.4).
+- `countTokens` NEVER sends an upstream HTTP request; counting is SYNTHESIZED LOCALLY and the upstream wire log stays empty for it **[WIRE, S1-recorded]** (see §3.4). Do NOT spec count forwarding for this provider.
 - Upstream HTTP status < 200 or ≥ 300 fails the request with a status error whose message is the raw upstream body (see §5.2).
 
 ### 2.4 Model discovery (Gemini client, openai-compat provider configured)
@@ -348,9 +349,9 @@ Recording requests: `spec/recordings/S2d2.cases.json`. Layout per RECIPES (`repo
 | 11 | `gem2oai-stream-reasoning` | reasoning deltas → `{"thought":true,...}` frames; interleaved with text frames in arrival order | happy / `s2d2-stream-reasoning` |
 | 12 | `gem2oai-stream-slow` | progressive flush per translated frame (chunk count/order; inter-arrival ≥ delay) | slow (300ms) / `s2d2-stream-full` |
 | 13 | `gem2oai-stream-disconnect` | mid-stream hard close: flushed frames preserved; terminal `event: error` frame with `unexpected EOF`; HTTP stays 200 | disconnect (after 2) / `s2d2-stream-full` |
-| 14 | `gem2oai-error-429` | upstream 429 body+status VERBATIM for non-stream AND stream (no SSE headers on pre-stream failure) | error (429) |
-| 15 | `gem2oai-cooldown-after-429` | model_cooldown body (500, alphabetical keys, provider `openai-compatible-mock-openai`); NOT disabled by cooldown config | error (429) then immediate replay |
-| 16 | `gem2oai-error-in-stream-payload` | upstream error object inside a data frame → terminal `event: error` frame with payload verbatim, HTTP 200 | happy / `s2d2-stream-midstream-error` |
+| 14 | `gem2oai-error-in-stream-payload` | upstream error object inside a data frame → terminal `event: error` frame with payload verbatim, HTTP 200 | happy / `s2d2-stream-midstream-error` |
+| 15 | `gem2oai-error-429` | upstream 429 body+status VERBATIM for non-stream AND stream (no SSE headers on pre-stream failure) | error (429) |
+| 16 | `gem2oai-cooldown-after-429` | model_cooldown body (500, alphabetical keys, provider `openai-compatible-mock-openai`); NOT disabled by cooldown config | error (429) then immediate replay |
 | 17 | `gem2oai-model-resolution-errors` | unknown alias 400; `models/`-prefixed POST 400; unknown `:method` 200-empty; colon-less action 404 JSON | none (gateway-local) |
 | 18 | `gem2oai-count-tokens` | totalTokens+promptTokensDetails body; deterministic o200k count; NO upstream request | none (gateway-local) |
 | 19 | `gem2oai-models-list` | Gemini-format model list includes openai-compat alias with `models/` prefix + defaults; GET single model 200/404 | none (gateway-local) |

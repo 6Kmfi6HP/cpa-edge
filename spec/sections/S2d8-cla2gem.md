@@ -90,7 +90,7 @@ Keys that do not apply are absent (not `null`). `safetySettings` is always prese
 | `messages[].content[]` `{"type":"text"}` | `{"text":<s>}` part | Empty text `""` skipped. |
 | `messages[].content[]` `{"type":"thinking"}` | DROPPED | API-key path never preserves thinking blocks (the compat variant that keeps them is not reachable via `gemini-api-key`). |
 | `{"type":"tool_use"}` | part `{"thoughtSignature":"skip_thought_signature_validator","functionCall":{"id":<id>,"name":<sanitized>,"args":<raw>}}` | Emitted only when `input` is a valid JSON object; `id` key present only when the Claude `id` is non-empty; `args` = the raw input JSON bytes as received. `functionCall.id` is a non-standard passthrough key the upstream accepts. |
-| `{"type":"tool_result"}` | part `{"functionResponse":{"id":<tool_use_id>,"name":<fn>,"response":{"result":<r>}}}` | `tool_use_id` empty → block skipped. `<fn>` resolution: name of the matching earlier `tool_use` in this request; else the `tool_use_id` with its last `-`-segment removed; else the `tool_use_id` itself; then identifier-sanitized. `<r>`: see §3.2.5. Base64 images inside the result become separate `{"inline_data":{"mime_type":...,"data":...}}` parts appended after the `functionResponse` part. |
+| `{"type":"tool_result"}` | part `{"functionResponse":{"id":<tool_use_id>,"name":<fn>,"response":{"result":<r>}}}` | `tool_use_id` empty → block skipped. `<fn>` resolution: name of the matching earlier `tool_use` in this request; else the `tool_use_id` with its last `-`-segment removed; else the `tool_use_id` itself; then identifier-sanitized. `<r>`: see §3.2.8. Base64 images inside the result become separate `{"inline_data":{"mime_type":...,"data":...}}` parts appended after the `functionResponse` part. |
 | `{"type":"image"}` (source.type base64) | `{"inline_data":{"mime_type":<media_type>,"data":<data>}}` | Skipped when `media_type` or `data` empty; non-base64 sources skipped. |
 | `tools[]` | `tools:[{"functionDeclarations":[...]}]` | See §3.2.6. A tool without `input_schema` is skipped entirely. |
 | `tool_choice` | `toolConfig.functionCallingConfig` | `"auto"`→`{"mode":"AUTO"}`; `"none"`→`{"mode":"NONE"}`; `"any"`→`{"mode":"ANY"}`; `{"type":"tool","name":n}`→`{"mode":"ANY","allowedFunctionNames":[<sanitized n>]}`; anything else → key absent. |
@@ -121,8 +121,9 @@ Keys that do not apply are absent (not `null`). `safetySettings` is always prese
  {"category":"HARM_CATEGORY_CIVIC_INTEGRITY","threshold":"BLOCK_NONE"}]
 ```
 (evidence: `internal/translator/gemini/common/safety.go`; recorded in `upstream.jsonl`.)
-10. **Tool identifier sanitization** (evidence: `internal/util/util.go` `SanitizeFunctionName`): replace `[^a-zA-Z0-9_.:-]` with `_`; if the first character is not a letter/underscore, truncate to 63 and prepend `_`; truncate to 64. Applies to outgoing `functionDeclarations[].name`, `functionCall.name`, `functionResponse.name`, and `allowedFunctionNames` entries.
-11. **count_tokens body variant**: same translation, then `tools`, `generationConfig`, `safetySettings` are deleted; leading-user boundary (rule 7, prepend-only) is applied; trailing-user is NOT. (evidence: `internal/runtime/executor/gemini_executor.go` `CountTokens`.)
+10. **`thoughtSignature` policy on generated `functionCall` parts**: the translator stamps the fixed sentinel `skip_thought_signature_validator` on every `functionCall` part it synthesizes; a pre-send sanitizer then keeps it only on the FIRST `functionCall` of each `model` turn and strips it from later sibling `functionCall` parts (unsigned sibling calls match native Gemini parallel-call history). `functionResponse` parts never carry signatures (evidence: `internal/signature/gemini_sanitize.go`).
+11. **Tool identifier sanitization** (evidence: `internal/util/util.go` `SanitizeFunctionName`): replace `[^a-zA-Z0-9_.:-]` with `_`; if the first character is not a letter/underscore, truncate to 63 and prepend `_`; truncate to 64. Applies to outgoing `functionDeclarations[].name`, `functionCall.name`, `functionResponse.name`, and `allowedFunctionNames` entries.
+12. **count_tokens body variant**: same translation, then `tools`, `generationConfig`, `safetySettings` are deleted; leading-user boundary (rule 7, prepend-only) is applied; trailing-user is NOT. (evidence: `internal/runtime/executor/gemini_executor.go` `CountTokens`.)
 
 ### 3.3 Gemini response fields consumed (both modes)
 
@@ -185,7 +186,7 @@ Event sequence rules:
 ### 3.6 `count_tokens`
 
 - Downstream request: Claude Messages JSON (model + messages [+ system]); response: `200`, `Content-Type: application/json`, body exactly `{"input_tokens":<totalTokens>}` (evidence: `internal/translator/common/bytes.go` `ClaudeInputTokensJSON`; executor `CountTokens`).
-- Upstream: §2.2 row 3 with the §3.2.11 body variant; response `totalTokens` consumed.
+- Upstream: §2.2 row 3 with the §3.2.12 body variant; response `totalTokens` consumed. Unlike `openai-compatibility` (where the gateway synthesizes `totalTokens` locally — S1 recorded fact), the `gemini-api-key` path makes a REAL upstream `:countTokens` call; golden S2d8-13 pins the upstream request.
 - Upstream error → Claude error envelope (§4), status passthrough.
 
 ---

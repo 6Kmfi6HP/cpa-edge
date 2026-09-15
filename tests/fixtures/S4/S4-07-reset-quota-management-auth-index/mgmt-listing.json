@@ -1,0 +1,45 @@
+{
+ "openai-compatibility": [
+  {
+   "name": "mock-openai",
+   "disabled": false,
+   "base-url": "http://host.docker.internal:18999/v1",
+   "api-key-entries": [
+    {
+     "api-key": "s4-oai-key-1",
+     "auth-index": "6a5fde1a341d633e"
+    },
+    {
+     "api-key": "s4-oai-key-2",
+     "auth-index": "a42ae2a9f932510a"
+    },
+    {
+     "api-key": "s4-oai-key-3",
+     "auth-index": "9a4c4e139e376f20"
+    }
+   ],
+   "models": [
+    {
+     "name": "mock-gpt-model",
+     "alias": "mock-model"
+    },
+    {
+     "name": "mock-pool-1",
+     "alias": "pool-model"
+    },
+    {
+     "name": "mock-pool-2",
+     "alias": "pool-model"
+    },
+    {
+     "name": "mock-iso-1",
+     "alias": "iso-model-1"
+    },
+    {
+     "name": "mock-iso-2",
+     "alias": "iso-model-2"
+    }
+   ]
+  }
+ ]
+}

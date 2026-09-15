@@ -70,10 +70,10 @@ Example-API-key safe mode (evidence: `internal/safemode/example_api_keys.go`, `i
 Route gating: `/v0/management/*` handlers are registered iff at least one of {config `remote-management.secret-key`, env `MANAGEMENT_PASSWORD`, local management password} is non-empty at startup or via hot reload; otherwise every `/v0/management` request falls through to NoRoute → `404` empty body (R-404). Evidence: `internal/api/server.go` (`hasManagementSecret`), `internal/api/server_reload.go`, `internal/api/server_management.go` (`managementAvailable`). `POST|GET /v0/management/oauth-callback` is registered in the same group but WITHOUT the key middleware (see 2.4).
 
 Per-request pipeline (evidence: `internal/api/handlers/management/handler.go` `Middleware` → `AuthenticateManagementKey`):
-1. Response headers set on every management response (before any check): `X-CPA-VERSION`, `X-CPA-COMMIT`, `X-CPA-BUILD-DATE`, `X-CPA-SUPPORT-PLUGIN` (values from build info; masked as dynamic in goldens). Plus the global CORS block from S1 on all responses.
+1. Response headers set on every management response (before any check, including 401/403/404 bodies): `X-CPA-VERSION`, `X-CPA-COMMIT`, `X-CPA-BUILD-DATE`, `X-CPA-SUPPORT-PLUGIN` — emitted with Go-canonical capitalization `X-Cpa-Version: v7.3.4`, `X-Cpa-Commit: 8335eac`, `X-Cpa-Build-Date: 2026-09-15T14:07:06Z`, `X-Cpa-Support-Plugin: 1` (recorded). These headers do NOT appear on `/v1`/`/v1beta` auth rejections (those carry only the global CORS block from S1). `X-Cpa-Trace-Id` is never emitted on auth or management surfaces (it is only listed in `Access-Control-Expose-Headers`). Values are build-info constants; masked as dynamic in goldens.
 2. `clientIP = c.ClientIP()` (gin default proxy rules); `localClient` iff IP is `127.0.0.1` or `::1`.
 3. Key extraction: `Authorization: Bearer <key>` (non-bearer → whole header value), else `X-Management-Key`.
-4. Ban check first: if this IP is currently banned → `403` `{"error":"IP banned due to too many failed attempts. Try again in <remaining>"}` where `<remaining>` is a Go duration string (seconds precision, e.g. `29m59s`, `30m0s`). No failure is counted while banned; ban expiry resets the counter.
+4. Ban check first: if this IP is currently banned → `403` `{"error":"IP banned due to too many failed attempts. Try again in <remaining>"}` where `<remaining>` is a Go duration string at seconds precision (recorded observation: `30m0s` on the first banned request, which lands <1s after the ban is set). The failure that triggers the ban is itself answered `401` — only SUBSEQUENT requests get the 403. No failure is counted while banned; ban expiry resets the counter.
 5. Remote gate: `!localClient && !allowRemote` → `403` `{"error":"remote management disabled"}` (no failure counted). `allowRemote` = config `remote-management.allow-remote`; forced true when env `MANAGEMENT_PASSWORD` is set.
 6. If neither a config secret hash nor env secret exists → `403` `{"error":"remote management key not set"}` (reachable only in narrow hot-reload/env edge cases; normally routes are unregistered → 404, see above).
 7. Missing key → count one failure for the IP, `401` `{"error":"missing management key"}`.
@@ -81,7 +81,7 @@ Per-request pipeline (evidence: `internal/api/handlers/management/handler.go` `M
 9. Env secret (`MANAGEMENT_PASSWORD`), if set, compared in constant time; match → success + reset.
 10. Config secret: bcrypt compare of the presented key against `remote-management.secret-key`. Mismatch → count one failure, `401` `{"error":"invalid management key"}`. Match → success + reset.
 
-Failure counter / sliding ban (all constants are code constants; there is no config knob):
+Failure counter / sliding ban (all constants are code constants; there is no config knob). The counter is process-lifetime state keyed by client IP and accumulates across ALL requests for the lifetime of the server instance (golden replay of the ban pair must preserve the recorded request order — see §6):
 | Knob | Value | Evidence |
 |---|---|---|
 | Ban threshold | 5 consecutive counted failures (per IP) | `AuthenticateManagementKey` `maxFailures = 5` |
@@ -188,14 +188,14 @@ Session store (evidence: `internal/api/handlers/management/oauth_sessions.go`): 
 Login-URL endpoints (all `GET`, management key required, listed in 2.2's pipeline; evidence: `internal/api/handlers/management/auth_files_provider_oauth.go`):
 | Endpoint | Effect | 200 body (map-serialized; key set as shown, order alphabetical per Go JSON map marshaling — recorded fixture is authoritative) |
 |---|---|---|
-| `/v0/management/anthropic-auth-url` | Builds Claude authorize URL (PKCE + state); registers session `anthropic`; background waiter (5 min) | `{"state":<32-hex>,"status":"ok","url":<authorize URL>}` |
+| `/v0/management/anthropic-auth-url` | Builds Claude authorize URL (PKCE + state); registers session `anthropic`; background waiter (5 min) | `{"state":<32-hex>,"status":"ok","url":<authorize URL>}` — key order alphabetical (recorded) |
 | `/v0/management/codex-auth-url` | Same for Codex (`codex` session) | same shape, Codex URL |
 | `/v0/management/antigravity-auth-url` | Same for Antigravity (fixed redirect 51121) | same shape, Google URL |
 | `/v0/management/devin-auth-url` | Builds Devin URL with `redirect_uri=http://127.0.0.1:<port>/callback`; session `devin` | same shape, Devin URL |
 | `/v0/management/kimi-auth-url` | Starts LIVE Kimi device flow (network to auth.kimi.com) | `{"expires_in":<s>,"flow":"device","state":"kmi-<unixns>","status":"ok","url":<verification uri>,"user_code":<code>}` |
 | `/v0/management/xai-auth-url` | LIVE xAI OIDC discovery + device flow | same shape, `state":"xai-<unixns>"` |
 | `/v0/management/meta-auth-url` | LIVE Meta device flow | same shape, `state":"meta-<unixns>"` |
-Notes: state values for device flows embed the current Unix nanoseconds (`kmi-` for Kimi — not `kimi-`). `expires_in` falls back to the provider's max poll duration (xAI 1800, Kimi 900, Meta 900) when the device response omits it. `is_webui` query (`1|true|yes|on`) additionally starts a loopback forwarder binding the provider's fixed port (54545/1455/51121) which forwards browser callbacks to the main-port route — OPTIONAL in the serverless rewrite (runtime adapter concern).
+Notes (recorded): ALL these JSON bodies serialize keys alphabetically, including nested objects (Go map marshaling), e.g. `{"error":"...","status":"error"}`, `{"cancelled":true,"status":"ok"}` — the recorded fixtures are byte-authoritative. `&` characters inside JSON string values (the `url` query separator) are emitted as `\u0026` (Go `encoding/json` HTML escaping) — byte-relevant for the rewrite's JSON encoder. State values for device flows embed the current Unix nanoseconds (`kmi-` for Kimi — not `kimi-`). `expires_in` falls back to the provider's max poll duration (xAI 1800, Kimi 900, Meta 900) when the device response omits it. `is_webui` query (`1|true|yes|on`) additionally starts a loopback forwarder binding the provider's fixed port (54545/1455/51121) which forwards browser callbacks to the main-port route — OPTIONAL in the serverless rewrite (runtime adapter concern).
 Failure mode: any local URL-building error → `500` `{"error":"failed to generate PKCE codes"|"failed to generate state parameter"|"failed to generate authorization url"|"callback server unavailable"|"failed to start callback server"}`.
 
 Status & cancel:
@@ -251,7 +251,7 @@ Successful refresh persists the new token set through the file store (S6 pointer
 
 ### 3.1 Error bodies (auth plane)
 - Client 401 (non-realtime): `{"error":"<string>"}` — `Missing API key` / `Invalid API key`.
-- Client 401 (realtime): OpenAI-shaped object (§2.1).
+- Client 401 (realtime): OpenAI-shaped object (§2.1); recorded nested key order is alphabetical: `{"error":{"code":"invalid_api_key","message":"...","param":null,"type":"authentication_error"}}`.
 - Safe mode 403: `{"error":"unsafe_example_api_key","message":"..."}`.
 - Management 401/403: `{"error":"<message>"}` (§2.2).
 - Management OAuth session endpoints: `{"status":"ok"|"wait"|"error","error"?:string,...}` (§2.5).

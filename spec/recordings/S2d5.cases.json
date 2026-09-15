@@ -1,0 +1,2053 @@
+{
+  "$comment": "Golden-recording request list for spec section S2d5 (OpenAI Chat Completions client -> Codex/Responses upstream). Written by @spec-writer; executed by @oracle-runner-3. Deterministic by construction: every request body is fixed, every mock script is a fixed event list; only the fields listed in dynamic_fields vary.",
+  "section": "S2d5",
+  "spec_section_path": "spec/sections/S2d5-oai2codex.md",
+  "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6 (image eceasy/cli-proxy-api:v7.3.4, digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266)",
+  "fixture_root": "tests/fixtures/S2d5/",
+  "environment": {
+    "reference_config": "_cpa_edge_ref/run/config.yaml (unchanged)",
+    "codex_provider_entry": {
+      "config_key": "codex-api-key",
+      "api_key": "mock-codex-key (redact in fixtures)",
+      "base_url": "http://host.docker.internal:19003",
+      "model": "gpt-mock-codex",
+      "alias": "cx"
+    },
+    "client_auth": "Authorization: Bearer oracle-local-key-1 (downstream)",
+    "mock": "_cpa_edge_ref/mock/mock_codex.py on 127.0.0.1:19003 (reference reaches it via host.docker.internal)",
+    "downstream_base": "http://127.0.0.1:18317"
+  },
+  "dynamic_fields": [
+    "X-Cpa-Trace-Id (response header)",
+    "Date (response header)",
+    "Session-Id / prompt_cache_key derived session UUID (upstream header + body; mask per-case when derived, keep when fixed by the case)",
+    "Host, Content-Length, Accept-Encoding (transport-level headers in the upstream wire log)"
+  ],
+  "mock_control_protocol": {
+    "control_file": "mock/control/codex.json (re-read each request)",
+    "modes": {
+      "happy": "{\"mode\":\"happy\"} (or file absent) — serve the script's canned SSE (the request always carries stream:true, so the SSE branch always serves)",
+      "happy+script": "{\"mode\":\"happy\",\"script\":\"<script-name>\"} — serve that script's canned SSE (requires the mock extension below)",
+      "error": "{\"mode\":\"error\",\"status\":429} — HTTP 429 + default codex error body {\"error\":{\"message\":\"mock rate limit\",\"type\":\"rate_limit_exceeded\",\"code\":\"rate_limit_exceeded\"}}",
+      "disconnect": "{\"mode\":\"disconnect\",\"after\":5} — serve the CANNED default stream, hard-close (no chunked terminator) after N events"
+    },
+    "mock_extension_needed": "responses_common.py currently hardcodes ONE happy script. Please add a script registry: when control/script (or an X-Mock-Script header, stripped before wire logging) names a script, serve that exact (event,data) list instead. The script lists are in `scripts` below — they are plain JSON, reuse mocklib.send_sse. No other mock change needed. The mock must keep deciding stream-vs-JSON by body.stream (the reference always sends stream:true)."
+  },
+  "ordering_notes": [
+    "Run happy/script cases first; 429 and cooldown cases (S2D5-15, -16, -24) last.",
+    "Every 429 arms a ~1s rate-limit cooldown; wait >1s after each error-mode case before the next case, EXCEPT inside S2D5-24 where the pair must be back-to-back.",
+    "The mock log (mock/logs/codex.jsonl) is truncated on mock start; keep one reference+mock restart for the whole batch and copy per-case wire lines from it (or note per-case timestamps)."
+  ],
+  "scripts": {
+    "$comment": "Canned SSE event lists. Each entry: {\"event\": <SSE event name or null>, \"data\": <JSON object serialized with json.dumps>}. Framing: (\"event: <name>\\n\" if name) + \"data: <json>\\n\\n\", chunked per frame, terminated with 0\\r\\n\\r\\n (mocklib.send_sse already does this).",
+    "default": {
+      "events": [
+        {
+          "event": "response.created",
+          "data": {
+            "type": "response.created",
+            "response": {
+              "id": "resp_mock_01",
+              "object": "response",
+              "created_at": 1770000000,
+              "status": "in_progress",
+              "model": "gpt-mock-codex",
+              "output": [],
+              "usage": {
+                "input_tokens": 9,
+                "output_tokens": 6,
+                "total_tokens": 15
+              },
+              "parallel": false,
+              "tool_choice": "auto",
+              "tools": []
+            }
+          }
+        },
+        {
+          "event": "response.output_item.added",
+          "data": {
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {
+              "type": "message",
+              "id": "msg_mock_01",
+              "role": "assistant",
+              "status": "in_progress",
+              "content": []
+            }
+          }
+        },
+        {
+          "event": "response.content_part.added",
+          "data": {
+            "type": "response.content_part.added",
+            "item_id": "msg_mock_01",
+            "output_index": 0,
+            "content_index": 0,
+            "part": {
+              "type": "output_text",
+              "text": "",
+              "annotations": []
+            }
+          }
+        },
+        {
+          "event": "response.output_text.delta",
+          "data": {
+            "type": "response.output_text.delta",
+            "item_id": "msg_mock_01",
+            "output_index": 0,
+            "content_index": 0,
+            "delta": "Hello from mock codex upstream"
+          }
+        },
+        {
+          "event": "response.output_text.delta",
+          "data": {
+            "type": "response.output_text.delta",
+            "item_id": "msg_mock_01",
+            "output_index": 0,
+            "content_index": 0,
+            "delta": " more"
+          }
+        },
+        {
+          "event": "response.output_text.done",
+          "data": {
+            "type": "response.output_text.done",
+            "item_id": "msg_mock_01",
+            "output_index": 0,
+            "content_index": 0,
+            "text": "Hello from mock codex upstream more"
+          }
+        },
+        {
+          "event": "response.content_part.done",
+          "data": {
+            "type": "response.content_part.done",
+            "item_id": "msg_mock_01",
+            "output_index": 0,
+            "content_index": 0,
+            "part": {
+              "type": "output_text",
+              "text": "Hello from mock codex upstream more",
+              "annotations": []
+            }
+          }
+        },
+        {
+          "event": "response.output_item.done",
+          "data": {
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+              "type": "message",
+              "id": "msg_mock_01",
+              "role": "assistant",
+              "status": "completed",
+              "content": [
+                {
+                  "type": "output_text",
+                  "text": "Hello from mock codex upstream more",
+                  "annotations": []
+                }
+              ]
+            }
+          }
+        },
+        {
+          "event": "response.completed",
+          "data": {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_mock_01",
+              "object": "response",
+              "created_at": 1770000000,
+              "status": "completed",
+              "model": "gpt-mock-codex",
+              "output": [
+                {
+                  "type": "message",
+                  "id": "msg_mock_01",
+                  "role": "assistant",
+                  "status": "completed",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "Hello from mock codex upstream more",
+                      "annotations": []
+                    }
+                  ]
+                }
+              ],
+              "usage": {
+                "input_tokens": 9,
+                "output_tokens": 6,
+                "total_tokens": 15
+              },
+              "parallel": false,
+              "tool_choice": "auto",
+              "tools": []
+            }
+          }
+        }
+      ],
+      "$comment": "existing canned stream — already implemented in responses_common.py; listed here for completeness"
+    },
+    "s2d5-toolcall": {
+      "events": [
+        {
+          "event": "response.created",
+          "data": {
+            "type": "response.created",
+            "response": {
+              "id": "resp_mock_tool_01",
+              "object": "response",
+              "created_at": 1770000100,
+              "status": "in_progress",
+              "model": "gpt-mock-codex",
+              "output": [],
+              "usage": {
+                "input_tokens": 12,
+                "output_tokens": 3,
+                "total_tokens": 15
+              }
+            }
+          }
+        },
+        {
+          "event": "response.output_item.added",
+          "data": {
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {
+              "type": "function_call",
+              "id": "fc_mock_01",
+              "call_id": "call_mock_01",
+              "name": "mcp__jira_search_issues_with_advanced_filters_and_pagination_opt",
+              "arguments": ""
+            }
+          }
+        },
+        {
+          "event": "response.function_call_arguments.delta",
+          "data": {
+            "type": "response.function_call_arguments.delta",
+            "item_id": "fc_mock_01",
+            "output_index": 0,
+            "delta": "{\"q\":"
+          }
+        },
+        {
+          "event": "response.function_call_arguments.delta",
+          "data": {
+            "type": "response.function_call_arguments.delta",
+            "item_id": "fc_mock_01",
+            "output_index": 0,
+            "delta": "\"table\"}"
+          }
+        },
+        {
+          "event": "response.function_call_arguments.done",
+          "data": {
+            "type": "response.function_call_arguments.done",
+            "item_id": "fc_mock_01",
+            "output_index": 0,
+            "arguments": "{\"q\":\"table\"}"
+          }
+        },
+        {
+          "event": "response.output_item.done",
+          "data": {
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+              "type": "function_call",
+              "id": "fc_mock_01",
+              "call_id": "call_mock_01",
+              "name": "mcp__jira_search_issues_with_advanced_filters_and_pagination_opt",
+              "arguments": "{\"q\":\"table\"}"
+            }
+          }
+        },
+        {
+          "event": "response.completed",
+          "data": {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_mock_tool_01",
+              "object": "response",
+              "created_at": 1770000100,
+              "status": "completed",
+              "model": "gpt-mock-codex",
+              "output": [
+                {
+                  "type": "function_call",
+                  "id": "fc_mock_01",
+                  "call_id": "call_mock_01",
+                  "name": "mcp__jira_search_issues_with_advanced_filters_and_pagination_opt",
+                  "arguments": "{\"q\":\"table\"}"
+                }
+              ],
+              "usage": {
+                "input_tokens": 12,
+                "output_tokens": 3,
+                "total_tokens": 15
+              }
+            }
+          }
+        }
+      ]
+    },
+    "s2d5-reasoning": {
+      "events": [
+        {
+          "event": "response.created",
+          "data": {
+            "type": "response.created",
+            "response": {
+              "id": "resp_mock_reason_01",
+              "object": "response",
+              "created_at": 1770000200,
+              "status": "in_progress",
+              "model": "gpt-mock-codex",
+              "output": [],
+              "usage": {
+                "input_tokens": 10,
+                "output_tokens": 4,
+                "total_tokens": 14
+              }
+            }
+          }
+        },
+        {
+          "event": "response.reasoning_summary_text.delta",
+          "data": {
+            "type": "response.reasoning_summary_text.delta",
+            "item_id": "rs_mock_01",
+            "output_index": 0,
+            "summary_index": 0,
+            "delta": "Step one done."
+          }
+        },
+        {
+          "event": "response.reasoning_summary_text.delta",
+          "data": {
+            "type": "response.reasoning_summary_text.delta",
+            "item_id": "rs_mock_01",
+            "output_index": 0,
+            "summary_index": 0,
+            "delta": " Step two done."
+          }
+        },
+        {
+          "event": "response.reasoning_summary_text.done",
+          "data": {
+            "type": "response.reasoning_summary_text.done",
+            "item_id": "rs_mock_01",
+            "output_index": 0,
+            "summary_index": 0,
+            "text": "Step one done. Step two done."
+          }
+        },
+        {
+          "event": "response.output_item.done",
+          "data": {
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+              "type": "reasoning",
+              "id": "rs_mock_01",
+              "summary": [
+                {
+                  "type": "summary_text",
+                  "text": "Step one done. Step two done."
+                }
+              ]
+            }
+          }
+        },
+        {
+          "event": "response.output_item.added",
+          "data": {
+            "type": "response.output_item.added",
+            "output_index": 1,
+            "item": {
+              "type": "message",
+              "id": "msg_mock_02",
+              "role": "assistant",
+              "status": "in_progress",
+              "content": []
+            }
+          }
+        },
+        {
+          "event": "response.output_text.delta",
+          "data": {
+            "type": "response.output_text.delta",
+            "item_id": "msg_mock_02",
+            "output_index": 1,
+            "content_index": 0,
+            "delta": "Final answer."
+          }
+        },
+        {
+          "event": "response.output_text.done",
+          "data": {
+            "type": "response.output_text.done",
+            "item_id": "msg_mock_02",
+            "output_index": 1,
+            "content_index": 0,
+            "text": "Final answer."
+          }
+        },
+        {
+          "event": "response.output_item.done",
+          "data": {
+            "type": "response.output_item.done",
+            "output_index": 1,
+            "item": {
+              "type": "message",
+              "id": "msg_mock_02",
+              "role": "assistant",
+              "status": "completed",
+              "content": [
+                {
+                  "type": "output_text",
+                  "text": "Final answer.",
+                  "annotations": []
+                }
+              ]
+            }
+          }
+        },
+        {
+          "event": "response.completed",
+          "data": {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_mock_reason_01",
+              "object": "response",
+              "created_at": 1770000200,
+              "status": "completed",
+              "model": "gpt-mock-codex",
+              "output": [
+                {
+                  "type": "reasoning",
+                  "id": "rs_mock_01",
+                  "summary": [
+                    {
+                      "type": "summary_text",
+                      "text": "Step one done. Step two done."
+                    }
+                  ]
+                },
+                {
+                  "type": "message",
+                  "id": "msg_mock_02",
+                  "role": "assistant",
+                  "status": "completed",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "Final answer.",
+                      "annotations": []
+                    }
+                  ]
+                }
+              ],
+              "usage": {
+                "input_tokens": 10,
+                "output_tokens": 4,
+                "total_tokens": 14,
+                "output_tokens_details": {
+                  "reasoning_tokens": 2
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "s2d5-incomplete-length": {
+      "events": [
+        {
+          "event": "response.created",
+          "data": {
+            "type": "response.created",
+            "response": {
+              "id": "resp_mock_inc_01",
+              "object": "response",
+              "created_at": 1770000300,
+              "status": "in_progress",
+              "model": "gpt-mock-codex",
+              "output": [],
+              "usage": {
+                "input_tokens": 8,
+                "output_tokens": 5,
+                "total_tokens": 13
+              }
+            }
+          }
+        },
+        {
+          "event": "response.output_item.added",
+          "data": {
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {
+              "type": "message",
+              "id": "msg_mock_03",
+              "role": "assistant",
+              "status": "in_progress",
+              "content": []
+            }
+          }
+        },
+        {
+          "event": "response.content_part.added",
+          "data": {
+            "type": "response.content_part.added",
+            "item_id": "msg_mock_03",
+            "output_index": 0,
+            "content_index": 0,
+            "part": {
+              "type": "output_text",
+              "text": "",
+              "annotations": []
+            }
+          }
+        },
+        {
+          "event": "response.output_text.delta",
+          "data": {
+            "type": "response.output_text.delta",
+            "item_id": "msg_mock_03",
+            "output_index": 0,
+            "content_index": 0,
+            "delta": "Partial answ"
+          }
+        },
+        {
+          "event": "response.output_text.done",
+          "data": {
+            "type": "response.output_text.done",
+            "item_id": "msg_mock_03",
+            "output_index": 0,
+            "content_index": 0,
+            "text": "Partial answ"
+          }
+        },
+        {
+          "event": "response.output_item.done",
+          "data": {
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+              "type": "message",
+              "id": "msg_mock_03",
+              "role": "assistant",
+              "status": "incomplete",
+              "content": [
+                {
+                  "type": "output_text",
+                  "text": "Partial answ",
+                  "annotations": []
+                }
+              ]
+            }
+          }
+        },
+        {
+          "event": "response.incomplete",
+          "data": {
+            "type": "response.incomplete",
+            "response": {
+              "id": "resp_mock_inc_01",
+              "object": "response",
+              "created_at": 1770000300,
+              "status": "incomplete",
+              "model": "gpt-mock-codex",
+              "incomplete_details": {
+                "reason": "max_output_tokens"
+              },
+              "output": [
+                {
+                  "type": "message",
+                  "id": "msg_mock_03",
+                  "role": "assistant",
+                  "status": "incomplete",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "Partial answ",
+                      "annotations": []
+                    }
+                  ]
+                }
+              ],
+              "usage": {
+                "input_tokens": 8,
+                "output_tokens": 5,
+                "total_tokens": 13
+              }
+            }
+          }
+        }
+      ]
+    },
+    "s2d5-empty-output-patch": {
+      "events": [
+        {
+          "event": "response.created",
+          "data": {
+            "type": "response.created",
+            "response": {
+              "id": "resp_mock_patch_01",
+              "object": "response",
+              "created_at": 1770000400,
+              "status": "in_progress",
+              "model": "gpt-mock-codex",
+              "output": [],
+              "usage": {
+                "input_tokens": 7,
+                "output_tokens": 2,
+                "total_tokens": 9
+              }
+            }
+          }
+        },
+        {
+          "event": "response.output_item.added",
+          "data": {
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {
+              "type": "message",
+              "id": "msg_mock_04",
+              "role": "assistant",
+              "status": "in_progress",
+              "content": []
+            }
+          }
+        },
+        {
+          "event": "response.content_part.added",
+          "data": {
+            "type": "response.content_part.added",
+            "item_id": "msg_mock_04",
+            "output_index": 0,
+            "content_index": 0,
+            "part": {
+              "type": "output_text",
+              "text": "",
+              "annotations": []
+            }
+          }
+        },
+        {
+          "event": "response.output_text.delta",
+          "data": {
+            "type": "response.output_text.delta",
+            "item_id": "msg_mock_04",
+            "output_index": 0,
+            "content_index": 0,
+            "delta": "Patched text."
+          }
+        },
+        {
+          "event": "response.output_text.done",
+          "data": {
+            "type": "response.output_text.done",
+            "item_id": "msg_mock_04",
+            "output_index": 0,
+            "content_index": 0,
+            "text": "Patched text."
+          }
+        },
+        {
+          "event": "response.output_item.done",
+          "data": {
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+              "type": "message",
+              "id": "msg_mock_04",
+              "role": "assistant",
+              "status": "completed",
+              "content": [
+                {
+                  "type": "output_text",
+                  "text": "Patched text.",
+                  "annotations": []
+                }
+              ]
+            }
+          }
+        },
+        {
+          "event": "response.completed",
+          "data": {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_mock_patch_01",
+              "object": "response",
+              "created_at": 1770000400,
+              "status": "completed",
+              "model": "gpt-mock-codex",
+              "output": [],
+              "usage": {
+                "input_tokens": 7,
+                "output_tokens": 2,
+                "total_tokens": 9
+              }
+            }
+          }
+        }
+      ]
+    },
+    "s2d5-usage-rich": {
+      "events": [
+        {
+          "event": "response.created",
+          "data": {
+            "type": "response.created",
+            "response": {
+              "id": "resp_mock_usage_01",
+              "object": "response",
+              "created_at": 1770000500,
+              "status": "in_progress",
+              "model": "gpt-mock-codex",
+              "output": [],
+              "usage": {
+                "input_tokens": 9,
+                "output_tokens": 6,
+                "total_tokens": 15
+              }
+            }
+          }
+        },
+        {
+          "event": "response.output_item.added",
+          "data": {
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {
+              "type": "message",
+              "id": "msg_mock_06",
+              "role": "assistant",
+              "status": "in_progress",
+              "content": []
+            }
+          }
+        },
+        {
+          "event": "response.content_part.added",
+          "data": {
+            "type": "response.content_part.added",
+            "item_id": "msg_mock_06",
+            "output_index": 0,
+            "content_index": 0,
+            "part": {
+              "type": "output_text",
+              "text": "",
+              "annotations": []
+            }
+          }
+        },
+        {
+          "event": "response.output_text.delta",
+          "data": {
+            "type": "response.output_text.delta",
+            "item_id": "msg_mock_06",
+            "output_index": 0,
+            "content_index": 0,
+            "delta": "Hello"
+          }
+        },
+        {
+          "event": "response.output_text.done",
+          "data": {
+            "type": "response.output_text.done",
+            "item_id": "msg_mock_06",
+            "output_index": 0,
+            "content_index": 0,
+            "text": "Hello"
+          }
+        },
+        {
+          "event": "response.output_item.done",
+          "data": {
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+              "type": "message",
+              "id": "msg_mock_06",
+              "role": "assistant",
+              "status": "completed",
+              "content": [
+                {
+                  "type": "output_text",
+                  "text": "Hello",
+                  "annotations": []
+                }
+              ]
+            }
+          }
+        },
+        {
+          "event": "response.completed",
+          "data": {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_mock_usage_01",
+              "object": "response",
+              "created_at": 1770000500,
+              "status": "completed",
+              "model": "gpt-mock-codex",
+              "output": [
+                {
+                  "type": "message",
+                  "id": "msg_mock_06",
+                  "role": "assistant",
+                  "status": "completed",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "Hello",
+                      "annotations": []
+                    }
+                  ]
+                }
+              ],
+              "usage": {
+                "input_tokens": 9,
+                "output_tokens": 6,
+                "total_tokens": 15,
+                "input_tokens_details": {
+                  "cached_tokens": 4,
+                  "cache_write_tokens": 7
+                },
+                "output_tokens_details": {
+                  "reasoning_tokens": 11
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "s2d5-service-tier": {
+      "events": [
+        {
+          "event": "response.created",
+          "data": {
+            "type": "response.created",
+            "response": {
+              "id": "resp_mock_tier_01",
+              "object": "response",
+              "created_at": 1770000700,
+              "status": "in_progress",
+              "model": "gpt-mock-codex",
+              "output": [],
+              "service_tier": "priority",
+              "usage": {
+                "input_tokens": 3,
+                "output_tokens": 2,
+                "total_tokens": 5
+              }
+            }
+          }
+        },
+        {
+          "event": "response.output_item.added",
+          "data": {
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {
+              "type": "message",
+              "id": "msg_mock_07",
+              "role": "assistant",
+              "status": "in_progress",
+              "content": []
+            }
+          }
+        },
+        {
+          "event": "response.content_part.added",
+          "data": {
+            "type": "response.content_part.added",
+            "item_id": "msg_mock_07",
+            "output_index": 0,
+            "content_index": 0,
+            "part": {
+              "type": "output_text",
+              "text": "",
+              "annotations": []
+            }
+          }
+        },
+        {
+          "event": "response.output_text.delta",
+          "data": {
+            "type": "response.output_text.delta",
+            "item_id": "msg_mock_07",
+            "output_index": 0,
+            "content_index": 0,
+            "delta": "Fast lane."
+          }
+        },
+        {
+          "event": "response.output_text.done",
+          "data": {
+            "type": "response.output_text.done",
+            "item_id": "msg_mock_07",
+            "output_index": 0,
+            "content_index": 0,
+            "text": "Fast lane."
+          }
+        },
+        {
+          "event": "response.output_item.done",
+          "data": {
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+              "type": "message",
+              "id": "msg_mock_07",
+              "role": "assistant",
+              "status": "completed",
+              "content": [
+                {
+                  "type": "output_text",
+                  "text": "Fast lane.",
+                  "annotations": []
+                }
+              ]
+            }
+          }
+        },
+        {
+          "event": "response.completed",
+          "data": {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_mock_tier_01",
+              "object": "response",
+              "created_at": 1770000700,
+              "status": "completed",
+              "model": "gpt-mock-codex",
+              "service_tier": "priority",
+              "output": [
+                {
+                  "type": "message",
+                  "id": "msg_mock_07",
+                  "role": "assistant",
+                  "status": "completed",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "Fast lane.",
+                      "annotations": []
+                    }
+                  ]
+                }
+              ],
+              "usage": {
+                "input_tokens": 3,
+                "output_tokens": 2,
+                "total_tokens": 5
+              }
+            }
+          }
+        }
+      ]
+    },
+    "s2d5-fail-mid": {
+      "events": [
+        {
+          "event": "response.created",
+          "data": {
+            "type": "response.created",
+            "response": {
+              "id": "resp_mock_fail_01",
+              "object": "response",
+              "created_at": 1770000600,
+              "status": "in_progress",
+              "model": "gpt-mock-codex",
+              "output": [],
+              "usage": {
+                "input_tokens": 5,
+                "output_tokens": 1,
+                "total_tokens": 6
+              }
+            }
+          }
+        },
+        {
+          "event": "response.output_item.added",
+          "data": {
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {
+              "type": "message",
+              "id": "msg_mock_05",
+              "role": "assistant",
+              "status": "in_progress",
+              "content": []
+            }
+          }
+        },
+        {
+          "event": "response.content_part.added",
+          "data": {
+            "type": "response.content_part.added",
+            "item_id": "msg_mock_05",
+            "output_index": 0,
+            "content_index": 0,
+            "part": {
+              "type": "output_text",
+              "text": "",
+              "annotations": []
+            }
+          }
+        },
+        {
+          "event": "response.output_text.delta",
+          "data": {
+            "type": "response.output_text.delta",
+            "item_id": "msg_mock_05",
+            "output_index": 0,
+            "content_index": 0,
+            "delta": "Some text."
+          }
+        },
+        {
+          "event": "response.failed",
+          "data": {
+            "type": "response.failed",
+            "response": {
+              "id": "resp_mock_fail_01",
+              "error": {
+                "code": "server_error",
+                "message": "upstream mock failed mid-stream"
+              },
+              "status": "failed"
+            }
+          }
+        }
+      ]
+    },
+    "s2d5-fail-first": {
+      "events": [
+        {
+          "event": "response.failed",
+          "data": {
+            "type": "response.failed",
+            "response": {
+              "id": "resp_mock_fail_02",
+              "error": {
+                "code": "server_error",
+                "message": "upstream mock failed before any output"
+              },
+              "status": "failed"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "cases": [
+    {
+      "id": "S2D5-01-nonstream-basic-aggregation",
+      "purpose": "Non-stream chat client gets an aggregated chat.completion; upstream request is STILL SSE (stream:true + Accept: text/event-stream); upstream body canonical field order, image_generation tool injection, prompt_cache_key, store:false, include, parallel_tool_calls:true, instructions:\"\".",
+      "priority": 1,
+      "mock": {
+        "mode": "happy",
+        "script": null
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "cx",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Say hello"
+              }
+            ]
+          }
+        }
+      ],
+      "record": [
+        "downstream: status + all response headers + full body (exact bytes; for SSE cases the full frame stream)",
+        "upstream: mock wire log entry for each upstream request (method, path, headers, body — what the reference emitted)",
+        "mock-response: the scripted response bytes the mock served"
+      ],
+      "expected_downstream": "HTTP 200 application/json, single chat.completion object per spec §4 byte example. Upstream: 1 request to POST /responses with body per §2.3 (reasoning.effort=medium, no reasoning.summary)."
+    },
+    {
+      "id": "S2D5-02-stream-basic",
+      "purpose": "Stream client: full SSE chunk sequence for the canned stream — 2 content chunks, 1 terminal chunk (finish stop + usage in same chunk), then [DONE]. Chunk template, field order, id/created/model cached from response.created.",
+      "priority": 1,
+      "mock": {
+        "mode": "happy",
+        "script": null
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "cx",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Say hello"
+              }
+            ],
+            "stream": true
+          },
+          "curl_flags": "-N"
+        }
+      ],
+      "record": [
+        "downstream: status + all response headers + full body (exact bytes; for SSE cases the full frame stream)",
+        "upstream: mock wire log entry for each upstream request (method, path, headers, body — what the reference emitted)",
+        "mock-response: the scripted response bytes the mock served"
+      ],
+      "expected_downstream": "HTTP 200 text/event-stream; frames byte-equal to spec §4 first block. [DONE] present."
+    },
+    {
+      "id": "S2D5-03-system-developer-multimodal",
+      "purpose": "System message → developer input item; instructions stays \"\"; user multimodal array → input_text + input_image (no detail) + input_file.",
+      "priority": 1,
+      "mock": {
+        "mode": "happy",
+        "script": null
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "cx",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a terse assistant."
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Describe this image."
+                  },
+                  {
+                    "type": "image_url",
+                    "image_url": {
+                      "url": "data:image/png;base64,iVBORw0KGgo=",
+                      "detail": "high"
+                    }
+                  },
+                  {
+                    "type": "file",
+                    "file": {
+                      "file_data": "SGVsbG8gZmlsZQ==",
+                      "filename": "notes.txt"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "record": [
+        "downstream: status + all response headers + full body (exact bytes; for SSE cases the full frame stream)",
+        "upstream: mock wire log entry for each upstream request (method, path, headers, body — what the reference emitted)",
+        "mock-response: the scripted response bytes the mock served"
+      ],
+      "expected_downstream": "200 chat.completion (canned text). Upstream input: [developer(input_text), user(input_text, input_image{image_url only}, input_file{file_data, filename})]."
+    },
+    {
+      "id": "S2D5-04-reasoning-effort-high",
+      "purpose": "reasoning_effort:\"high\" passes verbatim as reasoning.effort AND injects reasoning.summary:\"auto\".",
+      "priority": 1,
+      "mock": {
+        "mode": "happy",
+        "script": null
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "cx",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Think hard about 2+2"
+              }
+            ],
+            "reasoning_effort": "high"
+          }
+        }
+      ],
+      "record": [
+        "downstream: status + all response headers + full body (exact bytes; for SSE cases the full frame stream)",
+        "upstream: mock wire log entry for each upstream request (method, path, headers, body — what the reference emitted)",
+        "mock-response: the scripted response bytes the mock served"
+      ],
+      "expected_downstream": "200 chat.completion. Upstream body reasoning object exactly {\"effort\":\"high\",\"summary\":\"auto\"}."
+    },
+    {
+      "id": "S2D5-05-reasoning-effort-none",
+      "purpose": "reasoning_effort:\"none\" passes verbatim as reasoning.effort and does NOT emit reasoning.summary.",
+      "priority": 1,
+      "mock": {
+        "mode": "happy",
+        "script": null
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "cx",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Quick one"
+              }
+            ],
+            "reasoning_effort": "none"
+          }
+        }
+      ],
+      "record": [
+        "downstream: status + all response headers + full body (exact bytes; for SSE cases the full frame stream)",
+        "upstream: mock wire log entry for each upstream request (method, path, headers, body — what the reference emitted)",
+        "mock-response: the scripted response bytes the mock served"
+      ],
+      "expected_downstream": "200 chat.completion. Upstream body reasoning object exactly {\"effort\":\"none\"}."
+    },
+    {
+      "id": "S2D5-06-tools-history",
+      "purpose": "Function tools flatten (strict:false default; strict:true passthrough); tool_choice string passthrough; assistant tool_calls + tool result become function_call + function_call_output input items; injected image_generation tool appended LAST in tools array.",
+      "priority": 1,
+      "mock": {
+        "mode": "happy",
+        "script": null
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "cx",
+            "messages": [
+              {
+                "role": "user",
+                "content": "What is the weather in Paris?"
+              },
+              {
+                "role": "assistant",
+                "content": null,
+                "tool_calls": [
+                  {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                      "name": "get_weather",
+                      "arguments": "{\"city\":\"Paris\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "call_1",
+                "content": "sunny, 22C"
+              }
+            ],
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "description": "Get weather for a city",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "city": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "city"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "lookup_country",
+                  "description": "Lookup country",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "strict": true
+                }
+              }
+            ],
+            "tool_choice": "auto"
+          }
+        }
+      ],
+      "record": [
+        "downstream: status + all response headers + full body (exact bytes; for SSE cases the full frame stream)",
+        "upstream: mock wire log entry for each upstream request (method, path, headers, body — what the reference emitted)",
+        "mock-response: the scripted response bytes the mock served"
+      ],
+      "expected_downstream": "200 chat.completion (canned text). Upstream input: [user message, function_call{call_id:call_1,name:get_weather,arguments:{\"city\":\"Paris\"}}, function_call_output{call_id:call_1,output:\"sunny, 22C\"}]; no empty assistant message item. Upstream tools: [get_weather (strict:false), lookup_country (strict:true), image_generation]."
+    },
+    {
+      "id": "S2D5-07-stream-toolcall",
+      "purpose": "Tool call stream: announcement chunk (id/type/name restored/arguments:\"\"), argument delta chunks (no role/id), terminal chunk finish_reason tool_calls + native tool_calls + usage; done/duplicate args suppressed. Long tool name shortened upstream and RESTORED downstream.",
+      "priority": 1,
+      "mock": {
+        "mode": "happy",
+        "script": "s2d5-toolcall"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "cx",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Book a table for two near the office."
+              }
+            ],
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "mcp__atlassian__jira_search_issues_with_advanced_filters_and_pagination_options",
+                  "description": "Search",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "q": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "stream": true
+          },
+          "curl_flags": "-N"
+        }
+      ],
+      "record": [
+        "downstream: status + all response headers + full body (exact bytes; for SSE cases the full frame stream)",
+        "upstream: mock wire log entry for each upstream request (method, path, headers, body — what the reference emitted)",
+        "mock-response: the scripted response bytes the mock served"
+      ],
+      "expected_downstream": "200 SSE: announcement chunk with function.name mcp__atlassian__jira_search_issues_with_advanced_filters_and_pagination_options (RESTORED, arguments \"\"), two argument-delta chunks (\"{\\\"q\\\":\", \"\\\"table\\\"}\"), terminal chunk finish tool_calls + usage {completion_tokens:3,total_tokens:15,prompt_tokens:12}, [DONE]. Upstream tools entry name = mcp__jira_search_issues_with_advanced_filters_and_pagination_opt (shortened)."
+    },
+    {
+      "id": "S2D5-08-nonstream-toolcall",
+      "purpose": "Aggregated completion maps function_call output items to message.tool_calls with restored name; finish_reason tool_calls; usage included.",
+      "priority": 1,
+      "mock": {
+        "mode": "happy",
+        "script": "s2d5-toolcall"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "cx",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Book a table for two near the office."
+              }
+            ],
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "mcp__atlassian__jira_search_issues_with_advanced_filters_and_pagination_options",
+                  "description": "Search",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "q": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "record": [
+        "downstream: status + all response headers + full body (exact bytes; for SSE cases the full frame stream)",
+        "upstream: mock wire log entry for each upstream request (method, path, headers, body — what the reference emitted)",
+        "mock-response: the scripted response bytes the mock served"
+      ],
+      "expected_downstream": "200 chat.completion: choices[0].message.tool_calls=[{id:\"call_mock_01\",type:\"function\",function:{name:<ORIGINAL long name>,arguments:\"{\\\"q\\\":\\\"table\\\"}\"}}], content null, finish tool_calls/native tool_calls, usage {completion_tokens:3,total_tokens:15,prompt_tokens:12}."
+    },
+    {
+      "id": "S2D5-09-stream-reasoning-deltas",
+      "purpose": "Reasoning summary deltas → delta.reasoning_content chunks; reasoning done → single \"\\n\\n\" separator chunk; terminal chunk carries completion_tokens_details.reasoning_tokens.",
+      "priority": 1,
+      "mock": {
+        "mode": "happy",
+        "script": "s2d5-reasoning"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "cx",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Solve the puzzle step by step"
+              }
+            ],
+            "reasoning_effort": "low",
+            "stream": true
+          },
+          "curl_flags": "-N"
+        }
+      ],
+      "record": [
+        "downstream: status + all response headers + full body (exact bytes; for SSE cases the full frame stream)",
+        "upstream: mock wire log entry for each upstream request (method, path, headers, body — what the reference emitted)",
+        "mock-response: the scripted response bytes the mock served"
+      ],
+      "expected_downstream": "200 SSE: reasoning_content \"Step one done.\", reasoning_content \" Step two done.\", reasoning_content \"\\n\\n\", content \"Final answer.\", terminal finish stop + usage {completion_tokens:4,total_tokens:14,prompt_tokens:10,completion_tokens_details:{reasoning_tokens:2}}, [DONE]. Upstream body reasoning {\"effort\":\"low\",\"summary\":\"auto\"}."
+    },
+    {
+      "id": "S2D5-10-nonstream-reasoning-item",
+      "purpose": "Aggregated completion maps reasoning output item (summary) to message.reasoning_content alongside content.",
+      "priority": 1,
+      "mock": {
+        "mode": "happy",
+        "script": "s2d5-reasoning"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "cx",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Solve the puzzle step by step"
+              }
+            ],
+            "reasoning_effort": "low"
+          }
+        }
+      ],
+      "record": [
+        "downstream: status + all response headers + full body (exact bytes; for SSE cases the full frame stream)",
+        "upstream: mock wire log entry for each upstream request (method, path, headers, body — what the reference emitted)",
+        "mock-response: the scripted response bytes the mock served"
+      ],
+      "expected_downstream": "200 chat.completion: message.reasoning_content \"Step one done. Step two done.\", message.content \"Final answer.\", finish stop, usage with completion_tokens_details.reasoning_tokens:2."
+    },
+    {
+      "id": "S2D5-11-stream-incomplete-length",
+      "purpose": "response.incomplete(max_output_tokens) after a text delta → terminal chunk finish_reason \"length\", native_finish_reason \"max_output_tokens\", usage on same chunk; [DONE] still emitted. Client max_tokens dropped upstream.",
+      "priority": 1,
+      "mock": {
+        "mode": "happy",
+        "script": "s2d5-incomplete-length"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "cx",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Write a very long story"
+              }
+            ],
+            "max_tokens": 10,
+            "stream": true
+          },
+          "curl_flags": "-N"
+        }
+      ],
+      "record": [
+        "downstream: status + all response headers + full body (exact bytes; for SSE cases the full frame stream)",
+        "upstream: mock wire log entry for each upstream request (method, path, headers, body — what the reference emitted)",
+        "mock-response: the scripted response bytes the mock served"
+      ],
+      "expected_downstream": "200 SSE: content \"Partial answ\", terminal chunk {finish_reason:\"length\",native_finish_reason:\"max_output_tokens\"} + usage {completion_tokens:5,total_tokens:13,prompt_tokens:8}, [DONE]. Upstream body has NO max_tokens/max_output_tokens key."
+    },
+    {
+      "id": "S2D5-12-nonstream-empty-output-patch",
+      "purpose": "Upstream completed with EMPTY response.output but real output_item.done items → gateway patches output from collected items; aggregated completion still carries the text.",
+      "priority": 1,
+      "mock": {
+        "mode": "happy",
+        "script": "s2d5-empty-output-patch"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "cx",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Patch test"
+              }
+            ]
+          }
+        }
+      ],
+      "record": [
+        "downstream: status + all response headers + full body (exact bytes; for SSE cases the full frame stream)",
+        "upstream: mock wire log entry for each upstream request (method, path, headers, body — what the reference emitted)",
+        "mock-response: the scripted response bytes the mock served"
+      ],
+      "expected_downstream": "200 chat.completion: message.content \"Patched text.\", finish stop, usage {completion_tokens:2,total_tokens:9,prompt_tokens:7}."
+    },
+    {
+      "id": "S2D5-13-usage-rich",
+      "purpose": "Full usage mapping: cached_tokens, cache_write_tokens duplicated as cached_creation_tokens, reasoning_tokens — exact usage key order.",
+      "priority": 1,
+      "mock": {
+        "mode": "happy",
+        "script": "s2d5-usage-rich"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "cx",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Cache check"
+              }
+            ],
+            "stream": true
+          },
+          "curl_flags": "-N"
+        }
+      ],
+      "record": [
+        "downstream: status + all response headers + full body (exact bytes; for SSE cases the full frame stream)",
+        "upstream: mock wire log entry for each upstream request (method, path, headers, body — what the reference emitted)",
+        "mock-response: the scripted response bytes the mock served"
+      ],
+      "expected_downstream": "200 SSE terminal chunk usage exactly {\"completion_tokens\":6,\"total_tokens\":15,\"prompt_tokens\":9,\"prompt_tokens_details\":{\"cached_tokens\":4,\"cache_write_tokens\":7,\"cached_creation_tokens\":7},\"completion_tokens_details\":{\"reasoning_tokens\":11}}."
+    },
+    {
+      "id": "S2D5-14-service-tier",
+      "purpose": "response.service_tier latches from response.created onto every subsequent chunk, appended after choices.",
+      "priority": 1,
+      "mock": {
+        "mode": "happy",
+        "script": "s2d5-service-tier"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "cx",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Priority queue please"
+              }
+            ],
+            "stream": true
+          },
+          "curl_flags": "-N"
+        }
+      ],
+      "record": [
+        "downstream: status + all response headers + full body (exact bytes; for SSE cases the full frame stream)",
+        "upstream: mock wire log entry for each upstream request (method, path, headers, body — what the reference emitted)",
+        "mock-response: the scripted response bytes the mock served"
+      ],
+      "expected_downstream": "200 SSE: content chunk and terminal chunk each carry \"service_tier\":\"priority\" positioned AFTER choices (BEFORE usage on the terminal chunk)."
+    },
+    {
+      "id": "S2D5-15-upstream-429-nonstream",
+      "purpose": "Upstream HTTP 429 with JSON error body → status + body passed through VERBATIM to the non-stream client.",
+      "priority": 1,
+      "mock": {
+        "mode": "error",
+        "status": 429
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "cx",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Say hello"
+              }
+            ]
+          }
+        }
+      ],
+      "record": [
+        "downstream: status + all response headers + full body (exact bytes; for SSE cases the full frame stream)",
+        "upstream: mock wire log entry for each upstream request (method, path, headers, body — what the reference emitted)",
+        "mock-response: the scripted response bytes the mock served"
+      ],
+      "expected_downstream": "HTTP 429, body byte-equal to the mock error body {\"error\":{\"message\":\"mock rate limit\",\"type\":\"rate_limit_exceeded\",\"code\":\"rate_limit_exceeded\"}}; Content-Type application/json. NOTE: this arms a ~1s rate-limit cooldown — see ordering notes."
+    },
+    {
+      "id": "S2D5-16-upstream-429-stream-precommit",
+      "purpose": "Stream client + upstream 429 before any chunk → pre-commit error response (no SSE headers, no [DONE]).",
+      "priority": 1,
+      "mock": {
+        "mode": "error",
+        "status": 429
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "cx",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Say hello"
+              }
+            ],
+            "stream": true
+          },
+          "curl_flags": "-N"
+        }
+      ],
+      "record": [
+        "downstream: status + all response headers + full body (exact bytes; for SSE cases the full frame stream)",
+        "upstream: mock wire log entry for each upstream request (method, path, headers, body — what the reference emitted)",
+        "mock-response: the scripted response bytes the mock served"
+      ],
+      "expected_downstream": "HTTP 429 application/json with the same verbatim error body (NOT text/event-stream). Cooldown arms (~1s)."
+    },
+    {
+      "id": "S2D5-17-disconnect-midstream",
+      "purpose": "Upstream hard-disconnects after 5 events (2 content deltas already delivered) → HTTP stays 200, in-stream error frame, no [DONE].",
+      "priority": 1,
+      "mock": {
+        "mode": "disconnect",
+        "after": 5
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "cx",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Say hello"
+              }
+            ],
+            "stream": true
+          },
+          "curl_flags": "-N"
+        }
+      ],
+      "record": [
+        "downstream: status + all response headers + full body (exact bytes; for SSE cases the full frame stream)",
+        "upstream: mock wire log entry for each upstream request (method, path, headers, body — what the reference emitted)",
+        "mock-response: the scripted response bytes the mock served"
+      ],
+      "expected_downstream": "HTTP 200 SSE: 2 content chunks, then data: {\"error\":{\"message\":\"stream error: stream disconnected before completion: stream closed before response.completed\",\"type\":\"invalid_request_error\"}} and NO [DONE] frame."
+    },
+    {
+      "id": "S2D5-18-terminal-failure-midstream",
+      "purpose": "response.failed terminal event after a text delta → in-stream error frame with the failure body verbatim; no [DONE].",
+      "priority": 1,
+      "mock": {
+        "mode": "happy",
+        "script": "s2d5-fail-mid"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "cx",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Say something"
+              }
+            ],
+            "stream": true
+          },
+          "curl_flags": "-N"
+        }
+      ],
+      "record": [
+        "downstream: status + all response headers + full body (exact bytes; for SSE cases the full frame stream)",
+        "upstream: mock wire log entry for each upstream request (method, path, headers, body — what the reference emitted)",
+        "mock-response: the scripted response bytes the mock served"
+      ],
+      "expected_downstream": "HTTP 200 SSE: 1 content chunk (\"Some text.\"), then data: {\"error\":{\"code\":\"server_error\",\"message\":\"upstream mock failed mid-stream\"}} and NO [DONE]."
+    },
+    {
+      "id": "S2D5-19-terminal-failure-first",
+      "purpose": "response.failed as the FIRST event (no payload) → pre-commit HTTP 502 with the failure body verbatim.",
+      "priority": 1,
+      "mock": {
+        "mode": "happy",
+        "script": "s2d5-fail-first"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "cx",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Say something"
+              }
+            ],
+            "stream": true
+          },
+          "curl_flags": "-N"
+        }
+      ],
+      "record": [
+        "downstream: status + all response headers + full body (exact bytes; for SSE cases the full frame stream)",
+        "upstream: mock wire log entry for each upstream request (method, path, headers, body — what the reference emitted)",
+        "mock-response: the scripted response bytes the mock served"
+      ],
+      "expected_downstream": "HTTP 502 application/json, body {\"error\":{\"code\":\"server_error\",\"message\":\"upstream mock failed before any output\"}}; NOT SSE."
+    },
+    {
+      "id": "S2D5-20-model-not-found",
+      "purpose": "Unknown model on /v1/chat/completions → 400 model_not_found (gateway-local; NO upstream request).",
+      "priority": 1,
+      "mock": {
+        "mode": "happy",
+        "script": null
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "no-such-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "x"
+              }
+            ]
+          }
+        }
+      ],
+      "record": [
+        "downstream: status + headers + body",
+        "upstream: expect NO request logged (record absence)"
+      ],
+      "expected_downstream": "HTTP 400 {\"error\":{\"message\":\"unknown provider for model no-such-model\",\"type\":\"invalid_request_error\",\"code\":\"model_not_found\",\"param\":\"model\"}}."
+    },
+    {
+      "id": "S2D5-21-prompt-cache-key-passthrough",
+      "purpose": "Client prompt_cache_key body field → upstream body prompt_cache_key VERBATIM and Session-Id header equal to it.",
+      "priority": 1,
+      "mock": {
+        "mode": "happy",
+        "script": null
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "cx",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Say hello"
+              }
+            ],
+            "prompt_cache_key": "fixed-cache-key-123",
+            "stream": true
+          },
+          "curl_flags": "-N"
+        }
+      ],
+      "record": [
+        "downstream: status + all response headers + full body (exact bytes; for SSE cases the full frame stream)",
+        "upstream: mock wire log entry for each upstream request (method, path, headers, body — what the reference emitted)",
+        "mock-response: the scripted response bytes the mock served"
+      ],
+      "expected_downstream": "200 SSE (canned). Upstream body prompt_cache_key == \"fixed-cache-key-123\" AND upstream Session-Id header == \"fixed-cache-key-123\"."
+    },
+    {
+      "id": "S2D5-22-client-session-id-header",
+      "purpose": "Client Session-Id header is forwarded VERBATIM as the upstream Session-Id header (overrides the derived value); body prompt_cache_key is the derived UUID (dynamic, mask in meta.yaml).",
+      "priority": 1,
+      "mock": {
+        "mode": "happy",
+        "script": null
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json",
+            "Session-Id": "11111111-2222-3333-4444-555555555555"
+          },
+          "body": {
+            "model": "cx",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Say hello"
+              }
+            ]
+          }
+        }
+      ],
+      "record": [
+        "downstream: status + all response headers + full body (exact bytes; for SSE cases the full frame stream)",
+        "upstream: mock wire log entry for each upstream request (method, path, headers, body — what the reference emitted)",
+        "mock-response: the scripted response bytes the mock served"
+      ],
+      "expected_downstream": "200 chat.completion (canned). Upstream Session-Id header == 11111111-2222-3333-4444-555555555555."
+    },
+    {
+      "id": "S2D5-23-response-format-json-schema",
+      "purpose": "response_format json_schema → text.format{name,strict,schema}; text.verbosity mapped into the same text object.",
+      "priority": 1,
+      "mock": {
+        "mode": "happy",
+        "script": null
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "cx",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Give me JSON"
+              }
+            ],
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "my_schema",
+                "strict": true,
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "a": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
+            "text": {
+              "verbosity": "low"
+            }
+          }
+        }
+      ],
+      "record": [
+        "downstream: status + all response headers + full body (exact bytes; for SSE cases the full frame stream)",
+        "upstream: mock wire log entry for each upstream request (method, path, headers, body — what the reference emitted)",
+        "mock-response: the scripted response bytes the mock served"
+      ],
+      "expected_downstream": "200 chat.completion (canned). Upstream body has \"text\":{\"format\":{\"type\":\"json_schema\",\"name\":\"my_schema\",\"strict\":true,\"schema\":{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"string\"}}}},\"verbosity\":\"low\"}."
+    },
+    {
+      "id": "S2D5-24-rate-limit-cooldown-pair",
+      "purpose": "After an upstream 429, the credential enters a rate-limit cooldown (reset ~1s) that transient-error-cooldown-seconds:-1 does NOT disable; immediate retry within the window gets 500 model_cooldown with last_upstream_error = the verbatim 429 body.",
+      "priority": 1,
+      "mock": {
+        "mode": "error",
+        "status": 429
+      },
+      "requests": [
+        {
+          "label": "request-a (triggers 429)",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "cx",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Say hello"
+              }
+            ]
+          }
+        },
+        {
+          "label": "request-b (immediately after a, same body)",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "cx",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Say hello"
+              }
+            ]
+          }
+        }
+      ],
+      "record": [
+        "downstream: record BOTH exchanges (status + headers + body)",
+        "upstream: expect exactly TWO upstream requests (both 429)",
+        "ordering: request-b MUST be sent within ~1s after request-a completes (replay back-to-back); if request-b does not show model_cooldown, wait for cooldown reset and re-run the pair"
+      ],
+      "expected_downstream": "request-a: HTTP 429 verbatim body. request-b: HTTP 500 {\"error\":{\"code\":\"model_cooldown\",\"last_upstream_error\":\"<verbatim 429 body>\",\"message\":\"All credentials for model cx are cooling down via provider codex (last error: …)\",\"model\":\"cx\",\"reset_time\":…}} — reset_time/timing text is dynamic, mask it."
+    }
+  ]
+}

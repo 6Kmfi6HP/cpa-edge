@@ -31,7 +31,6 @@
     "X-CPA-COMMIT",
     "X-CPA-BUILD-DATE",
     "X-CPA-SUPPORT-PLUGIN",
-    "Date",
     "Content-Length (recomputed after masking)",
     "instance port in Host header / redirect_uri URLs (8387 vs 18317)"
   ]

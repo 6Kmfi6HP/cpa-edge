@@ -1,0 +1,40 @@
+{
+  "case": "S7-15",
+  "title": "auth-dir-watcher-credential-file",
+  "feature": "file-watcher",
+  "recorded_at": "2026-09-15T17:00:18Z",
+  "recorder": "oracle-runner-3",
+  "version": {
+    "image": "eceasy/cli-proxy-api:v7.3.4",
+    "digest": "sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+    "commit": "8335eac731946bd4eff18f500653f93736df53d6",
+    "binary_self_report": "CLIProxyAPI Version: v7.3.4, Commit: 8335eac, BuiltAt: 2026-09-15T14:07:06Z"
+  },
+  "base_url": "http://127.0.0.1:8397",
+  "client_protocol": "HTTP/1.1 via curl against the reference binary directly",
+  "upstream_provider_type": "none",
+  "stream": false,
+  "config": "worker-3 pristine template run3/run/config.yaml (port 8397, 8 mock base-urls on worker-3 ports, api-keys [oracle-local-key-1], no real credentials)",
+  "port_adaptation": "cases file defaults 18317->8397 (reference), 18999->20999 (openai mock), forwarder host publish 54545->24545 (container-internal 54545 unchanged)",
+  "dynamic_fields": [
+    "Date response header",
+    "X-Cpa-Trace-Id response header",
+    "port numbers (worker-3: reference 8397, openai mock 20999, forwarder host publish 24545)",
+    "auth-files list contents (runtime credentials, file names)",
+    "watcher auth add/remove log lines",
+    "any 'skipping auth file' warning lines"
+  ],
+  "files": [
+    "downstream-2.md",
+    "downstream-4.md",
+    "request.http",
+    "upstream.jsonl",
+    "mock-response.json",
+    "fake-auth-file.json"
+  ],
+  "notes": [
+    "Demonstrate the auth-dir half of the watcher: dropping a syntactically valid (fake, non-functional) OAuth JSON file into the auth directory hot-registers a credential; deleting it hot-removes it. The transcript also documents upstream's parsing tolerance.",
+    "the fake kimi JSON is syntactically valid but non-functional; the transcript itself documents upstream's parsing tolerance or rejection"
+  ],
+  "sequence": "fresh container, empty auths dir; fake file is the only mutation"
+}

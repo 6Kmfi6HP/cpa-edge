@@ -1,0 +1,2311 @@
+{
+  "step_id": "S2d8",
+  "direction": "Claude client -> Gemini upstream (gemini-api-key)",
+  "upstream_anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6 (docker eceasy/cli-proxy-api:v7.3.4, digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266)",
+  "spec_section": "spec/sections/S2d8-cla2gem.md",
+  "target_fixture_dir": "tests/fixtures/S2d8/",
+  "environment": {
+    "reference_port": 8417,
+    "mock_gemini_port": 23001,
+    "reference_config_assumptions": [
+      "api-keys: [oracle-local-key-1]",
+      "request-retry: 0, transient-error-cooldown-seconds: -1, usage-statistics-enabled: false",
+      "streaming.keep-alive-seconds unset (keep-alives OFF)",
+      "gemini-api-key entry: api-key <any>, base-url http://host.docker.internal:<mock_gemini_port>, models: [name gemini-mock-model, alias gm]",
+      "ports are worker-local and MUST be listed in meta.yaml dynamic_fields"
+    ],
+    "mock_notes": [
+      "mock_gemini.py currently serves one canned response; extend it to accept a per-case canned reply via the control file (e.g. keys canned_nonstream / canned_stream / canned_count alongside mode) or an equivalent per-case mechanism",
+      "canned_stream entries are the JSON payloads of consecutive 'data:' SSE frames (no event: names)",
+      "serialize canned JSON compactly (json.dumps separators (',',':')) so raw-arg passthrough bytes in goldens stay readable",
+      "control headers X-Mock-Mode/Status/After are for the ORACLE's harness only; the reference must not see them"
+    ]
+  },
+  "execution_order": [
+    "01,02,03,04,05,06,07,08 (non-stream happy)",
+    "09,10,11,12 (stream happy)",
+    "13 (count_tokens)",
+    "16 (slow), 17 (disconnect)",
+    "15 (err-400)",
+    "18 (stream err-500)",
+    "14 (err-429) ABSOLUTELY LAST (puts credential in ~1s cooldown)"
+  ],
+  "volatility_whitelist": [
+    "Date, X-Cpa-Trace-Id, Content-Length headers",
+    "reference/mock port numbers in upstream.jsonl Host fields",
+    "message_start.usage.input_tokens (o200k_base estimate; deterministic but implementation-defined)",
+    "content_block.id digits in stream tool_use events (process counter)",
+    "terminal transport-error text if it differs from 'unexpected EOF' (record what the reference emits)"
+  ],
+  "cases": [
+    {
+      "id": "S2d8-01-nostream-basic",
+      "purpose": "Non-stream happy path: system-as-string, string content, temperature/top_p mapping, safetySettings injection, model key placement, non-stream response mapping (id empty, model from modelVersion, text block, end_turn, usage).",
+      "downstream_request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8417/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json",
+          "User-Agent": "claude-cli/2.1.63 (external, cli)"
+        },
+        "body": {
+          "model": "gemini-mock-model",
+          "max_tokens": 100,
+          "temperature": 0.7,
+          "top_p": 0.9,
+          "system": "You are terse.",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Say hello"
+            }
+          ]
+        }
+      },
+      "mock": {
+        "mode": "happy",
+        "canned_nonstream": {
+          "candidates": [
+            {
+              "content": {
+                "parts": [
+                  {
+                    "text": "Hello from mock gemini upstream more"
+                  }
+                ],
+                "role": "model"
+              },
+              "finishReason": "STOP",
+              "index": 0
+            }
+          ],
+          "usageMetadata": {
+            "promptTokenCount": 9,
+            "candidatesTokenCount": 6,
+            "totalTokenCount": 15
+          },
+          "modelVersion": "gemini-mock-model"
+        }
+      },
+      "record": [
+        "downstream status+headers+body",
+        "upstream wire request (path, headers, body)"
+      ],
+      "expected_upstream": {
+        "path": "/v1beta/models/gemini-mock-model:generateContent",
+        "body": {
+          "contents": [
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "text": "Say hello"
+                }
+              ]
+            }
+          ],
+          "model": "gemini-mock-model",
+          "systemInstruction": {
+            "parts": [
+              {
+                "text": "You are terse."
+              }
+            ]
+          },
+          "generationConfig": {
+            "temperature": 0.7,
+            "topP": 0.9
+          },
+          "safetySettings": [
+            {
+              "category": "HARM_CATEGORY_HARASSMENT",
+              "threshold": "OFF"
+            },
+            {
+              "category": "HARM_CATEGORY_HATE_SPEECH",
+              "threshold": "OFF"
+            },
+            {
+              "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+              "threshold": "OFF"
+            },
+            {
+              "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+              "threshold": "OFF"
+            },
+            {
+              "category": "HARM_CATEGORY_CIVIC_INTEGRITY",
+              "threshold": "BLOCK_NONE"
+            }
+          ]
+        }
+      },
+      "expected_downstream_body": {
+        "id": "",
+        "type": "message",
+        "role": "assistant",
+        "model": "gemini-mock-model",
+        "content": [
+          {
+            "type": "text",
+            "text": "Hello from mock gemini upstream more"
+          }
+        ],
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 9,
+          "output_tokens": 6
+        }
+      },
+      "notes": [
+        "max_tokens is dropped (not mapped to generationConfig.maxOutputTokens)",
+        "systemInstruction string form has NO role key"
+      ]
+    },
+    {
+      "id": "S2d8-02-nostream-alias",
+      "purpose": "Alias routing: client model 'gm' is rewritten to upstream 'gemini-mock-model' on the way out; response model keeps the UPSTREAM name (no rewrite back).",
+      "downstream_request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8417/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json",
+          "User-Agent": "claude-cli/2.1.63 (external, cli)"
+        },
+        "body": {
+          "model": "gm",
+          "max_tokens": 50,
+          "messages": [
+            {
+              "role": "user",
+              "content": "Hi"
+            }
+          ]
+        }
+      },
+      "mock": {
+        "mode": "happy",
+        "canned_nonstream": {
+          "candidates": [
+            {
+              "content": {
+                "parts": [
+                  {
+                    "text": "Hello there"
+                  }
+                ],
+                "role": "model"
+              },
+              "finishReason": "STOP",
+              "index": 0
+            }
+          ],
+          "usageMetadata": {
+            "promptTokenCount": 2,
+            "candidatesTokenCount": 3,
+            "totalTokenCount": 5
+          },
+          "modelVersion": "gemini-mock-model"
+        }
+      },
+      "record": [
+        "downstream status+headers+body",
+        "upstream wire request"
+      ],
+      "expected_upstream": {
+        "path": "/v1beta/models/gemini-mock-model:generateContent",
+        "body": {
+          "contents": [
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "text": "Hi"
+                }
+              ]
+            }
+          ],
+          "model": "gemini-mock-model",
+          "safetySettings": [
+            {
+              "category": "HARM_CATEGORY_HARASSMENT",
+              "threshold": "OFF"
+            },
+            {
+              "category": "HARM_CATEGORY_HATE_SPEECH",
+              "threshold": "OFF"
+            },
+            {
+              "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+              "threshold": "OFF"
+            },
+            {
+              "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+              "threshold": "OFF"
+            },
+            {
+              "category": "HARM_CATEGORY_CIVIC_INTEGRITY",
+              "threshold": "BLOCK_NONE"
+            }
+          ]
+        }
+      },
+      "expected_downstream_body": {
+        "id": "",
+        "type": "message",
+        "role": "assistant",
+        "model": "gemini-mock-model",
+        "content": [
+          {
+            "type": "text",
+            "text": "Hello there"
+          }
+        ],
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 2,
+          "output_tokens": 3
+        }
+      }
+    },
+    {
+      "id": "S2d8-03-nostream-system-array",
+      "purpose": "system array form (carries role:user parts) + Claude-Code attribution block stripped; mid-conversation system message becomes a <system-reminder> user turn; consecutive user turns merged into one content.",
+      "downstream_request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8417/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json",
+          "User-Agent": "claude-cli/2.1.63 (external, cli)"
+        },
+        "body": {
+          "model": "gemini-mock-model",
+          "max_tokens": 100,
+          "system": [
+            {
+              "type": "text",
+              "text": "x-anthropic-billing-header: cc_version=2.1.63; cc_entrypoint=cli; cch=12345;"
+            },
+            {
+              "type": "text",
+              "text": "You are a helpful assistant."
+            }
+          ],
+          "messages": [
+            {
+              "role": "user",
+              "content": "First question"
+            },
+            {
+              "role": "system",
+              "content": "Remember the rules."
+            },
+            {
+              "role": "user",
+              "content": "Second question"
+            }
+          ]
+        }
+      },
+      "mock": {
+        "mode": "happy",
+        "canned_nonstream": {
+          "candidates": [
+            {
+              "content": {
+                "parts": [
+                  {
+                    "text": "ok"
+                  }
+                ],
+                "role": "model"
+              },
+              "finishReason": "STOP",
+              "index": 0
+            }
+          ],
+          "usageMetadata": {
+            "promptTokenCount": 12,
+            "candidatesTokenCount": 1,
+            "totalTokenCount": 13
+          },
+          "modelVersion": "gemini-mock-model"
+        }
+      },
+      "record": [
+        "downstream status+headers+body",
+        "upstream wire request"
+      ],
+      "expected_upstream": {
+        "body": {
+          "contents": [
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "text": "First question"
+                },
+                {
+                  "text": "<system-reminder>\nRemember the rules.\n</system-reminder>"
+                },
+                {
+                  "text": "Second question"
+                }
+              ]
+            }
+          ],
+          "model": "gemini-mock-model",
+          "systemInstruction": {
+            "role": "user",
+            "parts": [
+              {
+                "text": "You are a helpful assistant."
+              }
+            ]
+          },
+          "safetySettings": [
+            {
+              "category": "HARM_CATEGORY_HARASSMENT",
+              "threshold": "OFF"
+            },
+            {
+              "category": "HARM_CATEGORY_HATE_SPEECH",
+              "threshold": "OFF"
+            },
+            {
+              "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+              "threshold": "OFF"
+            },
+            {
+              "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+              "threshold": "OFF"
+            },
+            {
+              "category": "HARM_CATEGORY_CIVIC_INTEGRITY",
+              "threshold": "BLOCK_NONE"
+            }
+          ]
+        }
+      },
+      "expected_downstream_body": {
+        "id": "",
+        "type": "message",
+        "role": "assistant",
+        "model": "gemini-mock-model",
+        "content": [
+          {
+            "type": "text",
+            "text": "ok"
+          }
+        ],
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 12,
+          "output_tokens": 1
+        }
+      },
+      "notes": [
+        "Array-form systemInstruction includes role:user; string form (case 01) does not",
+        "attribution text must NOT appear anywhere in the upstream body"
+      ]
+    },
+    {
+      "id": "S2d8-04-nostream-tool-call",
+      "purpose": "Tools: input_schema -> parametersJsonSchema with Gemini schema cleaning (enum hint appended as description); tool name sanitization 'get weather'->'get_weather'; tool_choice auto -> toolConfig AUTO; response functionCall -> tool_use block with restored name, id 'get_weather-1', stop_reason tool_use.",
+      "downstream_request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8417/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json",
+          "User-Agent": "claude-cli/2.1.63 (external, cli)"
+        },
+        "body": {
+          "model": "gemini-mock-model",
+          "max_tokens": 1024,
+          "tools": [
+            {
+              "name": "get weather",
+              "description": "Get current weather for a city",
+              "input_schema": {
+                "type": "object",
+                "properties": {
+                  "city": {
+                    "type": "string",
+                    "description": "City name"
+                  },
+                  "unit": {
+                    "type": "string",
+                    "enum": [
+                      "celsius",
+                      "fahrenheit"
+                    ]
+                  }
+                },
+                "required": [
+                  "city"
+                ]
+              }
+            }
+          ],
+          "tool_choice": {
+            "type": "auto"
+          },
+          "messages": [
+            {
+              "role": "user",
+              "content": "What is the weather in Paris?"
+            }
+          ]
+        }
+      },
+      "mock": {
+        "mode": "happy",
+        "canned_nonstream": {
+          "candidates": [
+            {
+              "content": {
+                "parts": [
+                  {
+                    "functionCall": {
+                      "name": "get_weather",
+                      "args": {
+                        "city": "Paris",
+                        "unit": "celsius"
+                      }
+                    }
+                  }
+                ],
+                "role": "model"
+              },
+              "finishReason": "STOP",
+              "index": 0
+            }
+          ],
+          "usageMetadata": {
+            "promptTokenCount": 25,
+            "candidatesTokenCount": 4,
+            "totalTokenCount": 29
+          },
+          "modelVersion": "gemini-mock-model"
+        }
+      },
+      "record": [
+        "downstream status+headers+body",
+        "upstream wire request"
+      ],
+      "expected_upstream": {
+        "body": {
+          "contents": [
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "text": "What is the weather in Paris?"
+                }
+              ]
+            }
+          ],
+          "model": "gemini-mock-model",
+          "tools": [
+            {
+              "functionDeclarations": [
+                {
+                  "name": "get_weather",
+                  "description": "Get current weather for a city",
+                  "parametersJsonSchema": {
+                    "type": "object",
+                    "properties": {
+                      "city": {
+                        "type": "string",
+                        "description": "City name"
+                      },
+                      "unit": {
+                        "type": "string",
+                        "enum": [
+                          "celsius",
+                          "fahrenheit"
+                        ],
+                        "description": "Allowed: celsius, fahrenheit"
+                      }
+                    },
+                    "required": [
+                      "city"
+                    ]
+                  }
+                }
+              ]
+            }
+          ],
+          "toolConfig": {
+            "functionCallingConfig": {
+              "mode": "AUTO"
+            }
+          },
+          "safetySettings": [
+            {
+              "category": "HARM_CATEGORY_HARASSMENT",
+              "threshold": "OFF"
+            },
+            {
+              "category": "HARM_CATEGORY_HATE_SPEECH",
+              "threshold": "OFF"
+            },
+            {
+              "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+              "threshold": "OFF"
+            },
+            {
+              "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+              "threshold": "OFF"
+            },
+            {
+              "category": "HARM_CATEGORY_CIVIC_INTEGRITY",
+              "threshold": "BLOCK_NONE"
+            }
+          ]
+        }
+      },
+      "expected_downstream_body": {
+        "id": "",
+        "type": "message",
+        "role": "assistant",
+        "model": "gemini-mock-model",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "get_weather-1",
+            "name": "get weather",
+            "input": {
+              "city": "Paris",
+              "unit": "celsius"
+            }
+          }
+        ],
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 25,
+          "output_tokens": 4
+        }
+      },
+      "notes": [
+        "Mock must serialize args compactly: {\"city\":\"Paris\",\"unit\":\"celsius\"}",
+        "non-stream tool id counter is per-response (deterministic): first = name-1"
+      ]
+    },
+    {
+      "id": "S2d8-05-nostream-tool-history",
+      "purpose": "Tool round-trip: assistant tool_use -> functionCall (id passthrough + bypass thoughtSignature on FIRST call only); user tool_results reordered to match tool_use order; string vs array tool_result content encodings; image extraction to inline_data; trailing text moved before functionResponses; adjacent user turns merged.",
+      "downstream_request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8417/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json",
+          "User-Agent": "claude-cli/2.1.63 (external, cli)"
+        },
+        "body": {
+          "model": "gemini-mock-model",
+          "max_tokens": 1024,
+          "tools": [
+            {
+              "name": "get_weather",
+              "description": "Get current weather",
+              "input_schema": {
+                "type": "object",
+                "properties": {
+                  "city": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "city"
+                ]
+              }
+            }
+          ],
+          "messages": [
+            {
+              "role": "user",
+              "content": "Weather in Paris and London?"
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "toolu_01",
+                  "name": "get_weather",
+                  "input": {
+                    "city": "Paris"
+                  }
+                },
+                {
+                  "type": "tool_use",
+                  "id": "toolu_02",
+                  "name": "get_weather",
+                  "input": {
+                    "city": "London"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "toolu_02",
+                  "content": "12C rainy"
+                },
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "toolu_01",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "18C sunny"
+                    },
+                    {
+                      "type": "image",
+                      "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "aGVsbG8="
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": "Thanks, now summarize."
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": "Bye"
+            }
+          ]
+        }
+      },
+      "mock": {
+        "mode": "happy",
+        "canned_nonstream": {
+          "candidates": [
+            {
+              "content": {
+                "parts": [
+                  {
+                    "text": "Paris 18C sunny, London 12C rainy."
+                  }
+                ],
+                "role": "model"
+              },
+              "finishReason": "STOP",
+              "index": 0
+            }
+          ],
+          "usageMetadata": {
+            "promptTokenCount": 40,
+            "candidatesTokenCount": 9,
+            "totalTokenCount": 49
+          },
+          "modelVersion": "gemini-mock-model"
+        }
+      },
+      "record": [
+        "downstream status+headers+body",
+        "upstream wire request"
+      ],
+      "expected_upstream": {
+        "body": {
+          "contents": [
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "text": "Weather in Paris and London?"
+                }
+              ]
+            },
+            {
+              "role": "model",
+              "parts": [
+                {
+                  "thoughtSignature": "skip_thought_signature_validator",
+                  "functionCall": {
+                    "id": "toolu_01",
+                    "name": "get_weather",
+                    "args": {
+                      "city": "Paris"
+                    }
+                  }
+                },
+                {
+                  "functionCall": {
+                    "id": "toolu_02",
+                    "name": "get_weather",
+                    "args": {
+                      "city": "London"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "text": "Thanks, now summarize."
+                },
+                {
+                  "text": "Bye"
+                },
+                {
+                  "functionResponse": {
+                    "id": "toolu_01",
+                    "name": "get_weather",
+                    "response": {
+                      "result": "18C sunny"
+                    }
+                  }
+                },
+                {
+                  "functionResponse": {
+                    "id": "toolu_02",
+                    "name": "get_weather",
+                    "response": {
+                      "result": {
+                        "type": "text",
+                        "text": "12C rainy"
+                      }
+                    }
+                  }
+                },
+                {
+                  "inline_data": {
+                    "mime_type": "image/png",
+                    "data": "aGVsbG8="
+                  }
+                }
+              ]
+            }
+          ],
+          "model": "gemini-mock-model",
+          "tools": [
+            {
+              "functionDeclarations": [
+                {
+                  "name": "get_weather",
+                  "description": "Get current weather",
+                  "parametersJsonSchema": {
+                    "type": "object",
+                    "properties": {
+                      "city": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "city"
+                    ]
+                  }
+                }
+              ]
+            }
+          ],
+          "safetySettings": [
+            {
+              "category": "HARM_CATEGORY_HARASSMENT",
+              "threshold": "OFF"
+            },
+            {
+              "category": "HARM_CATEGORY_HATE_SPEECH",
+              "threshold": "OFF"
+            },
+            {
+              "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+              "threshold": "OFF"
+            },
+            {
+              "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+              "threshold": "OFF"
+            },
+            {
+              "category": "HARM_CATEGORY_CIVIC_INTEGRITY",
+              "threshold": "BLOCK_NONE"
+            }
+          ]
+        }
+      },
+      "expected_downstream_body": {
+        "id": "",
+        "type": "message",
+        "role": "assistant",
+        "model": "gemini-mock-model",
+        "content": [
+          {
+            "type": "text",
+            "text": "Paris 18C sunny, London 12C rainy."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 40,
+          "output_tokens": 9
+        }
+      },
+      "notes": [
+        "tool_results arrive reversed (toolu_02 first) and MUST be reordered to toolu_01, toolu_02",
+        "the SECOND functionCall part carries NO thoughtSignature (sanitizer strips sibling signatures)",
+        "single-text-block tool_result content becomes the RAW block object as response.result"
+      ]
+    },
+    {
+      "id": "S2d8-06-nostream-image",
+      "purpose": "Claude image block (base64 source) -> Gemini inline_data part; text and image parts keep their relative order within a user turn.",
+      "downstream_request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8417/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json",
+          "User-Agent": "claude-cli/2.1.63 (external, cli)"
+        },
+        "body": {
+          "model": "gemini-mock-model",
+          "max_tokens": 100,
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "image",
+                  "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": "aGVsbG8="
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "Describe this."
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "mock": {
+        "mode": "happy",
+        "canned_nonstream": {
+          "candidates": [
+            {
+              "content": {
+                "parts": [
+                  {
+                    "text": "A tiny PNG."
+                  }
+                ],
+                "role": "model"
+              },
+              "finishReason": "STOP",
+              "index": 0
+            }
+          ],
+          "usageMetadata": {
+            "promptTokenCount": 11,
+            "candidatesTokenCount": 4,
+            "totalTokenCount": 15
+          },
+          "modelVersion": "gemini-mock-model"
+        }
+      },
+      "record": [
+        "downstream status+headers+body",
+        "upstream wire request"
+      ],
+      "expected_upstream": {
+        "body": {
+          "contents": [
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "inline_data": {
+                    "mime_type": "image/png",
+                    "data": "aGVsbG8="
+                  }
+                },
+                {
+                  "text": "Describe this."
+                }
+              ]
+            }
+          ],
+          "model": "gemini-mock-model",
+          "safetySettings": [
+            {
+              "category": "HARM_CATEGORY_HARASSMENT",
+              "threshold": "OFF"
+            },
+            {
+              "category": "HARM_CATEGORY_HATE_SPEECH",
+              "threshold": "OFF"
+            },
+            {
+              "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+              "threshold": "OFF"
+            },
+            {
+              "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+              "threshold": "OFF"
+            },
+            {
+              "category": "HARM_CATEGORY_CIVIC_INTEGRITY",
+              "threshold": "BLOCK_NONE"
+            }
+          ]
+        }
+      },
+      "expected_downstream_body": {
+        "id": "",
+        "type": "message",
+        "role": "assistant",
+        "model": "gemini-mock-model",
+        "content": [
+          {
+            "type": "text",
+            "text": "A tiny PNG."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 11,
+          "output_tokens": 4
+        }
+      }
+    },
+    {
+      "id": "S2d8-07-nostream-thinking",
+      "purpose": "Request: thinking enabled + budget_tokens -> generationConfig.thinkingConfig.thinkingBudget. Response: thought part + thoughtSignature -> thinking block with signature; thoughtsTokenCount added to output_tokens; cachedContentTokenCount -> input_tokens subtraction + cache_read_input_tokens.",
+      "downstream_request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8417/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json",
+          "User-Agent": "claude-cli/2.1.63 (external, cli)"
+        },
+        "body": {
+          "model": "gemini-mock-model",
+          "max_tokens": 2048,
+          "thinking": {
+            "type": "enabled",
+            "budget_tokens": 1024
+          },
+          "messages": [
+            {
+              "role": "user",
+              "content": "What is 6*7?"
+            }
+          ]
+        }
+      },
+      "mock": {
+        "mode": "happy",
+        "canned_nonstream": {
+          "candidates": [
+            {
+              "content": {
+                "parts": [
+                  {
+                    "text": "User wants arithmetic.",
+                    "thought": true,
+                    "thoughtSignature": "sig-mock-1"
+                  },
+                  {
+                    "text": "The answer is 42."
+                  }
+                ],
+                "role": "model"
+              },
+              "finishReason": "STOP",
+              "index": 0
+            }
+          ],
+          "usageMetadata": {
+            "promptTokenCount": 20,
+            "candidatesTokenCount": 6,
+            "thoughtsTokenCount": 4,
+            "cachedContentTokenCount": 3,
+            "totalTokenCount": 30
+          },
+          "modelVersion": "gemini-mock-model"
+        }
+      },
+      "record": [
+        "downstream status+headers+body",
+        "upstream wire request"
+      ],
+      "expected_upstream": {
+        "body": {
+          "contents": [
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "text": "What is 6*7?"
+                }
+              ]
+            }
+          ],
+          "model": "gemini-mock-model",
+          "generationConfig": {
+            "thinkingConfig": {
+              "thinkingBudget": 1024
+            }
+          },
+          "safetySettings": [
+            {
+              "category": "HARM_CATEGORY_HARASSMENT",
+              "threshold": "OFF"
+            },
+            {
+              "category": "HARM_CATEGORY_HATE_SPEECH",
+              "threshold": "OFF"
+            },
+            {
+              "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+              "threshold": "OFF"
+            },
+            {
+              "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+              "threshold": "OFF"
+            },
+            {
+              "category": "HARM_CATEGORY_CIVIC_INTEGRITY",
+              "threshold": "BLOCK_NONE"
+            }
+          ]
+        }
+      },
+      "expected_downstream_body": {
+        "id": "",
+        "type": "message",
+        "role": "assistant",
+        "model": "gemini-mock-model",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "User wants arithmetic.",
+            "signature": "sig-mock-1"
+          },
+          {
+            "type": "text",
+            "text": "The answer is 42."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 17,
+          "output_tokens": 10,
+          "cache_read_input_tokens": 3
+        }
+      }
+    },
+    {
+      "id": "S2d8-08-nostream-maxtokens",
+      "purpose": "finishReason MAX_TOKENS -> stop_reason max_tokens; usageMetadata absent -> whole usage key deleted from the Claude message.",
+      "downstream_request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8417/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json",
+          "User-Agent": "claude-cli/2.1.63 (external, cli)"
+        },
+        "body": {
+          "model": "gemini-mock-model",
+          "max_tokens": 8,
+          "messages": [
+            {
+              "role": "user",
+              "content": "Write a long essay"
+            }
+          ]
+        }
+      },
+      "mock": {
+        "mode": "happy",
+        "canned_nonstream": {
+          "candidates": [
+            {
+              "content": {
+                "parts": [
+                  {
+                    "text": "truncated ans"
+                  }
+                ],
+                "role": "model"
+              },
+              "finishReason": "MAX_TOKENS",
+              "index": 0
+            }
+          ],
+          "modelVersion": "gemini-mock-model"
+        }
+      },
+      "record": [
+        "downstream status+headers+body",
+        "upstream wire request"
+      ],
+      "expected_downstream_body": {
+        "id": "",
+        "type": "message",
+        "role": "assistant",
+        "model": "gemini-mock-model",
+        "content": [
+          {
+            "type": "text",
+            "text": "truncated ans"
+          }
+        ],
+        "stop_reason": "max_tokens",
+        "stop_sequence": null
+      },
+      "notes": [
+        "downstream body must NOT contain a usage key"
+      ]
+    },
+    {
+      "id": "S2d8-09-stream-basic",
+      "purpose": "Streaming happy path: exact Claude SSE event sequence and framing (event:/data:/3 newlines), message_start defaults + modelVersion override, message_delta usage, message_stop; upstream stream via ?alt=sse with no Accept header.",
+      "downstream_request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8417/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json",
+          "User-Agent": "claude-cli/2.1.63 (external, cli)"
+        },
+        "body": {
+          "model": "gemini-mock-model",
+          "max_tokens": 100,
+          "stream": true,
+          "messages": [
+            {
+              "role": "user",
+              "content": "Say hello"
+            }
+          ]
+        }
+      },
+      "mock": {
+        "mode": "happy",
+        "canned_stream": [
+          {
+            "candidates": [
+              {
+                "content": {
+                  "parts": [
+                    {
+                      "text": "Hello from mock gemini upstream"
+                    }
+                  ],
+                  "role": "model"
+                },
+                "index": 0
+              }
+            ],
+            "modelVersion": "gemini-mock-model"
+          },
+          {
+            "candidates": [
+              {
+                "content": {
+                  "parts": [
+                    {
+                      "text": " more"
+                    }
+                  ],
+                  "role": "model"
+                },
+                "index": 0
+              }
+            ]
+          },
+          {
+            "candidates": [
+              {
+                "content": {
+                  "parts": [],
+                  "role": "model"
+                },
+                "finishReason": "STOP",
+                "index": 0
+              }
+            ],
+            "usageMetadata": {
+              "promptTokenCount": 9,
+              "candidatesTokenCount": 6,
+              "totalTokenCount": 15
+            }
+          }
+        ]
+      },
+      "record": [
+        "downstream full SSE stream (status+headers+all bytes)",
+        "upstream wire request"
+      ],
+      "expected_upstream": {
+        "path": "/v1beta/models/gemini-mock-model:streamGenerateContent?alt=sse",
+        "body": {
+          "contents": [
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "text": "Say hello"
+                }
+              ]
+            }
+          ],
+          "model": "gemini-mock-model",
+          "safetySettings": [
+            {
+              "category": "HARM_CATEGORY_HARASSMENT",
+              "threshold": "OFF"
+            },
+            {
+              "category": "HARM_CATEGORY_HATE_SPEECH",
+              "threshold": "OFF"
+            },
+            {
+              "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+              "threshold": "OFF"
+            },
+            {
+              "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+              "threshold": "OFF"
+            },
+            {
+              "category": "HARM_CATEGORY_CIVIC_INTEGRITY",
+              "threshold": "BLOCK_NONE"
+            }
+          ]
+        }
+      },
+      "expected_downstream_sse": [
+        [
+          "message_start",
+          {
+            "type": "message_start",
+            "message": {
+              "id": "msg_1nZdL29xx5MUA1yADyHTEsnR8uuvGzszyY",
+              "type": "message",
+              "role": "assistant",
+              "content": [],
+              "model": "gemini-mock-model",
+              "stop_reason": null,
+              "stop_sequence": null,
+              "usage": {
+                "input_tokens": "<O200K-ESTIMATE>",
+                "output_tokens": 0
+              }
+            }
+          }
+        ],
+        [
+          "content_block_start",
+          {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {
+              "type": "text",
+              "text": ""
+            }
+          }
+        ],
+        [
+          "content_block_delta",
+          {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {
+              "type": "text_delta",
+              "text": "Hello from mock gemini upstream"
+            }
+          }
+        ],
+        [
+          "content_block_delta",
+          {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {
+              "type": "text_delta",
+              "text": " more"
+            }
+          }
+        ],
+        [
+          "content_block_stop",
+          {
+            "type": "content_block_stop",
+            "index": 0
+          }
+        ],
+        [
+          "message_delta",
+          {
+            "type": "message_delta",
+            "delta": {
+              "stop_reason": "end_turn",
+              "stop_sequence": null
+            },
+            "usage": {
+              "input_tokens": 9,
+              "output_tokens": 6
+            }
+          }
+        ],
+        [
+          "message_stop",
+          {
+            "type": "message_stop"
+          }
+        ]
+      ],
+      "notes": [
+        "message_start.usage.input_tokens is the deterministic o200k_base estimate of THIS request; record actual value in the fixture and list it in meta.yaml dynamic_fields",
+        "framing: 'event: <name>\\ndata: <json>\\n\\n\\n' for every event",
+        "upstream headers must NOT include Accept: text/event-stream"
+      ]
+    },
+    {
+      "id": "S2d8-10-stream-thinking",
+      "purpose": "Thinking in stream: thought parts -> thinking block events + signature_delta; interleaved text block transition; MAX_TOKENS -> stop_reason max_tokens in message_delta.",
+      "downstream_request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8417/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json",
+          "User-Agent": "claude-cli/2.1.63 (external, cli)"
+        },
+        "body": {
+          "model": "gemini-mock-model",
+          "max_tokens": 2048,
+          "stream": true,
+          "thinking": {
+            "type": "enabled",
+            "budget_tokens": 1024
+          },
+          "messages": [
+            {
+              "role": "user",
+              "content": "What is 6*7?"
+            }
+          ]
+        }
+      },
+      "mock": {
+        "mode": "happy",
+        "canned_stream": [
+          {
+            "candidates": [
+              {
+                "content": {
+                  "parts": [
+                    {
+                      "text": "Working through it.",
+                      "thought": true
+                    }
+                  ],
+                  "role": "model"
+                },
+                "index": 0
+              }
+            ],
+            "modelVersion": "gemini-mock-model"
+          },
+          {
+            "candidates": [
+              {
+                "content": {
+                  "parts": [
+                    {
+                      "text": " Done.",
+                      "thought": true,
+                      "thoughtSignature": "sig-mock-9"
+                    }
+                  ],
+                  "role": "model"
+                },
+                "index": 0
+              }
+            ]
+          },
+          {
+            "candidates": [
+              {
+                "content": {
+                  "parts": [
+                    {
+                      "text": "Answer: 42"
+                    }
+                  ],
+                  "role": "model"
+                },
+                "index": 0
+              }
+            ]
+          },
+          {
+            "candidates": [
+              {
+                "content": {
+                  "parts": [],
+                  "role": "model"
+                },
+                "finishReason": "MAX_TOKENS",
+                "index": 0
+              }
+            ],
+            "usageMetadata": {
+              "promptTokenCount": 15,
+              "candidatesTokenCount": 5,
+              "thoughtsTokenCount": 7,
+              "totalTokenCount": 27
+            }
+          }
+        ]
+      },
+      "record": [
+        "downstream full SSE stream",
+        "upstream wire request"
+      ],
+      "expected_downstream_sse": [
+        [
+          "message_start",
+          "<message_start, model gemini-mock-model, input_tokens <O200K-ESTIMATE>>"
+        ],
+        [
+          "content_block_start",
+          {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {
+              "type": "thinking",
+              "thinking": ""
+            }
+          }
+        ],
+        [
+          "content_block_delta",
+          {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {
+              "type": "thinking_delta",
+              "thinking": "Working through it."
+            }
+          }
+        ],
+        [
+          "content_block_delta",
+          {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {
+              "type": "thinking_delta",
+              "thinking": " Done."
+            }
+          }
+        ],
+        [
+          "content_block_delta",
+          {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {
+              "type": "signature_delta",
+              "signature": "sig-mock-9"
+            }
+          }
+        ],
+        [
+          "content_block_stop",
+          {
+            "type": "content_block_stop",
+            "index": 0
+          }
+        ],
+        [
+          "content_block_start",
+          {
+            "type": "content_block_start",
+            "index": 1,
+            "content_block": {
+              "type": "text",
+              "text": ""
+            }
+          }
+        ],
+        [
+          "content_block_delta",
+          {
+            "type": "content_block_delta",
+            "index": 1,
+            "delta": {
+              "type": "text_delta",
+              "text": "Answer: 42"
+            }
+          }
+        ],
+        [
+          "content_block_stop",
+          {
+            "type": "content_block_stop",
+            "index": 1
+          }
+        ],
+        [
+          "message_delta",
+          {
+            "type": "message_delta",
+            "delta": {
+              "stop_reason": "max_tokens",
+              "stop_sequence": null
+            },
+            "usage": {
+              "input_tokens": 15,
+              "output_tokens": 12
+            }
+          }
+        ],
+        [
+          "message_stop",
+          {
+            "type": "message_stop"
+          }
+        ]
+      ]
+    },
+    {
+      "id": "S2d8-11-stream-tool-call",
+      "purpose": "Tool call in stream: text block closed, tool_use block opened with restored name, input_json_delta carries the raw args, stop_reason tool_use; stream tool id uses a process counter (mask digits).",
+      "downstream_request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8417/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json",
+          "User-Agent": "claude-cli/2.1.63 (external, cli)"
+        },
+        "body": {
+          "model": "gemini-mock-model",
+          "max_tokens": 1024,
+          "stream": true,
+          "tools": [
+            {
+              "name": "get weather",
+              "description": "Get current weather",
+              "input_schema": {
+                "type": "object",
+                "properties": {
+                  "city": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "city"
+                ]
+              }
+            }
+          ],
+          "messages": [
+            {
+              "role": "user",
+              "content": "Weather in Paris?"
+            }
+          ]
+        }
+      },
+      "mock": {
+        "mode": "happy",
+        "canned_stream": [
+          {
+            "candidates": [
+              {
+                "content": {
+                  "parts": [
+                    {
+                      "text": "Let me check."
+                    }
+                  ],
+                  "role": "model"
+                },
+                "index": 0
+              }
+            ],
+            "modelVersion": "gemini-mock-model"
+          },
+          {
+            "candidates": [
+              {
+                "content": {
+                  "parts": [
+                    {
+                      "functionCall": {
+                        "name": "get_weather",
+                        "args": {
+                          "city": "Paris",
+                          "unit": "celsius"
+                        }
+                      }
+                    }
+                  ],
+                  "role": "model"
+                },
+                "index": 0
+              }
+            ]
+          },
+          {
+            "candidates": [
+              {
+                "content": {
+                  "parts": [],
+                  "role": "model"
+                },
+                "finishReason": "STOP",
+                "index": 0
+              }
+            ],
+            "usageMetadata": {
+              "promptTokenCount": 25,
+              "candidatesTokenCount": 4,
+              "totalTokenCount": 29
+            }
+          }
+        ]
+      },
+      "record": [
+        "downstream full SSE stream",
+        "upstream wire request"
+      ],
+      "expected_downstream_sse": [
+        [
+          "message_start",
+          "<message_start, model gemini-mock-model>"
+        ],
+        [
+          "content_block_start",
+          {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {
+              "type": "text",
+              "text": ""
+            }
+          }
+        ],
+        [
+          "content_block_delta",
+          {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {
+              "type": "text_delta",
+              "text": "Let me check."
+            }
+          }
+        ],
+        [
+          "content_block_stop",
+          {
+            "type": "content_block_stop",
+            "index": 0
+          }
+        ],
+        [
+          "content_block_start",
+          {
+            "type": "content_block_start",
+            "index": 1,
+            "content_block": {
+              "type": "tool_use",
+              "id": "get_weather-<N>",
+              "name": "get weather",
+              "input": {}
+            }
+          }
+        ],
+        [
+          "content_block_delta",
+          {
+            "type": "content_block_delta",
+            "index": 1,
+            "delta": {
+              "type": "input_json_delta",
+              "partial_json": {
+                "city": "Paris",
+                "unit": "celsius"
+              }
+            }
+          }
+        ],
+        [
+          "content_block_stop",
+          {
+            "type": "content_block_stop",
+            "index": 1
+          }
+        ],
+        [
+          "message_delta",
+          {
+            "type": "message_delta",
+            "delta": {
+              "stop_reason": "tool_use",
+              "stop_sequence": null
+            },
+            "usage": {
+              "input_tokens": 25,
+              "output_tokens": 4
+            }
+          }
+        ],
+        [
+          "message_stop",
+          {
+            "type": "message_stop"
+          }
+        ]
+      ],
+      "notes": [
+        "<N> = process-lifetime counter, first call in a fresh process = 1; mask digits in contract tests",
+        "partial_json must equal the raw args bytes from the mock data line (compact JSON, no spaces)"
+      ]
+    },
+    {
+      "id": "S2d8-12-stream-empty",
+      "purpose": "HasContent gating: upstream emits no parts -> downstream stream contains ONLY message_start; no content events, no message_delta, no message_stop.",
+      "downstream_request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8417/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json",
+          "User-Agent": "claude-cli/2.1.63 (external, cli)"
+        },
+        "body": {
+          "model": "gemini-mock-model",
+          "max_tokens": 100,
+          "stream": true,
+          "messages": [
+            {
+              "role": "user",
+              "content": "Anything?"
+            }
+          ]
+        }
+      },
+      "mock": {
+        "mode": "happy",
+        "canned_stream": [
+          {
+            "candidates": [
+              {
+                "content": {
+                  "parts": [],
+                  "role": "model"
+                },
+                "index": 0
+              }
+            ],
+            "modelVersion": "gemini-mock-model"
+          },
+          {
+            "candidates": [
+              {
+                "content": {
+                  "parts": [],
+                  "role": "model"
+                },
+                "finishReason": "STOP",
+                "index": 0
+              }
+            ],
+            "usageMetadata": {
+              "promptTokenCount": 5,
+              "candidatesTokenCount": 0,
+              "totalTokenCount": 5
+            }
+          }
+        ]
+      },
+      "record": [
+        "downstream full SSE stream",
+        "upstream wire request"
+      ],
+      "expected_downstream_sse": [
+        [
+          "message_start",
+          "<message_start, model gemini-mock-model>"
+        ]
+      ],
+      "notes": [
+        "stream then closes cleanly (200); NO message_delta / message_stop events"
+      ]
+    },
+    {
+      "id": "S2d8-13-count-tokens",
+      "purpose": "count_tokens end-to-end: upstream :countTokens body drops tools/generationConfig/safetySettings; downstream body is exactly {\"input_tokens\":N}.",
+      "downstream_request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8417/v1/messages/count_tokens",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json",
+          "User-Agent": "claude-cli/2.1.63 (external, cli)"
+        },
+        "body": {
+          "model": "gemini-mock-model",
+          "tools": [
+            {
+              "name": "t1",
+              "description": "d",
+              "input_schema": {
+                "type": "object",
+                "properties": {
+                  "a": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ],
+          "system": "You are terse.",
+          "temperature": 0.5,
+          "max_tokens": 10,
+          "messages": [
+            {
+              "role": "user",
+              "content": "Hello world"
+            }
+          ]
+        }
+      },
+      "mock": {
+        "mode": "happy",
+        "canned_count": {
+          "totalTokens": 42
+        }
+      },
+      "record": [
+        "downstream status+headers+body",
+        "upstream wire request"
+      ],
+      "expected_upstream": {
+        "path": "/v1beta/models/gemini-mock-model:countTokens",
+        "body": {
+          "contents": [
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "text": "Hello world"
+                }
+              ]
+            }
+          ],
+          "model": "gemini-mock-model",
+          "systemInstruction": {
+            "parts": [
+              {
+                "text": "You are terse."
+              }
+            ]
+          }
+        }
+      },
+      "expected_downstream_body": {
+        "input_tokens": 42
+      },
+      "notes": [
+        "upstream body must NOT contain tools, generationConfig, or safetySettings"
+      ]
+    },
+    {
+      "id": "S2d8-14-err-429",
+      "purpose": "Upstream 429: status passes through verbatim; body is the CLAUDE envelope (NOT the upstream body verbatim): rate_limit_error + message extracted from error.message (numeric error.code ignored).",
+      "run_last": true,
+      "downstream_request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8417/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json",
+          "User-Agent": "claude-cli/2.1.63 (external, cli)"
+        },
+        "body": {
+          "model": "gemini-mock-model",
+          "max_tokens": 100,
+          "messages": [
+            {
+              "role": "user",
+              "content": "Say hello"
+            }
+          ]
+        }
+      },
+      "mock": {
+        "mode": "error",
+        "status": 429,
+        "error_body": {
+          "error": {
+            "code": 429,
+            "message": "mock rate limit",
+            "status": "RESOURCE_EXHAUSTED"
+          }
+        }
+      },
+      "record": [
+        "downstream status+headers+body",
+        "upstream wire request"
+      ],
+      "expected_downstream": {
+        "status": 429,
+        "body": {
+          "type": "error",
+          "error": {
+            "type": "rate_limit_error",
+            "message": "mock rate limit"
+          }
+        }
+      },
+      "notes": [
+        "RUN THIS CASE ABSOLUTELY LAST: a 429 puts the credential into a ~1s rate-limit cooldown",
+        "credential cooldown is NOT disabled by transient-error-cooldown-seconds: -1"
+      ]
+    },
+    {
+      "id": "S2d8-15-err-400",
+      "purpose": "Upstream 400 INVALID_ARGUMENT -> downstream 400 invalid_request_error (status->type mapping table row); 400 is a request fault (no cooldown).",
+      "downstream_request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8417/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json",
+          "User-Agent": "claude-cli/2.1.63 (external, cli)"
+        },
+        "body": {
+          "model": "gemini-mock-model",
+          "max_tokens": 100,
+          "messages": [
+            {
+              "role": "user",
+              "content": "Say hello"
+            }
+          ]
+        }
+      },
+      "mock": {
+        "mode": "error",
+        "status": 400,
+        "error_body": {
+          "error": {
+            "code": 400,
+            "message": "Invalid JSON payload received.",
+            "status": "INVALID_ARGUMENT"
+          }
+        }
+      },
+      "record": [
+        "downstream status+headers+body",
+        "upstream wire request"
+      ],
+      "expected_downstream": {
+        "status": 400,
+        "body": {
+          "type": "error",
+          "error": {
+            "type": "invalid_request_error",
+            "message": "Invalid JSON payload received."
+          }
+        }
+      }
+    },
+    {
+      "id": "S2d8-16-slow-chunks",
+      "purpose": "Slow upstream (300ms between events): downstream bytes identical to S2d8-09 (no heartbeat comments injected; keep-alive disabled by default), proving flush cadence does not alter content.",
+      "downstream_request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8417/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json",
+          "User-Agent": "claude-cli/2.1.63 (external, cli)"
+        },
+        "body": {
+          "model": "gemini-mock-model",
+          "max_tokens": 100,
+          "stream": true,
+          "messages": [
+            {
+              "role": "user",
+              "content": "Say hello"
+            }
+          ]
+        }
+      },
+      "mock": {
+        "mode": "slow",
+        "delay_ms": 300,
+        "canned_stream": [
+          {
+            "candidates": [
+              {
+                "content": {
+                  "parts": [
+                    {
+                      "text": "Hello from mock gemini upstream"
+                    }
+                  ],
+                  "role": "model"
+                },
+                "index": 0
+              }
+            ],
+            "modelVersion": "gemini-mock-model"
+          },
+          {
+            "candidates": [
+              {
+                "content": {
+                  "parts": [
+                    {
+                      "text": " more"
+                    }
+                  ],
+                  "role": "model"
+                },
+                "index": 0
+              }
+            ]
+          },
+          {
+            "candidates": [
+              {
+                "content": {
+                  "parts": [],
+                  "role": "model"
+                },
+                "finishReason": "STOP",
+                "index": 0
+              }
+            ],
+            "usageMetadata": {
+              "promptTokenCount": 9,
+              "candidatesTokenCount": 6,
+              "totalTokenCount": 15
+            }
+          }
+        ]
+      },
+      "record": [
+        "downstream full SSE stream"
+      ],
+      "expected_downstream_sse": "byte-identical to S2d8-09 downstream SSE (same canned events)",
+      "notes": [
+        "no ': keep-alive' comment frames may appear (streaming.keep-alive-seconds unset)"
+      ]
+    },
+    {
+      "id": "S2d8-17-disconnect",
+      "purpose": "Upstream hard-close mid-stream: client HTTP stays 200; translated chunks complete; message_stop STILL fires (stream-end [DONE] pass with HasContent); then exactly one terminal event: error api_error 'unexpected EOF'.",
+      "downstream_request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8417/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json",
+          "User-Agent": "claude-cli/2.1.63 (external, cli)"
+        },
+        "body": {
+          "model": "gemini-mock-model",
+          "max_tokens": 100,
+          "stream": true,
+          "messages": [
+            {
+              "role": "user",
+              "content": "Say hello"
+            }
+          ]
+        }
+      },
+      "mock": {
+        "mode": "disconnect",
+        "after": 2,
+        "canned_stream": [
+          {
+            "candidates": [
+              {
+                "content": {
+                  "parts": [
+                    {
+                      "text": "Hello from mock gemini upstream"
+                    }
+                  ],
+                  "role": "model"
+                },
+                "index": 0
+              }
+            ],
+            "modelVersion": "gemini-mock-model"
+          },
+          {
+            "candidates": [
+              {
+                "content": {
+                  "parts": [
+                    {
+                      "text": " more"
+                    }
+                  ],
+                  "role": "model"
+                },
+                "index": 0
+              }
+            ]
+          },
+          {
+            "candidates": [
+              {
+                "content": {
+                  "parts": [],
+                  "role": "model"
+                },
+                "finishReason": "STOP",
+                "index": 0
+              }
+            ],
+            "usageMetadata": {
+              "promptTokenCount": 9,
+              "candidatesTokenCount": 6,
+              "totalTokenCount": 15
+            }
+          }
+        ]
+      },
+      "record": [
+        "downstream full SSE stream (including the terminal error event)"
+      ],
+      "expected_downstream_sse": [
+        [
+          "message_start",
+          "<message_start, model gemini-mock-model>"
+        ],
+        [
+          "content_block_start",
+          "<text block 0>"
+        ],
+        [
+          "content_block_delta",
+          "<text_delta 'Hello from mock gemini upstream'>"
+        ],
+        [
+          "content_block_delta",
+          "<text_delta ' more'>"
+        ],
+        [
+          "message_stop",
+          {
+            "type": "message_stop"
+          }
+        ],
+        [
+          "error",
+          {
+            "type": "error",
+            "error": {
+              "type": "api_error",
+              "message": "unexpected EOF"
+            }
+          }
+        ]
+      ],
+      "notes": [
+        "no message_delta (final usage chunk never arrived)",
+        "terminal event framing: 'event: error\\ndata: {...}\\n\\n' (TWO newlines, unlike translated events)",
+        "record the exact transport error text; expected 'unexpected EOF' per fleet recording"
+      ]
+    },
+    {
+      "id": "S2d8-18-stream-error-before-first-chunk",
+      "purpose": "Upstream 500 on a stream request: error arrives before the first translated chunk -> plain JSON error response (upstream status), NO SSE headers. 500 chosen to avoid the 429 cooldown coupling with case 14.",
+      "downstream_request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8417/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json",
+          "User-Agent": "claude-cli/2.1.63 (external, cli)"
+        },
+        "body": {
+          "model": "gemini-mock-model",
+          "max_tokens": 100,
+          "stream": true,
+          "messages": [
+            {
+              "role": "user",
+              "content": "Say hello"
+            }
+          ]
+        }
+      },
+      "mock": {
+        "mode": "error",
+        "status": 500,
+        "error_body": {
+          "error": {
+            "code": 500,
+            "message": "Internal error.",
+            "status": "INTERNAL"
+          }
+        }
+      },
+      "record": [
+        "downstream status+headers+body",
+        "upstream wire request"
+      ],
+      "expected_downstream": {
+        "status": 500,
+        "body": {
+          "type": "error",
+          "error": {
+            "type": "api_error",
+            "message": "Internal error."
+          }
+        }
+      },
+      "notes": [
+        "response Content-Type must be application/json (NOT text/event-stream)"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "type": "kimi",
+  "access_token": "oracle-fake-token",
+  "refresh_token": "oracle-fake-refresh",
+  "token_type": "Bearer",
+  "expired": "2030-01-01T00:00:00Z"
+}

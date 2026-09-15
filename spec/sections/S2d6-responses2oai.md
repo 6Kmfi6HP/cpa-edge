@@ -27,6 +27,7 @@ OUT of scope (owned elsewhere):
 - Thinking suffixes `model(...)` on the requested model name — cross-cutting; S2d6 requires only the no-suffix behavior of the goldens.
 - Plugin interceptors / model router / payload-config overrides (`models[].payload` rules), `support-prompt-cache-key`, `input-modalities`-driven tool-result flattening, `codex-optimize-multi-agent-v2` / `codex-orphan-delegation-compatibility` rewrites, `streaming.keep-alive-seconds`, `streaming.bootstrap-retries`, `passthrough-headers` — all config-gated features that are OFF in the anchor configuration. Behaviors are marked OPTIONAL where relevant.
 - Responses clients routed to Codex/xAI/Meta/Gemini/Claude/interactions upstreams — S2d5/S2d1-family/S2d3-family/S2d9 sections.
+- Token counting: the Responses inbound surface has NO count-tokens route. (Recorded S1 fact, incorporated for boundary clarity: for `openai-compatibility` upstreams, count-token requests arriving on OTHER client protocols are synthesized locally by the gateway — `{"totalTokens":N,...}` with an EMPTY `upstream.jsonl`; no count request is ever forwarded to the chat upstream. Nothing in S2d6 may imply count forwarding.)
 
 Intentional non-equivalences: §8.
 

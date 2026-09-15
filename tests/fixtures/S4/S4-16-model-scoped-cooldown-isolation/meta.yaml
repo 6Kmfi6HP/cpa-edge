@@ -1,0 +1,90 @@
+{
+ "id": "S4-16-model-scoped-cooldown-isolation",
+ "purpose": "A transient cooldown is scoped to the failed model: after both credentials cool on iso-model-1, a request for iso-model-2 is still served (per-model state isolation within each credential).",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image eceasy/cli-proxy-api:v7.3.4 (digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266)",
+ "recorded_at": "2026-09-15T23:59:05",
+ "config_yaml": "host: \"\"\nport: 18317\nremote-management:\n  allow-remote: true\n  secret-key: \"oracle-mgmt-key-1\"\n  disable-control-panel: true\nauth-dir: \"/root/.cli-proxy-api\"\napi-keys:\n  - \"oracle-local-key-1\"\ndebug: false\nrequest-retry: 0\nmax-retry-credentials: 0\nmax-retry-interval: 10\ntransient-error-cooldown-seconds: 2\nusage-statistics-enabled: false\nrouting:\n  strategy: \"round-robin\"\n  session-affinity: false\nopenai-compatibility:\n  - name: \"mock-openai\"\n    base-url: \"http://host.docker.internal:18999/v1\"\n    api-key-entries:\n      - api-key: \"s4-oai-key-1\"\n      - api-key: \"s4-oai-key-2\"\n      - api-key: \"s4-oai-key-3\"\n    models:\n      - name: \"mock-gpt-model\"\n        alias: \"mock-model\"\n      - name: \"mock-pool-1\"\n        alias: \"pool-model\"\n      - name: \"mock-pool-2\"\n        alias: \"pool-model\"\n      - name: \"mock-iso-1\"\n        alias: \"iso-model-1\"\n      - name: \"mock-iso-2\"\n        alias: \"iso-model-2\"\ngemini-api-key:\n  - api-key: \"mock-gem-key\"\n    base-url: \"http://host.docker.internal:19001\"\n    models:\n      - name: \"gemini-mock-model\"\n        alias: \"gm\"\n",
+ "control_events": [
+  [
+   0,
+   "openai",
+   {
+    "by_model": {
+     "mock-iso-1": {
+      "mode": "error",
+      "status": 500
+     }
+    }
+   }
+  ]
+ ],
+ "sleeps_applied": [
+  {
+   "step": 3,
+   "seconds": 0.2
+  }
+ ],
+ "dynamic_fields": [
+  "Date",
+  "X-Cpa-Trace-Id",
+  "wire-log ts"
+ ],
+ "auth_id_mapping": {
+  "formula": "sha256(kind NUL key NUL base-url NUL)[:12]",
+  "ids": {
+   "s4-oai-key-1": "2add2ed9fa51",
+   "s4-oai-key-2": "9d9fdb184163",
+   "s4-oai-key-3": "922ad5b89d42"
+  },
+  "ascending_order": [
+   "s4-oai-key-1",
+   "s4-oai-key-3",
+   "s4-oai-key-2"
+  ]
+ },
+ "observed_credential_sequence": [
+  [
+   1,
+   "s4-oai-key-1",
+   500
+  ],
+  [
+   1,
+   "s4-oai-key-3",
+   500
+  ],
+  [
+   1,
+   "s4-oai-key-2",
+   500
+  ],
+  [
+   4,
+   "s4-oai-key-1",
+   200
+  ],
+  [
+   5,
+   "s4-oai-key-3",
+   200
+  ]
+ ],
+ "http_statuses": [
+  {
+   "step": 1,
+   "status": "500"
+  },
+  {
+   "step": 2,
+   "status": "503"
+  },
+  {
+   "step": 4,
+   "status": "200"
+  },
+  {
+   "step": 5,
+   "status": "200"
+  }
+ ]
+}

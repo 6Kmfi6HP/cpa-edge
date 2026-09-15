@@ -335,7 +335,9 @@ Management routes (`{"error": "<string>"}` management style):
 ```
 
 All 501 responses: `Content-Type: application/json; charset=utf-8`, the standard CORS header block
-present like every other response, no extra headers, body is a single compact JSON line + `\n`.
+present (added by the response middleware, same as all middleware-handled responses — the S1-recorded
+exception is redirects, which are a different mechanism and do not apply here), no extra headers, body
+is a single compact JSON line + `\n`.
 
 ### 3.3 Error body → trigger mapping
 

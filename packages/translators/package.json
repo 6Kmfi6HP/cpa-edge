@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@cpa-edge/core": "workspace:*"
+    "@cpa-edge/core": "workspace:*",
+    "js-tiktoken": "^1.0.21"
   },
   "devDependencies": {
     "typescript": "~6.0.3",
