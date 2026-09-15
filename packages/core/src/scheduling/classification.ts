@@ -359,13 +359,26 @@ export function classifyFailure(input: FailureInput): FailureClassification {
   // errors are transient-transport - no cooldown, retry rounds allowed.
   if (httpStatus === undefined) {
     const lifecycle = isLifecycleError(errorText)
-    const retryRoundEligible = !lifecycle
+    const kind: FailureKind = lifecycle ? 'connection_lifecycle' : 'transient_transport'
+    if (route === 'responses-compact' && !credentialScoped && !cloudflare && !invalidGrant) {
+      // Transport failures on compact requests are availability-neutral.
+      return {
+        kind,
+        rotation: 'continue',
+        cooldown: 'none',
+        neutral: true,
+        retryRoundEligible: !lifecycle,
+        credentialScoped: false,
+        skipQuotaObservation: true,
+        statusMessage: lifecycle ? 'connection lifecycle' : 'transient transport',
+      }
+    }
     return {
-      kind: lifecycle ? 'connection_lifecycle' : 'transient_transport',
+      kind,
       rotation: 'continue',
       cooldown: 'none',
       neutral: false,
-      retryRoundEligible,
+      retryRoundEligible: !lifecycle,
       credentialScoped: false,
       skipQuotaObservation: false,
       statusMessage: lifecycle ? 'connection lifecycle' : 'transient transport',
@@ -441,19 +454,3 @@ export function classifyFailure(input: FailureInput): FailureClassification {
     statusMessage,
   }
 }
-
-/**
- * Computes the effective cooldown kind for a success result: success clears
- * the model state; this constant is exported for callers that need to mark
- * results without going through the failure ladder.
- */
-export const SUCCESS_CLASSIFICATION: FailureClassification = Object.freeze({
-  kind: 'request_failed',
-  rotation: 'stop',
-  cooldown: 'none',
-  neutral: false,
-  retryRoundEligible: false,
-  credentialScoped: false,
-  skipQuotaObservation: false,
-  statusMessage: 'ok',
-})

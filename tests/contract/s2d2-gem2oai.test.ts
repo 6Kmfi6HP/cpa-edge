@@ -582,15 +582,18 @@ function parseHeadBlock(lines: readonly string[]): { status: number; headers: Ar
  */
 function parseDownstreamMarkdown(text: string): Readonly<Record<string, RecordedResponse>> {
   const sections: Record<string, RecordedResponse> = {}
-  const markers = [...text.matchAll(/\n## (R\d+)\n/g)]
+  // Prepend a newline so a section marker at position 0 matches the same \n-anchored
+  // pattern as the later ones; every index below refers to this normalized string.
+  const normalized = `\n${text}`
+  const markers = [...normalized.matchAll(/\n## (R\d+)\n/g)]
   for (let index = 0; index < markers.length; index += 1) {
     const marker = markers[index]
     if (marker === undefined) continue
     const sectionId = marker[1] ?? ''
     const start = (marker.index ?? 0) + marker[0].length
     const next = markers[index + 1]
-    const end = next?.index ?? text.length
-    const section = text.slice(start, end)
+    const end = next?.index ?? normalized.length
+    const section = normalized.slice(start, end)
 
     const headMatch = section.match(/```\n(HTTP\/1\.1[^\n]*)\n([\s\S]*?)\n```/)
     if (headMatch === null) throw new Error(`downstream.md ${sectionId}: missing response-head fence`)
