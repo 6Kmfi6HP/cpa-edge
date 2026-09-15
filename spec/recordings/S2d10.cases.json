@@ -596,7 +596,7 @@
     },
     {
       "id": "S2d10-forwarder-port-busy",
-      "classification": "RECORDED (was conditional; in-container 51121 occupied via docker exec perl IO::Socket::INET listener — technique in fixture meta pre_occupation; golden at tests/fixtures/S2d10/S2d10-forwarder-port-busy/)",
+      "classification": "RECORDED (optional get-auth-status extension requested in round 2; golden at tests/fixtures/S2d10/S2d10-forwarder-port-busy/)",
       "purpose": "Forwarder bind failure: with 51121 already bound inside the container, is_webui=1 auth-url returns 500 {\"error\":\"failed to start callback server\"}.",
       "requests": [
         {
@@ -616,9 +616,19 @@
           },
           "body": null,
           "note": "expect 500 {\"error\":\"failed to start callback server\"}"
+        },
+        {
+          "order": 2,
+          "method": "GET",
+          "url": "http://<reference>/v0/management/get-auth-status?state=<state-from-step-1>",
+          "headers": {
+            "Authorization": "Bearer <mgmt-key>"
+          },
+          "body": null,
+          "note": "OPTIONAL EXTENSION (round-2 review): pins the wait-forever behavior after bind failure — expect 200 {\"status\":\"wait\"} because no waiter was started; requested from oracle-runner-2"
         }
       ],
-      "record": "500 exchange. If the runtime cannot bind in-container, mark deferred with reason 'needs in-container port conflict'.",
+      "record": "500 exchange (+ optional extension: get-auth-status after the 500 → {\"status\":\"wait\"} — no waiter started).",
       "mock_upstream_mode": null,
       "dynamic_fields": [
         "Date"
@@ -829,7 +839,9 @@
       "S2d10-executor-429-cooldown",
       "S2d10-executor-request-shape-gemini"
     ],
-    "pending": [],
+    "pending": [
+      "S2d10-forwarder-port-busy get-auth-status extension (optional, pins B1)"
+    ],
     "fixture_deferred": [
       "S2d10-live-oauth-success",
       "S2d10-live-executor-responses",

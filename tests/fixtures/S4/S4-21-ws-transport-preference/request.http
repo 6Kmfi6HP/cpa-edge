@@ -3,7 +3,7 @@
 
 ### Step 1 (websocket)
 GET /v1/responses HTTP/1.1 [upgrade headers as per ws_client.py]
-text frame: {"model": "wsx", "input": "s4", "stream": true}
+text frame: {"type": "response.create", "model": "wsx", "input": [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": "s4"}]}], "stream": true}
 
 
 ### Step 2

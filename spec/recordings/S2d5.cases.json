@@ -1057,6 +1057,51 @@
           }
         }
       ]
+    },
+    "s2d5-empty-incomplete": {
+      "events": [
+        {
+          "event": "response.created",
+          "data": {
+            "type": "response.created",
+            "response": {
+              "id": "resp_mock_einc_01",
+              "object": "response",
+              "created_at": 1770000800,
+              "status": "in_progress",
+              "model": "gpt-mock-codex",
+              "output": [],
+              "usage": {
+                "input_tokens": 3,
+                "output_tokens": 0,
+                "total_tokens": 3
+              }
+            }
+          }
+        },
+        {
+          "event": "response.incomplete",
+          "data": {
+            "type": "response.incomplete",
+            "response": {
+              "id": "resp_mock_einc_01",
+              "object": "response",
+              "created_at": 1770000800,
+              "status": "incomplete",
+              "model": "gpt-mock-codex",
+              "output": [],
+              "usage": {
+                "input_tokens": 3,
+                "output_tokens": 0,
+                "total_tokens": 3
+              },
+              "incomplete_details": {
+                "reason": "max_output_tokens"
+              }
+            }
+          }
+        }
+      ]
     }
   },
   "cases": [
@@ -2051,6 +2096,176 @@
       ],
       "expected_downstream": "RECORDED (2026-09-15, oracle-runner-3): request-a: HTTP 429, verbatim mock error body. request-b: HTTP 429 with Retry-After: 4 and body {\"error\":{\"code\":\"model_cooldown\",\"last_upstream_error\":\"<VERBATIM 429 body, json.dumps spacing preserved>\",\"message\":\"All credentials for model cx are cooling down via provider codex (last error: <verbatim 429 body>)\",\"model\":\"cx\",\"provider\":\"codex\",\"reset_seconds\":4,\"reset_time\":\"4s\"}} (alphabetical keys). Recorded R2 omits X-Cpa-Trace-Id. Mask reset_seconds/reset_time/Retry-After/X-Cpa-Trace-Id/Date in meta.yaml dynamic_fields (remaining-window values are time-dependent on replay).",
       "notes": "Recorded fixture supersedes the original expected shape (500/summary-form last_upstream_error) — see spec section §5 E2 and §7 items 13-15. Pair must be replayed back-to-back; prior 429 cases must be ≥5s in the past (residual cooldown observed at 1.2s)."
+    },
+    {
+      "id": "S2D5-25-union-schema-enum-rewrite",
+      "purpose": "B1: NormalizeCodexToolSchemas MUST — a function tool parameter property whose oneOf union has >=8 pure-const branches is rewritten to an enum list upstream (oneOf deleted, raw const values preserved in order; descriptions allowed on branches). B2 fold-in: assistant-history type selection — a client tool call type:'function' named after a DECLARED custom tool becomes custom_tool_call/input, and a name declared both as function and custom stays function_call (function wins); outputs map to custom_tool_call_output / function_call_output.",
+      "priority": 1,
+      "mock": {
+        "mode": "happy",
+        "script": null
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "cx",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Pick a mode and run both lookups."
+              },
+              {
+                "role": "assistant",
+                "content": null,
+                "tool_calls": [
+                  {
+                    "id": "call_cst",
+                    "type": "function",
+                    "function": {
+                      "name": "cst_lookup",
+                      "arguments": "[\"x\"]"
+                    }
+                  },
+                  {
+                    "id": "call_shared",
+                    "type": "function",
+                    "function": {
+                      "name": "shared_name",
+                      "arguments": "{}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "call_cst",
+                "content": "custom result"
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "call_shared",
+                "content": "fn result"
+              }
+            ],
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "pick_mode",
+                  "description": "Pick a mode",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "mode": {
+                        "type": "string",
+                        "oneOf": [
+                          {
+                            "const": "alpha",
+                            "description": "Alpha mode"
+                          },
+                          {
+                            "const": "beta",
+                            "description": "Beta mode"
+                          },
+                          {
+                            "const": "gamma"
+                          },
+                          {
+                            "const": "delta"
+                          },
+                          {
+                            "const": "epsilon"
+                          },
+                          {
+                            "const": "zeta"
+                          },
+                          {
+                            "const": "eta"
+                          },
+                          {
+                            "const": "theta"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "custom",
+                "name": "cst_lookup",
+                "description": "Custom lookup tool"
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "shared_name",
+                  "description": "Function sharing a name",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {}
+                  }
+                }
+              },
+              {
+                "type": "custom",
+                "name": "shared_name",
+                "description": "Custom sharing the same name"
+              }
+            ]
+          }
+        }
+      ],
+      "record": [
+        "downstream: status + all response headers + full body (exact bytes)",
+        "upstream: mock wire log entry for each upstream request (method, path, headers, body — what the reference emitted)",
+        "mock-response: the scripted response bytes the mock served"
+      ],
+      "expected_downstream": "200 chat.completion (canned text; downstream shape is not the point). UPSTREAM body is the contract: tools = [pick_mode {type:function,name,description,strict:false,parameters:{type:object,properties:{mode:{type:string,enum:[\"alpha\",\"beta\",\"gamma\",\"delta\",\"epsilon\",\"zeta\",\"eta\",\"theta\"]}}}} — oneOf DELETED, enum values in branch order; cst_lookup custom verbatim; shared_name function {strict:false}; shared_name custom verbatim; image_generation appended LAST]. input = [user message, {type:custom_tool_call,call_id:call_cst,name:cst_lookup,input:\"[\\\"x\\\"]\"}, {type:function_call,call_id:call_shared,name:shared_name,arguments:\"{}\"}, {type:custom_tool_call_output,call_id:call_cst,output:\"custom result\"}, {type:function_call_output,call_id:call_shared,output:\"fn result\"}] (no empty assistant message item).",
+      "notes": "Adversary round-1 B1+B2. The 8-branch oneOf sits at parameters.properties.mode with exactly one union key; two branches carry 'description' to prove branch descriptions are allowed; no enum pre-exists on the property. The custom tools carry no parameters (normalizer no-ops on them)."
+    },
+    {
+      "id": "S2D5-26-empty-incomplete-zero-tokens",
+      "purpose": "N2/E6: response.incomplete terminal with zero output (empty output array, no meaningful deltas, usage.output_tokens == 0) is converted to a gateway error 'stream error: upstream terminated with incomplete empty response (0 tokens)' — pre-commit because no chunk was ever emitted (stream client).",
+      "priority": 1,
+      "mock": {
+        "mode": "happy",
+        "script": "s2d5-empty-incomplete"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "cx",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Say nothing"
+              }
+            ],
+            "stream": true
+          },
+          "curl_flags": "-N"
+        }
+      ],
+      "record": [
+        "downstream: status + all response headers + full body (exact bytes)",
+        "upstream: mock wire log entry for each upstream request (method, path, headers, body — what the reference emitted)",
+        "mock-response: the scripted response bytes the mock served"
+      ],
+      "expected_downstream": "HTTP 502 application/json (NO SSE headers, no chunks): {\"error\":{\"message\":\"stream error: upstream terminated with incomplete empty response (0 tokens)\",\"type\":\"server_error\",\"code\":\"internal_server_error\"}}. Upstream wire: exactly 1 request. The mock's response.incomplete carries output:[] and usage.output_tokens:0 with NO output_item.done items and NO deltas — the empty-incomplete predicate's exact trigger.",
+      "notes": "Adversary round-1 N2 (authorized). Mask X-Cpa-Trace-Id/Date as usual; body bytes are otherwise fixed."
     }
   ],
   "recording_status": {

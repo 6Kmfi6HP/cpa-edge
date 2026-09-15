@@ -63,7 +63,7 @@ MUST:
 - `state` is 32 lowercase hex chars (`crypto/rand` 16 bytes hex; `internal/misc/oauth.go` `GenerateRandomState`). `state` is dynamic per request.
 - The authorization URL is `AuthEndpoint` + `?` + form-encoded params **in alphabetical key order** (Go `url.Values.Encode`): `access_type=offline`, `client_id=<ClientID>`, `prompt=consent`, `redirect_uri=http%3A%2F%2Flocalhost%3A51121%2Foauth-callback`, `response_type=code`, `scope=<five scopes, space-separated, spaces encoded as %20>`, `state=<state>`.
 - The session is registered as provider `antigravity` (pending, TTL 30 minutes; completed sessions live 1 minute; `internal/api/handlers/management/oauth_sessions.go`).
-- A background waiter goroutine starts immediately: it polls the auth dir every 500 ms for `.oauth-antigravity-<state>.oauth`, up to 5 minutes, and exits silently if the session stops being pending (cancelled/completed/errored/expired).
+- A background waiter goroutine starts with the response — but only after the optional `is_webui` forwarder step (§2.3) succeeds: it polls the auth dir every 500 ms for `.oauth-antigravity-<state>.oauth`, up to 5 minutes, and exits silently if the session stops being pending (cancelled/completed/errored/expired).
 - Error paths: state generation failure → 500 `{"error":"failed to generate state parameter"}` (not locally reproducible, specified only).
 
 ### 2.3 The loopback forwarder (webui mode) — the ONLY 302 in the Antigravity flow
@@ -72,7 +72,7 @@ Evidence: `internal/api/handlers/management/auth_files_provider_oauth.go` + `aut
 
 MUST:
 - The forwarder is started ONLY when the auth-url request carries query param `is_webui` with value (case-insensitive) `1`, `true`, `yes`, or `on`. Without the flag, NO listener on 51121 is opened by the server at all.
-- It binds `0.0.0.0:51121`. If the bind fails → the auth-url request returns **500 `{"error":"failed to start callback server"}`** (the session stays registered; the waiter still runs).
+- It binds `0.0.0.0:51121`. If the bind fails → the auth-url request returns **500 `{"error":"failed to start callback server"}`** (the session stays registered; NO waiter is started — it sits pending until the 30-min session TTL purge, so `get-auth-status` keeps answering `{"status":"wait"}`).
 - It serves ANY method and ANY path (the handler is the server root handler, not a path mux).
 - For every request it responds **302 Found** with:
   - `Cache-Control: no-store`
@@ -143,7 +143,7 @@ MUST:
 Evidence: `internal/auth/antigravity/filename.go`, `auth_files_provider_oauth.go` (metadata assembly), `sdk/auth/antigravity.go` (`BuildAntigravityAuth`).
 
 MUST:
-- File name `antigravity-<email>.json` in the auth dir (`antigravity.json` when email is empty). Provider `antigravity`, label = email (fallback `antigravity`).
+- File name `antigravity[-<email>].json` in the auth dir — bracket suffix omitted when email is empty; notation harmonized with S3 §3.2. Provider `antigravity`, label = email (fallback `antigravity`).
 - Metadata fields: `type` = `antigravity`, `access_token`, `refresh_token`, `expires_in` (number, from Google), `timestamp` (unix millis at save), `expired` (RFC3339 = now + expires_in seconds), `email`, `project_id` (when discovered).
 - The credential carries NO `base_url` by default → upstream traffic goes to the daily base (§3). A `base_url` attribute/metadata override (or `user_agent`, or a `headers` map → `header:<name>` attributes) is honored by the executor (§3.2); this is the seam that can make executor traffic locally mockable.
 
@@ -200,7 +200,7 @@ MUST: base URL resolution is `credential base_url override → https://daily-clo
 MUST:
 - `Content-Type: application/json`
 - `Authorization: Bearer <access token>` (401-type `statusErr` "missing access token" when absent)
-- `User-Agent`: `antigravity/hub/<version> darwin/arm64` by default (short UA). A credential `user_agent` attribute/metadata is used instead when set; if that value is an antigravity-family UA containing `google-api-nodejs-client/`, the suffix is trimmed.
+- `User-Agent`: `antigravity/hub/<version> darwin/arm64` by default (short UA). A credential `user_agent` attribute/metadata is used instead when set; if that value is an antigravity-family UA containing `google-api-nodejs-client/`, the suffix is trimmed. The fallback version `2.9.1` is directly observable in the upstream `User-Agent` whenever the hub manifest fetch fails; both executor fixtures pin the `antigravity/hub/<version> darwin/arm64` shape (`2.13.0` when the manifest was fetched — internet on — at recording time).
 - `Host`: set from the base URL (Go `req.Host`).
 - Credential `headers` metadata map → per-name upstream headers (overriding the defaults). Values may reference client headers via `$<Header-Name>` and the internal session id via `$CPA-SESSION-ID` (omitted when unresolvable).
 - No `Connection: close`; HTTP/1.1 only (no ALPN h2 advertisement) with per-credential connection pools; pooling disabled by default (`antigravity.connection-pool.enabled: false` → no idle keep-alive reuse), tunable via `idle-conn-timeout` (cap 210 s) and `max-idle-conns-per-host` (cap 100).

@@ -1821,8 +1821,9 @@
         {
           "step": 1,
           "transport": "websocket",
-          "note": "WS request for model 'wsx' via the gateway's WebSocket API (/v1/ws): perform the upgrade and send one request frame; the downstream delivery details (frames or close) are recorded AS-IS — the CONTRACT for this case is the upstream wire log",
-          "model": "wsx"
+          "note": "downstream-WS surface = Responses websocket transport: GET /v1/responses with Upgrade headers, then frames {\"type\":\"response.create\",\"model\":\"wsx\",\"input\":[...],\"stream\":...} (input MUST be an array; string input -> 400 'websocket request requires array field: input'; a frame without \"type\" -> 400 'unsupported websocket request type: '). /v1/ws is the wsrelay provider bridge, NOT this surface.",
+          "model": "wsx",
+          "path": "/v1/responses (websocket upgrade)"
         },
         {
           "step": 2,
@@ -1847,7 +1848,7 @@
         }
       ],
       "record": "step 1: full downstream WS byte stream (upgrade response + frames/close) + the codex mock wire log (the failed ws upgrade attempt carries cred-A's key; any failover HTTP request carries cred-B's); step 2: status+headers+body + wire log",
-      "expected": "Step 1 (WS): cred-A (ws-enabled, LOWER priority) is attempted FIRST — the codex mock receives a websocket upgrade attempt (GET with Upgrade headers, logged with credential s4-codex-key-a); the mock cannot upgrade, the attempt fails, and the request fails over to cred-B (POST /responses on the codex wire, always-SSE, 200/aggregated). Downstream WS bytes recorded as-is. Step 2 (HTTP): cred-B is picked FIRST (priority respected when not WS; single wire hit). If the WS client proves infeasible, record the upgrade-attempt wire log only and mark the downstream part of the fixture 'delivery not asserted' — the credential-preference observable must still be present.",
+      "expected": "Step 1 (downstream-WS via the Responses websocket transport: GET /v1/responses upgrade + {\"type\":\"response.create\",\"model\":\"wsx\",\"input\":[...],\"stream\":...} frames): cred-A (websockets:true, priority:-5) is attempted FIRST despite the lower priority tier — the codex mock receives GET /responses with Upgrade: websocket and Authorization: Bearer s4-codex-key-a (404; the mock cannot upgrade). The mock's 404 body carries a request-fault type tag ('invalid_request_error'), so rotation STOPS at cred-A (no failover) and the downstream WS client receives ONE error frame relaying the 404 verbatim: {\"type\":\"error\",\"status\":404,\"error\":{\"message\":\"<mock body>\",\"type\":\"invalid_request_error\"}}. Step 2 (plain HTTP chat): cred-B (priority 0) is picked first — single wire hit POST /responses 200. RECORDED DEVIATIONS vs the original derivation (fixture wins): (a) the downstream-WS surface is the Responses websocket transport (GET /v1/responses upgrade), NOT /v1/ws — /v1/ws is the wsrelay provider bridge; (b) no in-request failover after the ws attempt failed, because the 404 body is caller-attributed (request-fault stop, cf. S4-20). The WS-preference-pick observable (mandatory) is fully confirmed.",
       "dynamic_fields": [
         "Date",
         "X-Cpa-Trace-Id",
@@ -1857,7 +1858,8 @@
       "mock_upstream_mode": "codex: happy (mock rejects/ignores the ws upgrade; that rejection is the point)",
       "needs": [
         "websocket client (any minimal python ws client is fine)"
-      ]
+      ],
+      "fixture_status": "recorded (2026-09-16; deviations above are the contract)"
     },
     {
       "id": "S4-22-count-tokens-404-neutral",
@@ -2045,12 +2047,7 @@
     "recordable_core": 22,
     "optional": 1,
     "fixture_deferred": 3,
-    "recorded": 20,
-    "pending_follow_up": [
-      "S4-21-ws-transport-preference",
-      "S4-22-count-tokens-404-neutral",
-      "S4-23-compact-fault-neutral"
-    ],
-    "notes": "Round-1 gate: 20 recorded; 3 follow-up goldens authorized (WS preference, count_tokens-404, compact). 3 FIXTURE-DEFERRED (CREDENTIALED-ONLY)."
+    "recorded": 23,
+    "notes": "All 23 recordable cases recorded. 3 FIXTURE-DEFERRED (CREDENTIALED-ONLY). S4-21 recorded with two fixture-wins deviations (Responses-WS surface; no failover after request-fault 404)."
   }
 }

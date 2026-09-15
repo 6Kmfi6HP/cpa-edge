@@ -19,10 +19,10 @@
 | S2d4 | spec: Claude client → OpenAI upstream | 1 | spec-s2d4-cla2oai | spec | 0 |  |
 | S2d5 | spec: OpenAI client → Codex/Responses upstream | 1 | spec-s2d5-oai2codex | spec-fix | 1 | R1: adv-spec-5 FAIL (B1 union->enum MUST + golden; B2 type-selection rules); N1-N12 dispatched; E6 golden authorized |
 | S2d6 | spec: Responses client → OpenAI chat upstream | 1 | spec-s2d6-res2oai | spec | 0 |  |
-| S2d7 | spec: Gemini client → Claude upstream | 1 | spec-s2d7-gem2cla | spec-adv-r2 | 1 | fixes done + 6 new goldens; round-2 queued on adv-spec-2 |
+| S2d7 | spec: Gemini client → Claude upstream | 1 | spec-s2d7-gem2cla | merged | 2 | ADMITTED round 2. 31 goldens; validator families byte-pinned; empty-stream conductor gate recorded-deviation integrated. Unlocks I-tr-S2d7. |
 | S2d8 | spec: Claude client → Gemini upstream | 1 | spec-s2d8-cla2gem | spec | 0 | section+18 cases done; rulings sent; recording queued w5 |
 | S2d9 | spec: Codex/Responses passthrough semantics | 1 | spec-s2d9-codex | spec | 0 |  |
-| S2d10 | spec: Antigravity redirect rules | 1 | spec-s2d10-antigravity | spec-fix | 1 | R1: adv-spec-2 FAIL — B1 no-waiter-on-bind-failure parenthetical + N1 golden-landed flips; R-SYNCREDS registered in SPEC |
+| S2d10 | spec: Antigravity redirect rules | 1 | spec-s2d10-antigravity | spec-adv-r2 | 1 | micro-fix applied; narrow round-2 running on adv-spec-2; optional golden in flight at w2 |
 | S3 | spec: auth flows | 1 | spec-s3-auth | merged | 3 | ADMITTED after 3 rounds. Goldens: 44 dirs. Unlocked I-auth + S3 contract tests. |
 | S4 | spec: scheduling | 1 | spec-s4-scheduling | spec-fix | 1 | R1: adv-spec-1 FAIL (B1 per-family ID parts; B2 auth_index seeds; B3 WS preference MIRROR ruling; B4 route overrides); 3-golden batch authorized |
 | S5 | spec: management API | 1 | spec-s5-mgmt | merged | 2 | ADMITTED round 2. 22 goldens / 168 steps. Unlocks I-mgmt (after I-auth interfaces land) + S5 contract tests. |
@@ -57,4 +57,4 @@
 
 ## Verdict / escalation log
 (appended by orchestrator)
-- 2026-09-16 03:2x S6 GATE: PASS (round 2). State & storage admitted. 8/16 spec-side steps now green (S1,S3,S5,S6,S7,S2d2,S2d3 + I-tr-S2d3 merged).
+- 2026-09-16 03:4x S2d7 GATE: PASS (round 2). gem2cla admitted: 31 goldens. 8/16 spec steps admitted.

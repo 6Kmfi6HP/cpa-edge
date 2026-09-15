@@ -34,5 +34,21 @@
     "method": "docker exec <container> sh -c 'perl -e ... IO::Socket::INET ... LocalPort=>51121 ... Listen=>1 ...' &",
     "verification": "bash /dev/tcp connect CONNECTED before the request"
   },
-  "expect_note": "recorded bytes authoritative"
+  "expect_note": "recorded bytes authoritative",
+  "round2_extension_probe": {
+    "asked_by": "spec-s2d10-antigravity (orchestrator-authorized round-2 extension)",
+    "question": "Is the bind-failure session's state observable (500 body or container logs), to pin get-auth-status?state=<state2> -> wait?",
+    "result": "UNRECORDABLE - state not exposed",
+    "evidence": {
+      "error_500_body": "{\"error\":\"failed to start callback server\"}",
+      "body_contains_32hex_state": false,
+      "container_log_new_lines": [
+        "Initializing Antigravity authentication...",
+        "[error] [auth_files_provider_oauth.go:377] failed to start antigravity callback forwarder error=failed to listen on 0.0.0.0:51121: listen tcp 0.0.0.0:51121: bind: address already in use",
+        "[error] [gin_logger.go:99] 500 | 97ms | 172.17.0.1 | GET \"/v0/management/antigravity-auth-url?is_webui=1\""
+      ],
+      "log_contains_32hex_state": false
+    },
+    "note": "probe re-run 2026-09-16 with the same perl in-container occupation technique; get-auth-status cannot be called for the failed session because its state is never emitted; mark extension spec-only"
+  }
 }
