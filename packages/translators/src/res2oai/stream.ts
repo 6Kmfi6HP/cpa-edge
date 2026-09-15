@@ -156,6 +156,15 @@ export class ChatToResponsesStreamTranslator {
   }
 
   /**
+   * True once a chunk carrying a `choices` array was accepted. A `[DONE]`
+   * that arrives before any such chunk drops untranslated (recorded rule:
+   * zero frames, conductor `empty_stream`).
+   */
+  get isStarted(): boolean {
+    return this.started
+  }
+
+  /**
    * Processes one upstream data line (not `[DONE]`). Returns the events
    * it produced; the caller frames them in order.
    */
@@ -785,6 +794,7 @@ export async function* translateChatSseToResponsesFrames(
     for await (const frame of decodeSseFrames(source)) {
       if (translator.isTerminalEmitted) continue
       if (frame.data === DONE_MARKER) {
+        if (!translator.isStarted) continue
         for (const event of translator.handleDone().events) {
           committed = true
           yield { kind: 'event', event: event.event, data: event.data }

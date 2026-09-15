@@ -77,8 +77,8 @@ export function translateToolDeclarations(sources: readonly ToolSource[]): {
     const type = readString(source.record, 'type') ?? ''
     if (type === 'function' || type === '' || type === 'custom') {
       const produced = produceTool(source.record, source.namespace, type === 'custom')
-      if (!seen.has(produced.chatName)) {
-        seen.add(produced.chatName)
+      if (!seen.has(produced.declaration.chatName)) {
+        seen.add(produced.declaration.chatName)
         chatTools.push(produced.chatTool)
         declared.push(produced.declaration)
       }
@@ -91,8 +91,8 @@ export function translateToolDeclarations(sources: readonly ToolSource[]): {
         const childType = readString(child, 'type') ?? ''
         if (childType !== 'function' && childType !== '' && childType !== 'custom') continue
         const produced = produceTool(child, source.namespace ?? namespace, childType === 'custom')
-        if (!seen.has(produced.chatName)) {
-          seen.add(produced.chatName)
+        if (!seen.has(produced.declaration.chatName)) {
+          seen.add(produced.declaration.chatName)
           chatTools.push(produced.chatTool)
           declared.push(produced.declaration)
         }
@@ -127,7 +127,7 @@ function produceTool(record: Record<string, unknown>, namespace: string | undefi
     function: {
       name: chatName,
       description,
-      parameters: custom ? CUSTOM_TOOL_PARAMETERS : (parameters ?? {}),
+      parameters: (custom ? CUSTOM_TOOL_PARAMETERS : (parameters ?? {})) as WireObject,
     },
   }
   const declaration: DeclaredTool = {

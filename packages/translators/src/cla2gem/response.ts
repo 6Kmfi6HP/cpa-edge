@@ -14,7 +14,6 @@
  * and the raw-splice of upstream argument bytes.
  */
 import { isPlainObject, rawValueAt, readArray, readObject, readString, serializeOrdered } from './json'
-import { RawJson } from './json'
 import type { WireObject, WireValue } from './json'
 import { restoreToolName, sanitizeClaudeToolId, sanitizeFunctionName } from './schema'
 import type { ToolNameIndex } from './schema'

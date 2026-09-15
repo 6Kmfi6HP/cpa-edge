@@ -15,7 +15,6 @@
 import { describe, expect, it } from 'vitest'
 import { MemoryStore } from '@cpa-edge/core'
 import { serializeOrdered } from './json'
-import { RawJson } from './json'
 import {
   buildFunctionDeclarations,
   buildToolNameIndex,
@@ -25,7 +24,6 @@ import {
   sanitizeFunctionName,
 } from './schema'
 import {
-  buildContents,
   buildGenerationConfig,
   buildSystemInstruction,
   buildToolConfig,
@@ -64,16 +62,16 @@ const UPSTREAM_MODEL = 'gemini-mock-model'
 const BASE = 'http://mock.internal:19001'
 const encoder = new TextEncoder()
 
-function ctx(thinking?: import('./types').Claa2GemThinkingCapability) {
+function ctx(thinking?: import('./types').Cla2GemThinkingCapability) {
   return { upstreamModel: UPSTREAM_MODEL, thinking: thinking }
 }
 
-function translate(body: unknown, thinking?: import('./types').Claa2GemThinkingCapability): string {
+function translate(body: unknown, thinking?: import('./types').Cla2GemThinkingCapability): string {
   const text = typeof body === 'string' ? body : JSON.stringify(body)
   return translateClaudeToGemini(text, ctx(thinking)).body
 }
 
-function translateValue(text: string, thinking?: import('./types').Claa2GemThinkingCapability) {
+function translateValue(text: string, thinking?: import('./types').Cla2GemThinkingCapability) {
   return JSON.parse(translateClaudeToGemini(text, ctx(thinking)).body) as Record<string, unknown>
 }
 
@@ -103,13 +101,14 @@ describe('byte encoding', () => {
         { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'f', input: { x: 1 } }] },
         { role: 'assistant', content: [{ type: 'tool_use', id: 'b', name: 'g', input: { y: 2 } }] },
         { role: 'assistant', content: [{ type: 'tool_use', id: 'c', name: 'h', input: {} }, { type: 'tool_use', id: 'd', name: 'i', input: {} }] },
+        { role: 'user', content: 'go on' },
       ],
     }
-    const text = translate(body)
-    const value = JSON.parse(text) as { contents: Array<{ parts: Array<Record<string, unknown>> }> }
-    const turn1 = value.contents[0]?.parts[0]
-    const turn2 = value.contents[1]?.parts[0]
-    const turn3 = value.contents[2]?.parts
+    const value = JSON.parse(translate(body)) as { contents: Array<{ parts: Array<Record<string, unknown>> }> }
+    // contents[0] is the leading boundary user turn (model-first request).
+    const turn1 = value.contents[1]?.parts[0]
+    const turn2 = value.contents[2]?.parts[0]
+    const turn3 = value.contents[3]?.parts
     expect(Object.keys(turn1 ?? {})).toEqual(['thoughtSignature', 'functionCall'])
     expect(Object.keys((turn1?.['functionCall'] as Record<string, unknown>) ?? {})).toEqual(['name', 'args', 'id'])
     // A fresh model turn gets its own sentinel ...
@@ -181,13 +180,13 @@ describe('schema cleaning and identifiers', () => {
 
   it('functionDeclarations preserve client member bytes and skip schema-less tools', () => {
     const raw =
-      '{"tools":[{"name":"get weather","description":"d","input_schema":{"type":"object"}},{"name":"no-schema"}]}'
+      '{"tools": [{"name": "get weather", "description": "d", "input_schema": {"type": "object"}}, {"name": "no-schema"}]}'
     const tools = buildFunctionDeclarations(
       [{ name: 'get weather', description: 'd', input_schema: { type: 'object' } }, { name: 'no-schema' }],
       raw,
     )
     const built = serializeOrdered(tools as never)
-    expect(built).toBe('{"functionDeclarations":[{"name": "get_weather", "description": "d","parametersJsonSchema":{"type":"object"}}]}')
+    expect(built).toBe('{"functionDeclarations":[{"name": "get_weather", "description": "d","parametersJsonSchema":{"type": "object"}}]}')
   })
 
   it('sanitizeFunctionName ladder: replace, prefix, truncate', () => {
@@ -203,9 +202,15 @@ describe('schema cleaning and identifiers', () => {
   })
 
   it('restoreToolName: sanitized index, then canonical, then verbatim', () => {
-    const index = buildToolNameIndex([{ name: 'Get Weather' }, { name: 'other' } as never, { name: 'plain' }])
-    expect(restoreToolName(index, 'get_weather')).toBe('Get Weather')
-    expect(restoreToolName(index, '_plain')).toBe('plain')
+    const index = buildToolNameIndex([
+      { name: 'Get Weather' },
+      { name: 'other' },
+      { name: 'plain' },
+      { name: '_weird name' },
+    ])
+    expect(restoreToolName(index, 'Get_Weather')).toBe('Get Weather')
+    expect(restoreToolName(index, '_other')).toBe('other')
+    expect(restoreToolName(index, '_weird_name')).toBe('_weird name')
     expect(restoreToolName(index, 'unknown_one')).toBe('unknown_one')
   })
 })
@@ -220,7 +225,8 @@ describe('message rules', () => {
       '{"messages":[{"role":"assistant","content":[{"type":"tool_use","id":"b","name":"f","input":{}},{"type":"tool_use","id":"a","name":"f","input":{}}]},' +
       '{"role":"user","content":[{"type":"tool_result","tool_use_id":"a","content":"A"},{"type":"tool_result","tool_use_id":"b","content":"B"}]}]}'
     const matched = JSON.parse(translate(raw)) as { contents: Array<{ parts: unknown[] }> }
-    expect(matched.contents[1]?.parts).toEqual([
+    // contents[0] is the leading boundary user turn (model-first request).
+    expect(matched.contents[2]?.parts).toEqual([
       { functionResponse: { name: 'f', response: { result: 'B' }, id: 'b' } },
       { functionResponse: { name: 'f', response: { result: 'A' }, id: 'a' } },
     ])
@@ -229,8 +235,11 @@ describe('message rules', () => {
       '{"messages":[{"role":"assistant","content":[{"type":"tool_use","id":"b","name":"f","input":{}}]},' +
       '{"role":"user","content":[{"type":"tool_result","tool_use_id":"a","content":"A"},{"type":"tool_result","tool_use_id":"b","content":"B"}]}]}'
     const kept = JSON.parse(translate(mismatched)) as { contents: Array<{ parts: unknown[] }> }
-    expect(kept.contents[1]?.parts).toEqual([
-      { functionResponse: { name: 'f', response: { result: 'A' }, id: 'a' } },
+    // Counts differ, so the original order survives; the unmatched id
+    // resolves through the dash-strip rung of the name ladder ('a' has no
+    // dash, so the id itself becomes the name).
+    expect(kept.contents[2]?.parts).toEqual([
+      { functionResponse: { name: 'a', response: { result: 'A' }, id: 'a' } },
       { functionResponse: { name: 'f', response: { result: 'B' }, id: 'b' } },
     ])
   })
@@ -241,8 +250,11 @@ describe('message rules', () => {
       '{"role":"assistant","content":"1"},{"role":"assistant","content":"2"}]}',
     )
     const contents = value['contents'] as Array<{ role: string; parts: unknown[] }>
-    expect(contents.map((turn) => turn.role)).toEqual(['user', 'model', 'model'])
+    // The merged user turn, two unmerged model turns, then the trailing
+    // boundary user turn the executor appends (rule 7).
+    expect(contents.map((turn) => turn.role)).toEqual(['user', 'model', 'model', 'user'])
     expect(contents[0]?.parts).toEqual([{ text: 'a' }, { text: 'b' }])
+    expect(contents[3]?.parts).toEqual([{ text: '' }])
   })
 
   it('mid-conversation system turns become reminder text; empty ones drop', () => {
@@ -279,8 +291,9 @@ describe('message rules', () => {
       '{"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"hush"},{"type":"text","text":""},{"type":"text","text":"kept"}]},{"role":"ghost","content":"x"}]}',
     )
     const contents = value['contents'] as Array<{ parts: unknown[] }>
-    expect(contents).toHaveLength(1)
-    expect(contents[0]?.parts).toEqual([{ text: 'kept' }])
+    // Boundary turns wrap the surviving model turn (rule 7).
+    expect(contents).toHaveLength(3)
+    expect(contents[1]?.parts).toEqual([{ text: 'kept' }])
   })
 
   it('trailing model turn with a functionCall is stripped; plain-text trailing turns survive', () => {
@@ -310,7 +323,7 @@ describe('message rules', () => {
       '{"messages":[{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"my func","input":{}}]},' +
       '{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"A"},{"type":"tool_result","tool_use_id":"get_weather-2","content":"B"},{"type":"tool_result","tool_use_id":"plain","content":"C"}]}]}'
     const value = JSON.parse(translate(raw)) as { contents: Array<{ parts: Array<Record<string, unknown>> }> }
-    const names = value.contents[1]?.parts.map((part) => (part['functionResponse'] as Record<string, unknown>)['name'])
+    const names = value.contents[2]?.parts.map((part) => (part['functionResponse'] as Record<string, unknown>)['name'])
     expect(names).toEqual(['my_func', 'get_weather', 'plain'])
   })
 
@@ -324,9 +337,9 @@ describe('message rules', () => {
       '{"type":"tool_result","tool_use_id":"s5","content":{"k": 1}},' +
       '{"type":"tool_result","tool_use_id":"s6"}]}]}'
     const value = JSON.parse(translate(raw)) as { contents: Array<{ parts: Array<Record<string, unknown>> }> }
-    const results = value.contents[0]?.parts.map(
-      (part) => (part['functionResponse'] as Record<string, unknown>)['response'],
-    )
+    const results = value.contents[0]?.parts
+      .filter((part) => part['functionResponse'] !== undefined)
+      .map((part) => (part['functionResponse'] as Record<string, unknown>)['response'])
     expect(results).toEqual([
       { result: 'plain' },
       { result: { type: 'text', text: 'one' } },
@@ -409,10 +422,16 @@ describe('tool_choice and thinking', () => {
     expect(buildGenerationConfig({}, ctx({ kind: 'unsupported' }))).toBeUndefined()
   })
 
-  it('the facade default strips thinkingConfig for plain model entries (S2d8-07/10 pin)', () => {
-    const body = translate({ model: 'gm', thinking: { type: 'enabled', budget_tokens: 1024 }, messages: [{ role: 'user', content: 'q' }] })
-    expect(body).toContain('"generationConfig":{}')
-    const userDefined = translate({ model: 'gm', thinking: { type: 'enabled', budget_tokens: 1024 }, messages: [{ role: 'user', content: 'q' }] }, ctx(undefined))
+  it('capability-resolved models lose thinkingConfig; user-defined contexts keep it (S2d8-07/10 pin the strip; the facade maps plain entries to the strip)', () => {
+    const stripped = translate(
+      { model: 'gm', thinking: { type: 'enabled', budget_tokens: 1024 }, messages: [{ role: 'user', content: 'q' }] },
+      { kind: 'unsupported' },
+    )
+    expect(stripped).toContain('"generationConfig":{}')
+    const userDefined = translate(
+      { model: 'gm', thinking: { type: 'enabled', budget_tokens: 1024 }, messages: [{ role: 'user', content: 'q' }] },
+      undefined,
+    )
     expect(userDefined).toContain('"thinkingConfig":{"thinkingBudget":1024}')
   })
 
@@ -448,9 +467,10 @@ describe('countTokens body variant', () => {
     const value = JSON.parse(translated.body) as Record<string, unknown>
     expect(Object.keys(value)).toEqual(['contents', 'model', 'systemInstruction'])
     expect(value['systemInstruction']).toEqual({ parts: [{ text: 'sys' }] })
-    // The trailing model turn gains NO trailing user turn in this variant.
+    // Prepend-only boundary: the model-first request gains the leading user
+    // turn but NO trailing one in this variant.
     const contents = value['contents'] as Array<{ role: string }>
-    expect(contents.map((turn) => turn.role)).toEqual(['model'])
+    expect(contents.map((turn) => turn.role)).toEqual(['user', 'model'])
     const normal = translateClaudeToGemini(raw, ctx())
     expect((JSON.parse(normal.body) as Record<string, unknown>)['contents']).toHaveLength(3)
   })
@@ -489,7 +509,9 @@ describe('non-stream response mapping', () => {
     const body = translateGeminiResponseToClaude(responseContext(upstream))
     expect(body).toBe(
       '{"id":"resp-1","type":"message","role":"assistant","model":"gemini-x",' +
-        '"content":[{"type":"thinking","thinking":"think-a","signature":"sig1"},' +
+        // Consecutive thought parts buffer into ONE thinking block; only
+        // type switches flush (section 3.4).
+        '"content":[{"type":"thinking","thinking":"think-aanswer","signature":"sig1"},' +
         '{"type":"text","text":"plain"}],' +
         '"stop_reason":"end_turn","stop_sequence":null,' +
         '"usage":{"input_tokens":17,"output_tokens":9,"cache_read_input_tokens":3}}',
@@ -560,7 +582,7 @@ function chunkTranslator(inputTokens = 0, tools: readonly unknown[] = []): Gemin
   })
 }
 
-function sse(...chunks: readonly unknown[]): string {
+function sse(...chunks: readonly unknown[]): Uint8Array[] {
   return chunks.map((chunk) => encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`))
 }
 
@@ -626,7 +648,7 @@ describe('stream state machine', () => {
     translator.translateChunk(JSON.stringify({ candidates: [{ content: { parts: [{ functionCall: { name: 'get_weather', args: { a: 1 } } }] } }] }))
     const delta = translator.translateChunk(JSON.stringify({ candidates: [{ content: { parts: [{ functionCall: { name: '', args: { b: 2 } } }] } }] }))
     expect(delta).toBe(
-      'event: content_block_delta\ndata: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\\"b\\":2}"}}\n\n\n',
+      'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\"b\\":2}"}}\n\n\n',
     )
   })
 
@@ -654,7 +676,10 @@ describe('stream state machine', () => {
   })
 
   it('the pipeline surfaces a dead stream pre-commit and translates the rest in order', async () => {
-    const dead = await bootstrapCla2GemStream(sse(), { inputTokens: 0, toolNames: buildToolNameIndex([]) })
+    const emptySource = (async function* () {
+      yield* sse()
+    })()
+    const dead = await bootstrapCla2GemStream(emptySource, { inputTokens: 0, toolNames: buildToolNameIndex([]) })
     expect(dead.kind).toBe('dead')
     const live = await bootstrapCla2GemStream(
       (async function* () { yield* sse({ modelVersion: 'm', candidates: [{ content: { parts: [{ text: 'a' }] } }] }) })(),
@@ -662,7 +687,7 @@ describe('stream state machine', () => {
     )
     expect(live.kind).toBe('live')
     if (live.kind !== 'live') return
-    const rest: string[] = [live.firstFrame]
+    const rest: string[] = [live.firstFrame.kind === 'chunk' ? live.firstFrame.payload : 'terminal']
     for await (const frame of live.rest) {
       rest.push(frame.kind === 'chunk' ? frame.payload : 'terminal')
     }

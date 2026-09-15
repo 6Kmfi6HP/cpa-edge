@@ -260,7 +260,7 @@ class MessageAssembler {
           : typeof item['arguments'] === 'string'
             ? (item['arguments'] as string)
             : ''
-      this.pendingCalls.push(sortKeysDeep(chatToolCallEntry(callId, chatName, argumentsText)))
+      this.pendingCalls.push(sortKeysDeep(chatToolCallEntry(callId, chatName, argumentsText)) as WireObject)
       if (callId.length > 0) this.awaiting.add(callId)
       return
     }
@@ -341,10 +341,8 @@ class MessageAssembler {
       mergeTarget['tool_calls'] = calls
       if (this.pendingReasoning !== undefined) {
         const existing = mergeTarget['reasoning_content']
-        mergeTarget['reasoning_content'] = combineReasoning(
-          this.pendingReasoning,
-          typeof existing === 'string' ? existing : undefined,
-        )
+        const merged = combineReasoning(this.pendingReasoning, typeof existing === 'string' ? existing : undefined)
+        if (merged !== undefined) mergeTarget['reasoning_content'] = merged
       }
       this.pendingReasoning = undefined
     } else {

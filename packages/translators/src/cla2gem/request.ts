@@ -152,6 +152,7 @@ function alignToolResults(blocks: readonly BlockRef[], assistantIds: readonly st
   const resultIds: string[] = []
   for (let i = 0; i < blocks.length; i++) {
     const ref = blocks[i]
+    if (ref === undefined) continue
     if (ref.block['type'] !== 'tool_result') continue
     const id = ref.block['tool_use_id']
     if (typeof id !== 'string') continue
@@ -178,7 +179,8 @@ function alignToolResults(blocks: readonly BlockRef[], assistantIds: readonly st
       if (resultIds[at] === wanted) {
         used.add(at)
         const source = slots[at]
-        if (source !== undefined) pool[slot] = blocks[source]
+        const moved = source === undefined ? undefined : blocks[source]
+        if (moved !== undefined && slot !== undefined) pool[slot] = moved
         break
       }
     }

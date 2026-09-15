@@ -14,7 +14,7 @@
  * detail objects AFTER `total_tokens` (output_tokens_details first) -
  * the recorded sjson append artifact.
  */
-import { isPlainObject, readObject, readString, scanObjectMembers, serializeOrdered, sortKeysDeep, tryParseJson } from './json'
+import { isPlainObject, readObject, readString, scanObjectMembers, serializeOrdered, sortKeysDeep, tryParseJson, wireObject } from './json'
 import type { WireObject } from './json'
 import { appendObjectMember } from './json'
 import { resolveCallName } from './tools'
@@ -195,7 +195,7 @@ function buildUsage(record: Record<string, unknown>): WireObject | undefined {
   const completion = readNumber(usage, 'completion_tokens') ?? readNumber(usage, 'output_tokens')
   const total = readNumber(usage, 'total_tokens')
   if (prompt === undefined && completion === undefined && total === undefined) {
-    return usage
+    return wireObject(usage)
   }
   const out: WireObject = {}
   if (prompt !== undefined) out['input_tokens'] = prompt
