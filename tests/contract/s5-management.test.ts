@@ -190,9 +190,12 @@
  *     are excluded; mock-control headers (`X-Mock-*`) are consumed by the mock and
  *     absent from the recording, so they are excluded from the wire compare too.
  *     Everything else — method, path, body bytes, and the ordered canonical header
- *     list (User-Agent, Content-Length, Content-Type, X-S5-Token, Accept-Encoding) —
- *     is byte-pinned, including `Accept-Encoding: gzip` and
- *     `User-Agent: Go-http-client/1.1`.
+ *     list (User-Agent, Content-Type, X-S5-Token, Accept-Encoding) — is byte-pinned,
+ *     including `Accept-Encoding: gzip` and `User-Agent: Go-http-client/1.1`.
+ *     `Content-Length` is transport-derived: it is excluded from the ordered compare
+ *     but its presence and value are still pinned — present exactly when the
+ *     recording has it (the POST calls), equal to the recorded value, and always
+ *     equal to the body byte length.
  */
 
 import { readdir, readFile } from 'node:fs/promises'
@@ -794,24 +797,48 @@ function assertUpstreamLog(
     if (typeof requestedUrl === 'string') {
       expect(call.request.url, `${context}: url passthrough`).toBe(requestedUrl)
     }
+    // Content-Length is transport-derived, so it never enters the ordered pair
+    // compare — but the recording still pins its PRESENCE and VALUE: the adapter
+    // must emit it exactly when the reference did (POST calls only), and it must
+    // always equal the body byte length.
     const expectedPairs: Array<[string, string]> = []
+    let recordedContentLength: string | undefined
     for (const [name, value] of Object.entries(line.headers)) {
-      if (UPSTREAM_EXCLUDED_HEADERS.has(name.toLowerCase())) continue
-      if (name.toLowerCase().startsWith(UPSTREAM_CONTROL_PREFIX)) continue
+      const lower = name.toLowerCase()
+      if (UPSTREAM_EXCLUDED_HEADERS.has(lower)) continue
+      if (lower.startsWith(UPSTREAM_CONTROL_PREFIX)) continue
+      if (lower === 'content-length') {
+        recordedContentLength = value
+        continue
+      }
       expectedPairs.push([name, value])
     }
     const actualPairs: Array<[string, string]> = []
+    let adapterContentLength: string | undefined
     for (const [name, value] of call.request.headers) {
       const lower = name.toLowerCase()
       if (UPSTREAM_EXCLUDED_HEADERS.has(lower)) continue
       if (lower.startsWith(UPSTREAM_CONTROL_PREFIX)) continue
       if (lower === 'content-length') {
-        expect(value, `${context}: Content-Length must match the body byte length`).toBe(String(byteLength(call.request.body)))
+        adapterContentLength = value
         continue
       }
       actualPairs.push([name, value])
     }
     expect(actualPairs, `${context}: header list (order + canonical casing + values)`).toEqual(expectedPairs)
+    if (recordedContentLength === undefined) {
+      expect(
+        adapterContentLength,
+        `${context}: Content-Length must be absent when the recording has none`,
+      ).toBeUndefined()
+    } else {
+      expect(adapterContentLength, `${context}: Content-Length must be present as recorded`).toBeDefined()
+      expect(adapterContentLength, `${context}: Content-Length must match the recorded value`).toBe(recordedContentLength)
+      expect(
+        adapterContentLength,
+        `${context}: Content-Length must match the body byte length`,
+      ).toBe(String(byteLength(call.request.body)))
+    }
   }
 }
 
