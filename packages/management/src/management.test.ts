@@ -168,7 +168,7 @@ describe('resp wire', () => {
 
   it('answers NOAUTH before authentication', async () => {
     const connection = openUsageWireConnection({
-      verifyKey: async () => true,
+      verifyKey: async () => ({ ok: true as const }),
       popRecords: async () => [],
       popRecord: async () => undefined,
       subscribe: () => {},
@@ -182,7 +182,7 @@ describe('resp wire', () => {
 
   it('answers protocol errors on declared-length mismatches', async () => {
     const connection = openUsageWireConnection({
-      verifyKey: async () => false,
+      verifyKey: async () => ({ ok: false as const, message: 'invalid management key' }),
       popRecords: async () => [],
       popRecord: async () => undefined,
       subscribe: () => {},
@@ -195,7 +195,7 @@ describe('resp wire', () => {
 
   it('runs the recorded AUTH/LPOP/QUIT state machine', async () => {
     const connection = openUsageWireConnection({
-      verifyKey: async (key) => key === 'k',
+      verifyKey: async (key) => key === 'k' ? { ok: true as const } : { ok: false as const, message: 'invalid management key' },
       popRecords: async () => ['{"a":1}'],
       popRecord: async () => '{"a":1}',
       subscribe: () => {},
@@ -214,7 +214,7 @@ describe('resp wire', () => {
   it('delivers the support_refresh payload on SUBSCRIBE usage', async () => {
     let delivered: ((payload: string) => void) | undefined
     const connection = openUsageWireConnection({
-      verifyKey: async () => true,
+      verifyKey: async () => ({ ok: true as const }),
       popRecords: async () => [],
       popRecord: async () => undefined,
       subscribe: (_channel, deliver) => {

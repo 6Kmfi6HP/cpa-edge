@@ -28,7 +28,8 @@ export interface UsageWireConnection {
 }
 
 interface WireDeps {
-  readonly verifyKey: (presented: string) => Promise<boolean>
+  /** Verdict of the management-key pipeline; failures carry the HTTP body message. */
+  readonly verifyKey: (presented: string) => Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }>
   readonly popRecords: (count: number) => Promise<string[]>
   readonly popRecord: () => Promise<string | undefined>
   /** Registers the live-payload sink of one subscribed connection. */
@@ -285,9 +286,9 @@ export function openUsageWireConnection(deps: WireDeps): UsageWireConnection {
       return
     }
     const presented = args.length >= 3 ? (args[2] ?? '') : (args[1] ?? '')
-    const ok = await deps.verifyKey(presented)
-    if (!ok) {
-      emit(errorFrame('ERR invalid management key'))
+    const verdict = await deps.verifyKey(presented)
+    if (!verdict.ok) {
+      emit(errorFrame(`ERR ${verdict.message}`))
       return
     }
     authenticated = true

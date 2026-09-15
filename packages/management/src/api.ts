@@ -12,17 +12,10 @@ import {
   createAuthPlane,
   prepareManagementSecretSync,
   looksLikeBcrypt,
-  verifyManagementSecret,
   type AuthPlane,
 } from '@cpa-edge/auth'
 import { goJson, ordered, type OrderedObject, type WireValue, parseJsonGo, asPlainRecord } from './gojson'
-import {
-  YamlFileEditor,
-  parseYamlDoc,
-  YamlError,
-  renderScalar,
-  renderSequence,
-} from './yaml'
+import { YamlFileEditor, YamlError, renderScalar, renderSequence } from './yaml'
 import {
   configViewWire,
   loadEffectiveConfig,
@@ -33,10 +26,9 @@ import {
   type ProviderEntry,
   type ApiKeyEntry,
 } from './config'
-import { goJsonIndent } from './gojson'
 import { AuthFileRegistry, applyFieldPatch, checkAuthFileName, vertexFileName, FieldPatchError } from './authfiles'
 import { reEncodePrivateKey, ServiceAccountError } from './vertex'
-import { CooldownSidecars, sidecarName, type CooldownRecordInput } from './cooldown'
+import { CooldownSidecars } from './cooldown'
 import { appendLogRing, buildCursor, decodeCursor, formatRingLine, lineTimestampSeconds, readLogRing, stampFor } from './logs'
 import {
   popUsageRecords,
@@ -49,7 +41,7 @@ import {
 } from './usage'
 import { openUsageWireConnection, type UsageWireConnection } from './resp'
 import { authFileModels, canonicalChannel, channelCatalog } from './catalog'
-import { canonicalHeaderKey, localZoneOffsetMinutes, rfc3339Local, rfc3339Utc } from './wire'
+import { canonicalHeaderKey, localZoneOffsetMinutes, rfc3339Utc } from './wire'
 
 /** Ordered header list attached to every response (canonical casing). */
 export type HeaderList = ReadonlyArray<readonly [string, string]>
@@ -1980,9 +1972,21 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
 
   function openUsageWire(): UsageWireConnection {
     const connection = openUsageWireConnection({
-      verifyKey: async (presented: string) => {
-        const verdict = await verifyManagementKey(presented)
-        return verdict
+      verifyKey: async (
+        presented: string,
+      ): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }> => {
+        const request = new Request('http://management.internal/v0/management', {
+          method: 'GET',
+          headers: { authorization: `Bearer ${presented}` },
+        })
+        const verdict = await authPlane.authenticateManagement(request)
+        if (verdict.ok) return { ok: true }
+        const body = await verdict.response.text()
+        const parsed = parseJsonGo(body)
+        const record = parsed.ok ? asPlainRecord(parsed.value) : undefined
+        const message =
+          typeof record?.['error'] === 'string' ? (record['error'] as string) : 'invalid management key'
+        return { ok: false, message }
       },
       popRecords: async (count: number) => {
         const records = await popUsageRecords(store, count)
@@ -2004,14 +2008,6 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
     return connection
   }
 
-  async function verifyManagementKey(presented: string): Promise<boolean> {
-    const stored = effective.remoteManagement.secretKey
-    if (stored === '') return false
-    const { verifyManagementSecret } = await import('@cpa-edge/auth')
-    return verifyManagementSecret(presented, stored)
-  }
-
-  const pendingDelivery = new WeakMap<UsageWireConnection, string>()
 
   async function recordCooldown(record: CooldownRecord): Promise<void> {
     await sidecars.record(record)
