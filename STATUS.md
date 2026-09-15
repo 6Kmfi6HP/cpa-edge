@@ -38,7 +38,7 @@
 | I-tr-S2d6 | packages/translators: Responses→OpenAI chat | 2 | — | merged | 1 | MERGED: res2oai PASS-WITH-NONBLOCKING round 1. 107 module + 29 contract live. Ledger: N1 depth-cap (T1 uniform hardening), N2-N4 unpinned corners (spec notes), N5 auth-transport (route layer owns), N6/N7 trivia. |
 | I-tr-S2d7 | packages/translators: Gemini→Claude | 2 | — | merged | 2 | MERGED: gem2cla complete (spec 2 rounds, impl gate 2 rounds incl. S2d7-31 recorded ruling). 108 module + 33 contract green. |
 | I-tr-S2d8 | packages/translators: Claude→Gemini | 2 | — | merged | 2 | MERGED: cla2gem complete (impl gate 2 rounds). 105 module + contract 22/22 incl. S2d8-21. Ledger: NR1 depth-cap asymmetry 7-10k response-side; N2/N4/N5/N6 carried. |
-| I-tr-S2d9 | packages/translators: Codex passthrough | 2 | impl-i-tr-s2d9 | impl | 0 |  |
+| I-tr-S2d9 | packages/translators: Codex passthrough | 2 | impl-i-tr-s2d9 | impl-adv | 0 | delivered: 91/91; contract clause bug routed; impl-review running on adv-impl-2 |
 | I-tr-S2d10 | packages/translators: Antigravity redirect | 2 | — | pending | 0 |  |
 | I-exec-openai | packages/executors: openai executor | 2 | — | merged | 0 | SATISFIED via direction modules per R-EXECS |
 | I-exec-claude | packages/executors: claude executor | 2 | — | merged | 0 | SATISFIED via direction modules per R-EXECS |
@@ -47,7 +47,7 @@
 | I-exec-grok | packages/executors: grok executor | 2 | — | merged | 0 | OUT OF RECORDED SCOPE v1 per R-EXECS (native-wire degradation registered; credential lifecycle covered by S3/S4/S6) |
 | I-exec-antigravity | packages/executors: antigravity executor | 2 | — | merged | 0 | SATISFIED via direction modules per R-EXECS |
 | I-exec-custom-openai | packages/executors: custom-openai executor | 2 | — | merged | 0 | SATISFIED via direction modules per R-EXECS |
-| I-mgmt | packages/management: /v0/management | 2 | impl-i-mgmt | impl-adv-r2 | 1 | fix round done (7/7, negative-verified); round-2 running on adv-impl-3 |
+| I-mgmt | packages/management: /v0/management | 2 | — | merged | 2 | MERGED: management complete (impl gate 2 rounds). 50 unit + S5 24/24 + S6 20/20. Ledger: NR1 overflow-record off-by-one, NR2 callback now()-stamp, N3-N10. |
 | T1 | runtimes/node integration + full contract tests | 3 | integrator-t1 | impl | 0 |  |
 | T2 | runtimes/cloudflare (DO store, alarms, WS hibernation) | 3 | — | pending | 0 |  |
 | T3 | runtimes/vercel (degraded per S7) | 3 | — | pending | 0 |  |
@@ -57,3 +57,4 @@
 
 ## Verdict / escalation log
 (appended by orchestrator)
+- 2026-09-16 07:1x I-mgmt MERGED (impl gate round 2 PASS). Management module complete: 8 modules merged (auth, management, 6 directions). Remaining: core, codex-passthrough (gate), cla2oai (gate), oai2gem (implementing).

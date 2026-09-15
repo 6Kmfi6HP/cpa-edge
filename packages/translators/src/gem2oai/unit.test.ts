@@ -952,7 +952,11 @@ describe('stream — error payloads and framing modes', () => {
     }
 
     const events: Array<{ kind: string; body: string }> = []
-    for await (const event of translateOpenAIStreamToGemini(sse(mockFile.canned_sse_frames), ctx)) {
+    // The canned strings are the wire frames without their SSE terminators.
+    const source = sse(mockFile.canned_sse_frames.map((frame) => `${frame}
+
+`))
+    for await (const event of translateOpenAIStreamToGemini(source, ctx)) {
       events.push(event)
     }
     // Role chunk dropped, content + finish translated, [DONE] ends cleanly.
@@ -969,7 +973,9 @@ describe('stream — error payloads and framing modes', () => {
 
     const producedSse = events.map((event) => frameDownstreamEvent('sse', event as never)).join('')
     const recordedSse = recordedS1Body('stream-alt-sse')
-    expect(producedSse).toBe(recordedSse.replace(/\n$/, '') + '\n')
+    // The fence convention eats both trailing newlines of the last SSE
+    // frame: the true wire bytes are the fence content plus '\n\n'.
+    expect(producedSse).toBe(recordedSse + '\n\n')
     expect(events.map((event) => frameDownstreamEvent('raw', event as never)).join('')).toBe(
       recordedS1Body('stream-alt-json'),
     )

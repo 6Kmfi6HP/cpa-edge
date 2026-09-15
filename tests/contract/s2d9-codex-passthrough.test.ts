@@ -1156,12 +1156,53 @@ function usageObjectsOf(payload: Record<string, unknown>): readonly Record<strin
   return out
 }
 
-/** §4.2/§4.7: EnsureResponsesUsageDetails appends BOTH missing detail objects. */
-function assertUsageDetailsPresent(usage: Record<string, unknown>, context: string): void {
+/**
+ * The upstream's own usage-detail values for one case, extracted from its mock script:
+ * §4.2/§4.7 INJECTS `reasoning_tokens: 0` / `cached_tokens: 0` only where the upstream
+ * omitted them — upstream-provided values (S2d9-02 sends 3 / 5) are forwarded VERBATIM.
+ * An absent member means "the mock omitted it -> the gateway injects 0".
+ */
+interface UsageExpectation {
+  readonly reasoningTokens?: unknown
+  readonly cachedTokens?: unknown
+}
+
+/** Reads the LAST usage-carrying frame of the case's mock script (the terminal in every golden). */
+function mockUsageExpectation(script: MockScript, caseId: string): UsageExpectation {
+  if (script.kind !== 'stream' && script.kind !== 'stream-chunks') return {}
+  const scriptBytes = script.kind === 'stream' ? script.bytes : script.chunks.join('')
+  let expectation: UsageExpectation = {}
+  for (const frame of scriptFramesOf(scriptBytes, `S2d9[${caseId}] mock usage expectation`)) {
+    const payload = parseJsonRecord(frame.data, `S2d9[${caseId}] mock usage expectation frame`)
+    const usage = asRecord(asRecord(payload.response)?.usage) ?? asRecord(payload.usage)
+    if (usage !== undefined) {
+      expectation = {
+        reasoningTokens: asRecord(usage.output_tokens_details)?.reasoning_tokens,
+        cachedTokens: asRecord(usage.input_tokens_details)?.cached_tokens,
+      }
+    }
+  }
+  return expectation
+}
+
+/** §4.2/§4.7: BOTH detail objects exist on every usage; values pass through verbatim, 0 only when the upstream omitted them. */
+function assertUsageDetailsPresent(
+  usage: Record<string, unknown>,
+  context: string,
+  expected: UsageExpectation,
+): void {
   const outputDetails = asRecord(usage.output_tokens_details)
   const inputDetails = asRecord(usage.input_tokens_details)
-  expect(outputDetails?.reasoning_tokens, `${context}: output_tokens_details.reasoning_tokens injected`).toBe(0)
-  expect(inputDetails?.cached_tokens, `${context}: input_tokens_details.cached_tokens injected`).toBe(0)
+  expect(outputDetails, `${context}: output_tokens_details object present (injected when the upstream omitted it)`).toBeDefined()
+  expect(inputDetails, `${context}: input_tokens_details object present (injected when the upstream omitted it)`).toBeDefined()
+  expect(
+    outputDetails?.reasoning_tokens,
+    `${context}: reasoning_tokens (upstream value forwarded verbatim; 0 only when the mock omitted it)`,
+  ).toBe(expected.reasoningTokens ?? 0)
+  expect(
+    inputDetails?.cached_tokens,
+    `${context}: cached_tokens (upstream value forwarded verbatim; 0 only when the mock omitted it)`,
+  ).toBe(expected.cachedTokens ?? 0)
 }
 
 /** The §5.1 re-serialization family: gateway-generated layout, alphabetical + compact. */
@@ -1333,6 +1374,7 @@ function assertDownstreamClauses(
   caseId: CaseId,
   result: DownstreamAssertionResult,
   clientBody: Record<string, unknown>,
+  usageExpectation: UsageExpectation,
 ): void {
   const context = `S2d9[${caseId}] downstream clauses`
   const clientModel = asString(clientBody.model)
@@ -1350,7 +1392,7 @@ function assertDownstreamClauses(
         const output = asArray(body.output)
         expect(output?.length, `${context}: output rebuilt from output_item.done items`).toBeGreaterThan(0)
         const usage = asRecordOrThrow(body.usage, `${context}: aggregated usage`)
-        assertUsageDetailsPresent(usage, context)
+        assertUsageDetailsPresent(usage, context, usageExpectation)
         expect(Object.keys(usage), `${context}: usage key order (details appended after total_tokens)`).toEqual([
           'input_tokens',
           'output_tokens',
@@ -1434,9 +1476,11 @@ function assertDownstreamClauses(
 
   for (const frame of frames) {
     const payload = parseJsonRecord(frame.data, `${context}: ${frame.event ?? 'data'} payload`)
-    // §4.2: per-frame usage-detail defaulting on every forwarded chunk with a usage.
+    // §4.2: per-frame usage-detail defaulting on every forwarded chunk with a usage —
+    // detail objects always present; values verbatim from the upstream, 0 injected
+    // only where the mock omitted them (S2d9-02 sends 3 / 5).
     for (const usage of usageObjectsOf(payload)) {
-      assertUsageDetailsPresent(usage, `${context}: ${frame.event ?? 'data'} usage`)
+      assertUsageDetailsPresent(usage, `${context}: ${frame.event ?? 'data'} usage`, usageExpectation)
     }
     if (frame.event === 'response.created' || frame.event === 'response.in_progress') {
       // §4.3: created/in_progress always carry a model — injected when the upstream
@@ -1645,7 +1689,7 @@ async function replayStep(session: ReplaySession, caseId: CaseId, options: Repla
   }
 
   const result = await assertDownstreamStep(produced, files.recorded, caseId, step)
-  assertDownstreamClauses(caseId, result, files.clientBody)
+  assertDownstreamClauses(caseId, result, files.clientBody, mockUsageExpectation(script, caseId))
 }
 
 // ─── Derived surgery helpers (no golden; spec §4.2 — see header: DERIVED TEST) ────────
