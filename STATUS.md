@@ -34,7 +34,7 @@
 | I-tr-S2d2 | packages/translators: Gemini→OpenAI | 2 | — | merged | 1 | MERGED: gem2oai PASS-WITH-NONBLOCKING round 1. 123 module + 26 contract live green. Ledger: N1 depth-cap->400 (T1 hardening), N2 countTokens time-box (T2), N3 failureCount atomicity (S4-impl note), N4 alt-empty spec sentence, N5 model-stamp parity, N6 leniency notes (D2). |
 | I-tr-S2d3 | packages/translators: OpenAI→Claude | 2 | — | merged | 2 | MERGED: oai2cla complete (spec 2 rounds, impl-review 2 rounds). 141 unit + 28 contract green. Residual: Store-get-throw hardening -> T2; N6 UA default blessed; N9 js-tiktoken kept (R-TOK) |
 | I-tr-S2d4 | packages/translators: Claude→OpenAI | 2 | impl-i-tr-s2d4 | impl | 0 |  |
-| I-tr-S2d5 | packages/translators: OpenAI→Codex/Responses | 2 | impl-i-tr-s2d5 | impl-adv | 0 | delivered: 89 module + contract 25/25; impl-review running on adv-impl-2 |
+| I-tr-S2d5 | packages/translators: OpenAI→Codex/Responses | 2 | — | merged | 1 | MERGED: oai2codex PASS round 1. 89 module + contract 25/25 live. Ledger: N1 E8/401 interplay (spec ruling if ever recorded), N3 usage_limit type-only, N5 dup-key first-vs-last, N6 pattern-strip blacklist-vs-whitelist, N8 fleet cooldown candidate order (S4), N12 text-object presence (D2). |
 | I-tr-S2d6 | packages/translators: Responses→OpenAI chat | 2 | — | merged | 1 | MERGED: res2oai PASS-WITH-NONBLOCKING round 1. 107 module + 29 contract live. Ledger: N1 depth-cap (T1 uniform hardening), N2-N4 unpinned corners (spec notes), N5 auth-transport (route layer owns), N6/N7 trivia. |
 | I-tr-S2d7 | packages/translators: Gemini→Claude | 2 | — | merged | 2 | MERGED: gem2cla complete (spec 2 rounds, impl gate 2 rounds incl. S2d7-31 recorded ruling). 108 module + 33 contract green. |
 | I-tr-S2d8 | packages/translators: Claude→Gemini | 2 | impl-i-tr-s2d8 | fix | 1 | adv-impl-3 R1: FAIL (B1 cooldown read fail-open; B2 enum-hint encoding); fixer dispatched B1/B2/N3/N7 |
@@ -57,3 +57,4 @@
 
 ## Verdict / escalation log
 (appended by orchestrator)
+- 2026-09-16 06:3x I-tr-S2d5 MERGED (impl gate PASS round 1). oai2codex complete: 6 modules merged (5 directions + auth). 4 directions remain: cla2gem (fix round), codex-passthrough + cla2oai + oai2gem (implementing).

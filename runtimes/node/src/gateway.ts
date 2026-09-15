@@ -1142,15 +1142,15 @@ export function createNodeGateway(options: NodeGatewayOptions): NodeGateway {
       return { status: 204, headers: withCors([]), body: '' }
     }
 
-    // Trailing-slash redirects fire before the middleware chain: NO
-    // CORS block, no auth (recorded S1-08/S1-25).
-    const redirect = evaluateRedirect(method, pathname, url.search.length > 0 ? url.search.slice(1) : '')
-    if (redirect.redirect) {
-      return redirectResponse(redirect.status, redirect.location, method)
-    }
-
+    // Route first; the router-emitted trailing-slash redirect fires only
+    // when NO route matches the request path, and it is emitted before
+    // the middleware chain: NO CORS block, no auth (recorded S1-08/S1-25).
     const match = matchRoute(method, pathname)
     if (match === undefined) {
+      const redirect = evaluateRedirect(method, pathname, url.search.length > 0 ? url.search.slice(1) : '')
+      if (redirect.redirect) {
+        return redirectResponse(redirect.status, redirect.location, method)
+      }
       // Framework 404: empty body, CORS present (ruling R-404).
       return { status: 404, headers: withCors([]), body: '' }
     }

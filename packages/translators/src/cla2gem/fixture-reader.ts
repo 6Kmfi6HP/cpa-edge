@@ -97,15 +97,40 @@ export function readRecordedUpstreams(caseId: string): readonly RecordedUpstream
   })
 }
 
+/** Status line of the worker-2 template (a bare line, no fence). */
+function statusLineSection(lines: readonly string[]): string {
+  const start = lines.findIndex((line) => line.startsWith('## Status line'))
+  if (start === -1) throw new Error('downstream.md has no ## Status line section')
+  for (let cursor = start + 1; cursor < lines.length; cursor += 1) {
+    const line = lines[cursor] ?? ''
+    if (line.trim().length > 0) return line
+  }
+  return ''
+}
+
+/** Header lines of the worker-2 template (bare lines up to the blank line). */
+function headerLinesSection(lines: readonly string[]): string {
+  const start = lines.findIndex((line) => line.startsWith('## Response headers'))
+  if (start === -1) throw new Error('downstream.md has no ## Response headers section')
+  const out: string[] = []
+  for (let cursor = start + 1; cursor < lines.length; cursor += 1) {
+    const line = lines[cursor] ?? ''
+    if (line.trim().length === 0) break
+    out.push(line)
+  }
+  return out.join('\n')
+}
+
 /**
- * Reads the recorded downstream response. The `.md` transcript carries the
- * status line plus headers in one fence and the exact body bytes in a
- * second fence (`## body` for JSON surfaces, `## full SSE byte stream` for
- * SSE). The worker-2 recorder (S2d8-21 on) splits the head into
- * `## Status line` and `## Response headers` fences and spells the body
- * section `## Body (exact bytes ...)`; both templates parse here. The
- * recorder's markdown template appends two trailing newlines after SSE
- * byte streams; they are not part of the stream itself.
+ * Reads the recorded downstream response. Two recorder templates exist:
+ * the original packs the status line plus headers into one
+ * `## Status + headers` fence and the exact body bytes into a second
+ * fence (`## body`, or `## full SSE byte stream` for SSE); the worker-2
+ * recorder (S2d8-21 on) writes `## Status line` and
+ * `## Response headers (raw, received order)` as bare sections and fences
+ * only the body, spelled `## Body (exact bytes ...)`. Both parse here.
+ * The original template appends two trailing newlines after SSE byte
+ * streams; they are not part of the stream itself.
  */
 export function readRecordedDownstream(caseId: string): RecordedDownstream {
   const text = readText(`${FIXTURE_ROOT}/${caseId}/downstream.md`)
@@ -124,7 +149,7 @@ export function readRecordedDownstream(caseId: string): RecordedDownstream {
     return content.join('\n')
   }
   const head = text.includes('## Status line')
-    ? [fenced('## Status line'), fenced('## Response headers')].join('\n')
+    ? [statusLineSection(lines), headerLinesSection(lines)].join('\n')
     : fenced('## Status + headers')
   const headLines = head.split('\n')
   const statusMatch = /HTTP\/1\.1 (\d+)/.exec(headLines[0] ?? '')

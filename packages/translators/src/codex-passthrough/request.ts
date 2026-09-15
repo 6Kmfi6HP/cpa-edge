@@ -66,6 +66,7 @@ const DELETED_RESPONSES_MEMBERS: readonly string[] = [
   'max_completion_tokens',
 ]
 
+
 /** Context of one passthrough request translation. */
 export interface PassthroughRequestContext {
   /** Upstream model the alias resolves to (thinking suffix included). */
@@ -74,6 +75,13 @@ export interface PassthroughRequestContext {
   readonly lite: boolean
   /** `disable-image-generation` mode; `off` is the default. */
   readonly imageMode: ImageGenerationMode
+  /**
+   * Thinking capability of the resolved model entry. Without it the whole
+   * top-level `reasoning` object is stripped before the wire (recorded
+   * S2d9-05: the mock model carries no capability and the client's
+   * reasoning object never reaches the upstream).
+   */
+  readonly thinking?: boolean
   /** Session-identity inputs; absent disables derivation. */
   readonly session?: PassthroughSessionContext
 }
@@ -228,6 +236,7 @@ export async function translateResponsesPassthrough(
   }
   const serviceTier = tryParseJson(rawValueAt(text, ['service_tier']))
   if (serviceTier !== 'priority') text = removeMember(text, 'service_tier')
+  if (ctx.thinking !== true) text = removeMember(text, 'reasoning')
 
   // The pinned append sequence.
   text = setBooleanMember(text, 'stream', true)

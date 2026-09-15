@@ -1198,9 +1198,7 @@ describe('service facade', () => {
   it('a deep-but-legal tool argument still translates and streams (the cap does not over-reject)', async () => {
     const service = facade()
     const deepInput = '{"a":'.repeat(2_000) + '1' + '}'.repeat(2_000)
-    const sseReply = 'data: {"candidates":[{"content":{"parts":[{"text":"hi"}]}}]}
-
-'
+    const sseReply = 'data: {"candidates":[{"content":{"parts":[{"text":"hi"}]}]}}\n\n'
     const send: Cla2GemUpstreamSender = async () => ({
       status: 200,
       headers: [['Content-Type', 'text/event-stream']],
@@ -1226,10 +1224,8 @@ describe('service facade', () => {
     const deepArgs = '{"a":'.repeat(15_000) + '1' + '}'.repeat(15_000)
     const sseReply =
       'data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"f","args":' + deepArgs + '}}]}}]}
-
-'
-    const send: Cla2GemUpstreamSender = async () => ({
-      status: 200,
+    const sseReply =
+      'data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"f","args":' + deepArgs + '}]}}]}\n\n'
       headers: [['Content-Type', 'text/event-stream']],
       body: new Response(sseReply).body as ReadableStream<Uint8Array>,
     })
