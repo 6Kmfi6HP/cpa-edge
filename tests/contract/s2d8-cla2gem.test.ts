@@ -41,6 +41,10 @@
  *   }
  *
  *   interface Cla2GemServiceOptions {
+ *     apiKeys: readonly string[]      // gateway keys: `Authorization: Bearer` / `X-Api-Key`
+ *                                     // (S1-owned auth gate; no S2d8 golden exercises it —
+ *                                     // the harness passes the recording key, which the
+ *                                     // recorded requests carry)
  *     credentials: readonly Cla2GemCredential[] // gemini-api-key entries, config order
  *     store: Store                    // from @cpa-edge/core; ALL persistent state
  *                                     // (rotation/cooldown) flows through it
@@ -98,11 +102,14 @@
  *   }
  *
  *   interface Cla2GemService {
- *     handleMessages(
+ *     handleV1Messages(
  *       request: Cla2GemRequest,
  *       send: Cla2GemUpstreamSender,
  *     ): Promise<Cla2GemResponse>     // dispatches on request.path across both routes
  *   }
+ *
+ * (The facade method name follows the interface the cla2gem implementer shipped, mirroring
+ * the S2d7 `handleV1beta` precedent; the suite binds to it at runtime.)
  *
  * The facade covers the whole pinned direction pipeline: alias-only model resolution and the
  * alias→upstream-name rewrite (§3.1), including the alias-only rejection golden S2d8-19 (the
@@ -237,6 +244,7 @@ interface CredentialConfig {
 }
 
 interface ServiceOptions {
+  readonly apiKeys: readonly string[]
   readonly credentials: readonly CredentialConfig[]
   readonly store: Store
   readonly now: () => number
@@ -273,7 +281,7 @@ interface MessagesResponse {
 }
 
 interface MessagesService {
-  handleMessages(request: MessagesRequest, send: UpstreamSender): Promise<MessagesResponse>
+  handleV1Messages(request: MessagesRequest, send: UpstreamSender): Promise<MessagesResponse>
 }
 
 type AdapterFactory = (options: ServiceOptions) => MessagesService
@@ -313,6 +321,9 @@ const FROZEN_NOW_MS = 1_789_504_384_000
 const CLIENT_ROUTE = '/v1/messages'
 const COUNT_ROUTE = '/v1/messages/count_tokens'
 const RECORDED_UPSTREAM_MODEL = 'gemini-mock-model'
+
+/** Recording-instance gateway key (carried by every recorded client request). */
+const GATEWAY_API_KEYS: readonly string[] = ['oracle-local-key-1']
 
 /** Recording-instance credential set, transcribed from the meta.yaml config fragments. */
 const DEFAULT_CREDENTIALS: readonly CredentialConfig[] = [
@@ -416,9 +427,11 @@ function parseRequestHttp(text: string): MessagesRequest {
 /**
  * S2d8 downstream.md convention: each section is a fenced block holding the exact bytes
  * (`## Status + headers`, then `## body` for JSON bodies or `## full SSE byte stream` for
- * streams). The recorder terminates the byte payload with one extra newline before the
- * closing fence, so the parser strips exactly one trailing newline — pinned against every
- * recorded Content-Length by the inventory self-check.
+ * streams). Two fence styles exist across the fixtures: the bulk recorder terminates the
+ * byte payload with one extra newline before the closing fence, while the hand-written
+ * S2d8-20 file closes the fence directly after the payload. The parser strips that one
+ * trailing newline when present; byte truth is enforced downstream — the recorded
+ * Content-Length check (JSON bodies) and the SSE framing decoder (stream bodies).
  */
 function fencedSection(text: string, marker: string, caseId: string): string {
   const markerIndex = text.indexOf(marker)
@@ -428,10 +441,7 @@ function fencedSection(text: string, marker: string, caseId: string): string {
   const close = text.indexOf('\n```', open + 4)
   if (close === -1) throw new Error(`S2d8[${caseId}]: downstream.md ${JSON.stringify(marker)} section is never closed`)
   const content = text.slice(open + 4, close)
-  if (!content.endsWith('\n')) {
-    throw new Error(`S2d8[${caseId}]: downstream.md ${JSON.stringify(marker)} section does not end with the recorder newline`)
-  }
-  return content.slice(0, -1)
+  return content.endsWith('\n') ? content.slice(0, -1) : content
 }
 
 interface RecordedResponse {
@@ -836,14 +846,15 @@ async function replayCase(caseId: CaseId): Promise<void> {
   const mask = maskProfile(caseId, meta.dynamic_fields)
 
   const service = adapterFactory({
+    apiKeys: GATEWAY_API_KEYS,
     credentials: DEFAULT_CREDENTIALS,
     store: new MemoryStore({ now: () => FROZEN_NOW_MS }),
     now: () => FROZEN_NOW_MS,
     requestRetry: 0,
     transientErrorCooldownSeconds: -1,
   })
-  if (typeof service.handleMessages !== 'function') {
-    throw new Error(`${ADAPTER_EXPORT}() must return an object with a handleMessages(request, send) method`)
+  if (typeof service.handleV1Messages !== 'function') {
+    throw new Error(`${ADAPTER_EXPORT}() must return an object with a handleV1Messages(request, send) method`)
   }
 
   const captured: UpstreamRequest[] = []
@@ -857,7 +868,7 @@ async function replayCase(caseId: CaseId): Promise<void> {
     return buildMockResponse(meta.mock_control, caseId)
   }
 
-  const response = await service.handleMessages(request, send)
+  const response = await service.handleV1Messages(request, send)
   await assertDownstream(response, expected, mask, caseId)
 
   expect(captured.length, `S2d8[${caseId}]: upstream call count`).toBe(recordedUpstream.length)
