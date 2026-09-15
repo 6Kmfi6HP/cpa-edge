@@ -204,7 +204,7 @@ describe('image-generation modes', () => {
     const out = await translate(
       '{"model": "codex-mock", "input": "hi", "tools": [{"type": "function", "name": "f"}]}',
     )
-    expect(out.body).toContain('"tools":[{"type": "function", "name": "f"},{"type":"image_generation","output_format":"png"}]')
+    expect(out.body).toContain('"tools": [{"type": "function", "name": "f"},{"type":"image_generation","output_format":"png"}]')
     const present = await translate(
       '{"model": "codex-mock", "input": "hi", "tools": [{"type": "image_generation"}]}',
     )
@@ -230,8 +230,8 @@ describe('image-generation modes', () => {
       '{"model": "codex-mock", "input": "hi", "tools": [{"type": "function", "name": "f"}, {"type": "image_generation"}], "tool_choice": {"type": "tools", "tools": [{"type": "image_generation"}, {"type": "function", "name": "f"}]}}',
       { imageMode: 'true' },
     )
-    expect(out.body).toContain('"tools":[{"type": "function", "name": "f"}]')
-    expect(out.body).toContain('"tool_choice":{"type": "tools","tools":[{"type": "function", "name": "f"}]}')
+    expect(out.body).toContain('"tools": [{"type": "function", "name": "f"}]')
+    expect(out.body).toContain('"tool_choice": {"type": "tools", "tools": [{"type": "function", "name": "f"}]}')
     expect(out.body).toContain('"parallel_tool_calls":true')
   })
 
@@ -263,7 +263,7 @@ describe('request rewrites', () => {
 
   test('null instructions become empty; a thinking-capable model keeps reasoning verbatim', async () => {
     const out = await translate('{"model": "codex-mock", "input": "hi", "instructions": null}')
-    expect(out.body).toContain('"instructions":""')
+    expect(out.body).toContain('"instructions": ""')
     const keep = await translate(
       '{"model": "codex-mock", "input": "hi", "reasoning": {"effort": "high", "summary": "auto"}}',
       { thinking: true },
@@ -282,8 +282,11 @@ describe('request rewrites', () => {
     expect(drop.body).not.toContain('service_tier')
   })
 
-  test('thinking suffix resolves and rides the upstream model name', async () => {
-    const out = await translate('{"model": "codex-mock(high)", "input": "hi", "reasoning": {"effort": "high"}}')
+  test('thinking suffix rides the upstream model name and preserves the reasoning object', async () => {
+    const out = await translate('{"model": "codex-mock(high)", "input": "hi", "reasoning": {"effort": "high"}}', {
+      upstreamModel: 'mock-codex-upstream(high)',
+      thinking: true,
+    })
     expect(out.body.startsWith('{"model": "mock-codex-upstream(high)"')).toBe(true)
     expect(out.body).toContain('"reasoning": {"effort": "high"}')
   })
@@ -309,7 +312,7 @@ describe('request rewrites', () => {
       '{"model": "codex-mock", "input": "hi", "tools": [{"type": "web_search_preview_2025_03_11"}], "tool_choice": {"type": "web_search_preview"}}',
     )
     expect(out.body).toContain('{"type": "web_search"}')
-    expect(out.body).toContain('"tool_choice":{"type":"web_search"}')
+    expect(out.body).toContain('"tool_choice": {"type": "web_search"}')
   })
 
   test('compact translate deletes stream, rewrites model, keeps store/include untouched, derives the cache key', async () => {
@@ -538,7 +541,7 @@ describe('upstream HTTP-level classification', () => {
 
 async function collectLines(source: string[]): Promise<string[]> {
   const out: string[] = []
-  for await (const item of scanSseLines(source.values())) {
+  for await (const item of scanSseLines(textSource(source))) {
     out.push(
       item.kind === 'line'
         ? `L:${item.raw}${item.ending}${item.data !== undefined ? ` D=${item.data}` : ''}`
@@ -569,9 +572,7 @@ describe('sse line scanner', () => {
   })
 })
 
-function translatePassthrough(_unused: unknown[], ctx: Record<string, never>): never {
-  throw new Error('placeholder removed')
-}
+
 
 async function collectStream(source: AsyncIterable<string | Uint8Array>, chunks: readonly string[]): Promise<string[]> {
   const out: string[] = []
@@ -663,10 +664,14 @@ describe('stream pipeline', () => {
     expect(frames[1]).toContain('"code":"server_error","message":"boom"')
   })
 
-  test('a rejecting read before any frame is a pre-commit 408; after frames it is in-stream', async () => {
+  test('a rejecting read before any frame is a pre-commit 408', async () => {
     const { PassthroughPreCommitError, translatePassthroughStream } = await import('./stream')
+    const readOnce = (async function* (): AsyncIterable<Uint8Array> {
+      yield new TextEncoder().encode('event: x\n')
+      await rejectingStream().getReader().read()
+    })()
     await expect(async () => {
-      for await (const _frame of translatePassthroughStream(rejectingStream().values ? [][Symbol.asyncIterator]() as never : rejectingStream(), {
+      for await (const _frame of translatePassthroughStream(readOnce, {
         clientModel: 'm',
         lite: false,
         failureEvent: 'error',
@@ -687,8 +692,10 @@ describe('stream pipeline', () => {
     expect(bootstrap.kind).toBe('pre-commit')
     if (bootstrap.kind !== 'pre-commit') return
     expect(bootstrap.status).toBe(401)
+    // The error frame's own fields (minus the transport wrappers) become
+    // the plain-JSON error content, mirroring the recorded in-stream rule.
     expect(JSON.parse(bootstrap.body)).toEqual({
-      error: { code: 'invalid_api_key', message: 'bad key', param: null, type: 'invalid_request_error' },
+      error: { code: 'invalid_api_key', message: 'bad key' },
     })
   })
 
@@ -1068,12 +1075,17 @@ describe('cooldown families', () => {
   })
 
   test('a Store write failure never rejects the rendered response', async () => {
+    const reported: unknown[] = []
+    const globalScope = globalThis as { reportError?: (error: unknown) => void }
+    const originalReport = globalScope.reportError
+    globalScope.reportError = (error: unknown) => {
+      reported.push(error)
+    }
+    try {
     const failingStore = new MemoryStore()
-    const originalUpdate = failingStore.update.bind(failingStore)
     failingStore.update = () => {
       throw new Error('store down')
     }
-    void originalUpdate
     const service = createCodexPassthroughService({
       apiKeys: ['oracle-local-key-1'],
       credentials: [
@@ -1087,6 +1099,10 @@ describe('cooldown families', () => {
       async () => ({ status: 429, headers: [], body: streamOf(['{"error":{"message":"m","type":"usage_limit_reached"}}']) }),
     )
     expect(response.status).toBe(429)
+    expect(reported.length).toBe(1)
+    } finally {
+      globalScope.reportError = originalReport
+    }
   })
 })
 

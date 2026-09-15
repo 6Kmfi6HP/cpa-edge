@@ -33,7 +33,7 @@
 | I-tr-S2d1 | packages/translators: OpenAI→Gemini | 2 | impl-i-tr-s2d1 | impl | 0 |  |
 | I-tr-S2d2 | packages/translators: Gemini→OpenAI | 2 | — | merged | 1 | MERGED: gem2oai PASS-WITH-NONBLOCKING round 1. 123 module + 26 contract live green. Ledger: N1 depth-cap->400 (T1 hardening), N2 countTokens time-box (T2), N3 failureCount atomicity (S4-impl note), N4 alt-empty spec sentence, N5 model-stamp parity, N6 leniency notes (D2). |
 | I-tr-S2d3 | packages/translators: OpenAI→Claude | 2 | — | merged | 2 | MERGED: oai2cla complete (spec 2 rounds, impl-review 2 rounds). 141 unit + 28 contract green. Residual: Store-get-throw hardening -> T2; N6 UA default blessed; N9 js-tiktoken kept (R-TOK) |
-| I-tr-S2d4 | packages/translators: Claude→OpenAI | 2 | impl-i-tr-s2d4 | impl | 0 |  |
+| I-tr-S2d4 | packages/translators: Claude→OpenAI | 2 | impl-i-tr-s2d4 | impl-adv | 0 | delivered: 89/89 (34 golden); impl-review running on adv-impl-1 |
 | I-tr-S2d5 | packages/translators: OpenAI→Codex/Responses | 2 | — | merged | 1 | MERGED: oai2codex PASS round 1. 89 module + contract 25/25 live. Ledger: N1 E8/401 interplay (spec ruling if ever recorded), N3 usage_limit type-only, N5 dup-key first-vs-last, N6 pattern-strip blacklist-vs-whitelist, N8 fleet cooldown candidate order (S4), N12 text-object presence (D2). |
 | I-tr-S2d6 | packages/translators: Responses→OpenAI chat | 2 | — | merged | 1 | MERGED: res2oai PASS-WITH-NONBLOCKING round 1. 107 module + 29 contract live. Ledger: N1 depth-cap (T1 uniform hardening), N2-N4 unpinned corners (spec notes), N5 auth-transport (route layer owns), N6/N7 trivia. |
 | I-tr-S2d7 | packages/translators: Gemini→Claude | 2 | — | merged | 2 | MERGED: gem2cla complete (spec 2 rounds, impl gate 2 rounds incl. S2d7-31 recorded ruling). 108 module + 33 contract green. |
@@ -47,7 +47,7 @@
 | I-exec-grok | packages/executors: grok executor | 2 | — | merged | 0 | OUT OF RECORDED SCOPE v1 per R-EXECS (native-wire degradation registered; credential lifecycle covered by S3/S4/S6) |
 | I-exec-antigravity | packages/executors: antigravity executor | 2 | — | merged | 0 | SATISFIED via direction modules per R-EXECS |
 | I-exec-custom-openai | packages/executors: custom-openai executor | 2 | — | merged | 0 | SATISFIED via direction modules per R-EXECS |
-| I-mgmt | packages/management: /v0/management | 2 | impl-i-mgmt | fix | 1 | adv-impl-3 R1: FAIL (B1 provider snapshot races; B2 retention; B3 unsubscribe fan-out; B4 cds update; B5 slow-subscriber cap); fixer 7-item list; N3-N10 ledger |
+| I-mgmt | packages/management: /v0/management | 2 | impl-i-mgmt | impl-adv-r2 | 1 | fix round done (7/7, negative-verified); round-2 running on adv-impl-3 |
 | T1 | runtimes/node integration + full contract tests | 3 | integrator-t1 | impl | 0 |  |
 | T2 | runtimes/cloudflare (DO store, alarms, WS hibernation) | 3 | — | pending | 0 |  |
 | T3 | runtimes/vercel (degraded per S7) | 3 | — | pending | 0 |  |
@@ -57,5 +57,3 @@
 
 ## Verdict / escalation log
 (appended by orchestrator)
-- 2026-09-16 07:0x REGISTRY INCIDENT + RESTORATION: the post-S7-admission SPEC §5 appends (R-ORDER, R-SYNCREDS, R-EXECS) had silently no-op'd — the S7-admission edit consumed the append anchor without re-adding it, so three later .replace() calls matched nothing while their commits' messages claimed registration. Detected by the cla2oai implementer (Q7). All three restored + R-TRACE formalized (commit 4b7b9ba); presence programmatically verified. LESSON (binding on orchestrator): every SPEC.md append MUST assert the anchor pre-replace and the content post-write; commit messages are not evidence.
-- 2026-09-16 06:5x I-tr-S2d8 MERGED (impl gate round 2 PASS). cla2gem complete: 7 modules merged (auth + 6 directions). 3 directions remain (codex-passthrough, cla2oai, oai2gem implementing).
