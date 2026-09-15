@@ -12,7 +12,3 @@ declare module 'node:fs' {
   export function existsSync(path: string | URL): boolean
   export function readdirSync(path: string | URL): string[]
 }
-declare module 'node:path' {
-  export function join(...parts: string[]): string
-  export function dirname(path: string): string
-}

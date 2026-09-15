@@ -282,8 +282,6 @@ describe('S2d3 golden replay — non-stream aggregation', () => {
 })
 
 describe('S2d3 golden replay — malformed-stream validation (case 25)', () => {
-  const MALFORMED_429_BODY = '{"type": "error", "error": {"type": "rate_limit_error", "message": "mock rate limit"}}'
-
   it('step 1 bad_json -> malformed stream data', () => {
     const buffer = 'data: {not json}\n\n'
     const result = translateClaudeBufferToChatCompletion(buffer, CTX)
@@ -346,7 +344,6 @@ describe('S2d3 golden replay — malformed-stream validation (case 25)', () => {
       expect(result.kind).toBe('validation-failed')
       if (result.kind === 'validation-failed') expect(result.message).toBe(expected)
     }
-    void MALFORMED_429_BODY
   })
 })
 

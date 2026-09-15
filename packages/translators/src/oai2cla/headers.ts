@@ -67,6 +67,21 @@ function pick(headers: Readonly<Record<string, string>>, name: string): string |
   return undefined
 }
 
+/**
+ * Sets a gateway-owned header under its canonical name, first removing any
+ * case-variant twin an earlier write left behind (a caller may forward
+ * `accept` or `anthropic-version` in lower case). One logical header must
+ * never occupy two keys: a transport serializing the record as-is would
+ * emit the header twice.
+ */
+function setCanonicalHeader(headers: Record<string, string>, name: string, value: string): void {
+  const lower = name.toLowerCase()
+  for (const key of Object.keys(headers)) {
+    if (key.toLowerCase() === lower) delete headers[key]
+  }
+  headers[name] = value
+}
+
 export interface ClaudeUpstreamHeadersInput {
   /** Client request headers as received (any casing). */
   readonly clientHeaders: Readonly<Record<string, string>>
@@ -106,12 +121,16 @@ export function buildClaudeUpstreamHeaders(input: ClaudeUpstreamHeadersInput): R
   }
 
   if (anthropicBase) {
-    headers['x-api-key'] = input.apiKey
+    setCanonicalHeader(headers, 'x-api-key', input.apiKey)
   } else {
-    headers['Authorization'] = `Bearer ${input.apiKey}`
+    setCanonicalHeader(headers, 'Authorization', `Bearer ${input.apiKey}`)
   }
-  headers['Content-Type'] = 'application/json'
-  headers['Anthropic-Version'] = pick(input.clientHeaders, 'anthropic-version') ?? DEFAULT_ANTHROPIC_VERSION
+  setCanonicalHeader(headers, 'Content-Type', 'application/json')
+  setCanonicalHeader(
+    headers,
+    'Anthropic-Version',
+    pick(input.clientHeaders, 'anthropic-version') ?? DEFAULT_ANTHROPIC_VERSION,
+  )
 
   if (input.fingerprintProfile === 'claude-code-cli') {
     applyCliProfileHeaders(headers, input)
@@ -119,19 +138,22 @@ export function buildClaudeUpstreamHeaders(input: ClaudeUpstreamHeadersInput): R
   }
 
   const callerAccept = pick(input.clientHeaders, 'accept')
-  if (callerAccept !== undefined) headers['Accept'] = callerAccept
-  else if (!anthropicBase) headers['Accept'] = 'text/event-stream'
+  if (callerAccept !== undefined) setCanonicalHeader(headers, 'Accept', callerAccept)
+  else if (!anthropicBase) setCanonicalHeader(headers, 'Accept', 'text/event-stream')
 
   const callerEncoding = pick(input.clientHeaders, 'accept-encoding')
-  if (callerEncoding !== undefined) headers['Accept-Encoding'] = callerEncoding
-  else if (!anthropicBase) headers['Accept-Encoding'] = 'identity'
+  if (callerEncoding !== undefined) setCanonicalHeader(headers, 'Accept-Encoding', callerEncoding)
+  else if (!anthropicBase) setCanonicalHeader(headers, 'Accept-Encoding', 'identity')
 
-  headers['User-Agent'] =
-    pick(input.clientHeaders, 'user-agent') ?? gatewayUserAgent(input.gatewayVersion ?? 'v7.3.4')
+  setCanonicalHeader(
+    headers,
+    'User-Agent',
+    pick(input.clientHeaders, 'user-agent') ?? gatewayUserAgent(input.gatewayVersion ?? 'v7.3.4'),
+  )
 
   const callerBeta = pick(input.clientHeaders, 'anthropic-beta')
   const betas = mergeBetas(callerBeta, input.bodyBetas ?? [])
-  if (betas.length > 0) headers['Anthropic-Beta'] = betas.join(',')
+  if (betas.length > 0) setCanonicalHeader(headers, 'Anthropic-Beta', betas.join(','))
 
   const credentialHeaders = input.credentialHeaders ?? {}
   for (const name of Object.keys(credentialHeaders)) {
@@ -141,8 +163,8 @@ export function buildClaudeUpstreamHeaders(input: ClaudeUpstreamHeadersInput): R
   // transport negotiation is restored, so credential Accept/Accept-Encoding
   // overrides do not survive this direction.
   if (!anthropicBase) {
-    headers['Accept'] = callerAccept ?? 'text/event-stream'
-    headers['Accept-Encoding'] = callerEncoding ?? 'identity'
+    setCanonicalHeader(headers, 'Accept', callerAccept ?? 'text/event-stream')
+    setCanonicalHeader(headers, 'Accept-Encoding', callerEncoding ?? 'identity')
   }
   return headers
 }
@@ -167,29 +189,33 @@ function splitBeta(value: string | undefined): string[] {
 }
 
 function applyCliProfileHeaders(headers: Record<string, string>, input: ClaudeUpstreamHeadersInput): void {
-  headers['User-Agent'] = CLAUDE_CODE_CLI_USER_AGENT
-  headers['Accept'] = 'text/event-stream'
-  headers['Accept-Encoding'] = 'identity'
-  headers['Connection'] = 'keep-alive'
-  headers['X-App'] = CLAUDE_CODE_CLI_APP
-  headers['Anthropic-Dangerous-Direct-Browser-Access'] = 'true'
+  setCanonicalHeader(headers, 'User-Agent', CLAUDE_CODE_CLI_USER_AGENT)
+  setCanonicalHeader(headers, 'Accept', 'text/event-stream')
+  setCanonicalHeader(headers, 'Accept-Encoding', 'identity')
+  setCanonicalHeader(headers, 'Connection', 'keep-alive')
+  setCanonicalHeader(headers, 'X-App', CLAUDE_CODE_CLI_APP)
+  setCanonicalHeader(headers, 'Anthropic-Dangerous-Direct-Browser-Access', 'true')
   if (input.cliIdentity !== undefined) {
-    headers['X-Claude-Code-Session-Id'] = input.cliIdentity.sessionId
+    setCanonicalHeader(headers, 'X-Claude-Code-Session-Id', input.cliIdentity.sessionId)
   }
   for (const [name, value] of Object.entries(CLAUDE_CODE_CLI_STAINLESS_HEADERS)) {
     if (name === 'X-Stainless-Retry-Count' && input.retryCount !== undefined) {
-      headers[name] = String(input.retryCount)
+      setCanonicalHeader(headers, name, String(input.retryCount))
       continue
     }
-    headers[name] = value
+    setCanonicalHeader(headers, name, value)
   }
-  headers['X-Stainless-Timeout'] = String(CLAUDE_CODE_CLI_TIMEOUT_SECONDS)
+  setCanonicalHeader(headers, 'X-Stainless-Timeout', String(CLAUDE_CODE_CLI_TIMEOUT_SECONDS))
 
   const betas = input.body !== undefined ? claudeCodeCliBetas(input.body) : CLAUDE_CODE_CLI_BETAS
-  headers['Anthropic-Beta'] = mergeBetas(betas.join(','), [pick(input.clientHeaders, 'anthropic-beta') ?? ''])
-    .filter((beta) => beta.length > 0)
-    .join(',')
+  setCanonicalHeader(
+    headers,
+    'Anthropic-Beta',
+    mergeBetas(betas.join(','), [pick(input.clientHeaders, 'anthropic-beta') ?? ''])
+      .filter((beta) => beta.length > 0)
+      .join(','),
+  )
 
   const callerVersion = pick(input.clientHeaders, 'anthropic-version')
-  if (callerVersion !== undefined) headers['Anthropic-Version'] = callerVersion
+  if (callerVersion !== undefined) setCanonicalHeader(headers, 'Anthropic-Version', callerVersion)
 }

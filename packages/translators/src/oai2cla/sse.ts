@@ -10,8 +10,6 @@
  */
 import type { SseFrame } from './types'
 
-const decoder = new TextDecoder()
-
 interface LineSplit {
   /** Line content without its terminator. */
   readonly line: string
@@ -39,6 +37,11 @@ function fieldBody(text: string): string {
 export async function* decodeSseFrames(
   source: AsyncIterable<string | Uint8Array>,
 ): AsyncIterable<SseFrame> {
+  // One decoder per stream: under {stream: true} a TextDecoder holds the
+  // unfinished tail of a multibyte sequence between decode calls, so a
+  // decoder shared across streams would let one stream's pending bytes leak
+  // into another live stream whenever a chunk boundary splits a character.
+  const decoder = new TextDecoder()
   const iterator = source[Symbol.asyncIterator]()
   let buffer = ''
   let currentEvent: string | undefined
@@ -71,9 +74,11 @@ export async function* decodeSseFrames(
       }
     }
   }
-  // A trailing line without a newline terminator (defensive: the reference
-  // scanner drops it, so mirror by ignoring it when it is not a data line;
-  // complete streams always end with a newline).
+  // A trailing `data:` line without a newline terminator is still delivered
+  // as a frame (a line scanner hands back the final unterminated token, so
+  // a truncated stream keeps its last complete-looking payload); any other
+  // unterminated line is dropped. Complete streams always end with a
+  // newline, so this only fires on truncated inputs.
   if (buffer.startsWith('data:')) {
     yield { event: undefined, data: fieldBody(buffer.slice(5)) }
   }

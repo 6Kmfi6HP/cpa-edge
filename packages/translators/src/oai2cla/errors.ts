@@ -131,15 +131,28 @@ function readHeader(headers: Readonly<Record<string, string>>, name: string): st
 /**
  * Parses the upstream reset hint: an integer `Retry-After` (seconds) or the
  * unified Anthropic rate-limit reset header. No header means no hint.
+ * Only plain decimal digits count as an integer: exponent notation,
+ * whitespace, signs, decimal points and overflowing digit runs are not
+ * reset hints. An unusable value in the first header still lets the
+ * second one speak.
  */
 export function parseClaudeRateLimitReset(headers: Readonly<Record<string, string>>): number | undefined {
   for (const name of ['retry-after', 'anthropic-ratelimit-unified-reset']) {
     const raw = readHeader(headers, name)
     if (raw === undefined) continue
-    const parsed = Number(raw)
-    if (Number.isFinite(parsed) && parsed >= 0) return Math.ceil(parsed)
+    const parsed = parseResetSeconds(raw)
+    if (parsed !== undefined) return parsed
   }
   return undefined
+}
+
+/** Strict unsigned-integer parse of one header value; rejects every other form. */
+function parseResetSeconds(raw: string): number | undefined {
+  if (!/^[0-9]+$/.test(raw)) return undefined
+  const value = Number(raw)
+  // Digit runs can still overflow the safe-integer range; those carry no
+  // usable window either.
+  return Number.isSafeInteger(value) ? value : undefined
 }
 
 const FUZZ_GRACE_MAX = 30

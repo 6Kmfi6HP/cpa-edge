@@ -5,7 +5,7 @@
  * framing, and the error-classification table.
  */
 import { describe, expect, it } from 'vitest'
-import { CpaError } from '@cpa-edge/core'
+import { CpaError, MemoryStore } from '@cpa-edge/core'
 import { translateChatToClaude, JSON_OBJECT_INSTRUCTION } from './request'
 import { deriveClaudeUserId, firstUserMessageText } from './userid'
 import { normalizeToolInputSchema } from './schema'
@@ -14,11 +14,19 @@ import { decodeSseFrames, parseDownstreamSse } from './sse'
 import { classifyClaudeUpstreamError, parseClaudeRateLimitReset, parseClaudeRateLimitResetWithFuzz, wrapTypeForStatus } from './errors'
 import { buildClaudeUpstreamHeaders, DEFAULT_ANTHROPIC_VERSION, gatewayUserAgent } from './headers'
 import { claudeCodeCliBetas } from './profile'
+import { createOai2ClaChatService } from './service'
+import type {
+  Oai2ClaChatRequest,
+  Oai2ClaCredential,
+  Oai2ClaUpstreamResponse,
+  Oai2ClaUpstreamSender,
+} from './service'
 import type { ChatToClaudeContext } from './types'
 
 const UPSTREAM = 'claude-mock-model'
 const BASE = 'http://mock.internal:20002'
 const KEY = 'mock-claude-key'
+const encoder = new TextEncoder()
 
 async function translate(body: unknown, ctx: ChatToClaudeContext = { upstreamModel: UPSTREAM }): Promise<Record<string, unknown>> {
   const result = await translateChatToClaude(JSON.stringify(body), ctx)
@@ -524,6 +532,47 @@ describe('SSE decoder', () => {
     expect(frames).toEqual([{ event: undefined, data: 'x' }])
   })
 
+  it('two interleaved streams decode intact when a chunk boundary splits a multibyte character', async () => {
+    // 你 encodes as E4 BD A0. Stream A's first chunk stops between the
+    // second and third byte and A then parks on a gate - the position a
+    // real transport holds when it pauses between chunks while another
+    // request's stream is live. Stream B must decode its own ASCII frame
+    // without seeing A's pending bytes, and A must still decode 你 once its
+    // tail arrives.
+    const aHead = new Uint8Array([...encoder.encode('data: '), 0xe4, 0xbd])
+    const aTail = new Uint8Array([0xa0, 0x0a, 0x0a])
+    let releaseA: () => void = () => {}
+    const parked = new Promise<void>((resolve) => {
+      releaseA = resolve
+    })
+    let headConsumed: () => void = () => {}
+    const consumedHead = new Promise<void>((resolve) => {
+      headConsumed = resolve
+    })
+    const sourceA = (async function* () {
+      yield aHead
+      headConsumed()
+      await parked
+      yield aTail
+    })()
+    const sourceB = (async function* () {
+      yield encoder.encode('data: ok\n\n')
+    })()
+
+    const iteratorA = decodeSseFrames(sourceA)[Symbol.asyncIterator]()
+    const pendingA = iteratorA.next()
+    await consumedHead
+    const iteratorB = decodeSseFrames(sourceB)[Symbol.asyncIterator]()
+    const b = await iteratorB.next()
+    releaseA()
+    const a = await pendingA
+
+    expect(b.done).toBe(false)
+    expect(b.value?.data).toBe('ok')
+    expect(a.done).toBe(false)
+    expect(a.value?.data).toBe('你')
+  })
+
   it('parseDownstreamSse splits wire frames into payloads', () => {
     expect(parseDownstreamSse('data: a\n\ndata: [DONE]\n\n')).toEqual(['a', '[DONE]'])
   })
@@ -557,6 +606,25 @@ describe('error classification', () => {
     expect(parseClaudeRateLimitResetWithFuzz({}, () => 0.999)).toBe(1)
     expect(parseClaudeRateLimitResetWithFuzz({ 'Retry-After': '1' }, () => 0)).toBe(2)
     expect(parseClaudeRateLimitResetWithFuzz({ 'Retry-After': '1' }, () => 0.9999)).toBe(31)
+  })
+
+  it('rate-limit reset parsing rejects non-integer header forms', () => {
+    // exponent notation, whitespace, signs, decimal points, empty values,
+    // text and overflowing digit runs are not reset hints
+    for (const bad of ['1e3', '  12  ', '12.5', '+7', '-7', '', 'abc', '99999999999999999999']) {
+      expect(parseClaudeRateLimitReset({ 'Retry-After': bad })).toBeUndefined()
+      expect(parseClaudeRateLimitReset({ 'Anthropic-Ratelimit-Unified-Reset': bad })).toBeUndefined()
+    }
+    // an unusable Retry-After still lets the unified reset header speak
+    expect(
+      parseClaudeRateLimitReset({ 'Retry-After': '1e3', 'Anthropic-Ratelimit-Unified-Reset': '30' }),
+    ).toBe(30)
+    // rejected forms degrade to the headerless 1s ladder under fuzz
+    expect(parseClaudeRateLimitResetWithFuzz({ 'Retry-After': '1e3' }, () => 0.5)).toBe(1)
+    expect(parseClaudeRateLimitResetWithFuzz({ 'Retry-After': '  12  ' }, () => 0)).toBe(1)
+    // accepted forms keep their value, zero included
+    expect(parseClaudeRateLimitReset({ 'Retry-After': '0' })).toBe(0)
+    expect(parseClaudeRateLimitReset({ 'retry-after': '9' })).toBe(9)
   })
 
   it('aggregation validation accepts a complete buffer', () => {
@@ -629,6 +697,29 @@ describe('header policy', () => {
     expect(headers['Anthropic-Version']).toBe(DEFAULT_ANTHROPIC_VERSION)
   })
 
+  it('lowercase forwarded names fold into their canonical twins', () => {
+    const headers = buildClaudeUpstreamHeaders({
+      clientHeaders: {
+        accept: 'application/json',
+        'anthropic-version': '2023-01-01',
+        'user-agent': 'probe/1.0',
+        'anthropic-beta': 'context-1',
+      },
+      apiKey: KEY,
+      baseUrl: BASE,
+      gatewayVersion: 'v7.3.4',
+    })
+    // one logical header must never occupy two keys of the record
+    const lowered = Object.keys(headers).map((name) => name.toLowerCase())
+    expect(new Set(lowered).size).toBe(lowered.length)
+    expect(headers['Accept']).toBe('application/json')
+    expect(headers['Anthropic-Version']).toBe('2023-01-01')
+    expect(headers['User-Agent']).toBe('probe/1.0')
+    expect(headers['Anthropic-Beta']).toBe('context-1')
+    expect(headers['accept']).toBeUndefined()
+    expect(headers['anthropic-version']).toBeUndefined()
+  })
+
   it('Anthropic bases switch to x-api-key and get no streaming Accept default', () => {
     const headers = buildClaudeUpstreamHeaders({
       clientHeaders: {},
@@ -681,5 +772,161 @@ describe('header policy', () => {
     expect(headers['X-Stainless-Timeout']).toBe('600')
     expect(headers['Anthropic-Beta']).toContain('oauth-2025-04-20')
     expect(headers['Anthropic-Beta']).toContain('extended-cache-ttl-2025-04-11')
+  })
+})
+
+describe('service facade — cooldown bookkeeping', () => {
+  const CREDENTIAL: Oai2ClaCredential = { apiKey: KEY, baseUrl: BASE, models: [{ name: UPSTREAM, alias: 'cm' }] }
+  const UPSTREAM_429_BODY = '{"type": "error", "error": {"type": "rate_limit_error", "message": "mock rate limit"}}'
+
+  function chatRequest(): Oai2ClaChatRequest {
+    return {
+      method: 'POST',
+      path: '/v1/chat/completions',
+      headers: [['Content-Type', 'application/json']],
+      body: JSON.stringify({ model: 'cm', messages: [{ role: 'user', content: 'q' }] }),
+    }
+  }
+
+  function byteStream(chunks: readonly Uint8Array[]): ReadableStream<Uint8Array> {
+    let index = 0
+    return new ReadableStream<Uint8Array>({
+      pull(controller) {
+        const chunk = chunks[index]
+        index += 1
+        if (chunk === undefined) controller.close()
+        else controller.enqueue(chunk)
+      },
+    })
+  }
+
+  function upstream429(retryAfter?: string): Oai2ClaUpstreamResponse {
+    const headers: Array<[string, string]> = [['Content-Type', 'application/json']]
+    if (retryAfter !== undefined) headers.push(['Retry-After', retryAfter])
+    return { status: 429, headers, body: byteStream([encoder.encode(UPSTREAM_429_BODY)]) }
+  }
+
+  /** Deterministic Math.random draws; returns the restore callback. */
+  function stubRandom(draws: readonly number[]): () => void {
+    const original = Math.random
+    let index = 0
+    Math.random = () => {
+      const draw = draws[Math.min(index, draws.length - 1)] ?? 0
+      index += 1
+      return draw
+    }
+    return () => {
+      Math.random = original
+    }
+  }
+
+  it('a 429 writes its cooldown window and gates the next request (sequential behavior unchanged)', async () => {
+    const restore = stubRandom([0])
+    try {
+      const service = createOai2ClaChatService({
+        credentials: [CREDENTIAL],
+        gatewayVersion: 'v7.3.4',
+        store: new MemoryStore(),
+        now: () => 1_000_000,
+        requestRetry: 0,
+      })
+      const first = await service.handleChatCompletions(chatRequest(), async () => upstream429('30'))
+      // the direct 429 passes through verbatim and carries no Retry-After
+      expect(first.status).toBe(429)
+      expect(first.body).toBe(UPSTREAM_429_BODY)
+      expect(first.headers).toEqual([['Content-Type', 'application/json']])
+      const gated = await service.handleChatCompletions(chatRequest(), async () => {
+        throw new Error('a gated request must not reach the upstream')
+      })
+      expect(gated.status).toBe(429)
+      // reset 30 plus the grace of random draw 0
+      expect(gated.headers).toContainEqual(['Retry-After', '31'])
+      expect(gated.body).toContain('"reset_seconds":31')
+      expect(gated.body).toContain('model_cooldown')
+    } finally {
+      restore()
+    }
+  })
+
+  it('concurrent 429s never shorten a longer cooldown window', async () => {
+    const restore = stubRandom([0, 0.5])
+    try {
+      const service = createOai2ClaChatService({
+        credentials: [CREDENTIAL],
+        gatewayVersion: 'v7.3.4',
+        store: new MemoryStore(),
+        now: () => 1_000_000,
+        requestRetry: 0,
+      })
+      // Both requests pass the gate before either 429 lands (a rendezvous
+      // inside the transport), so both cooldown writes race. The second
+      // write commits strictly after the first and carries the SHORTER
+      // window - a last-writer-wins write would discard the longer one.
+      let arrivals = 0
+      let releaseSend: () => void = () => {}
+      const bothArrived = new Promise<void>((resolve) => {
+        releaseSend = resolve
+      })
+      let calls = 0
+      const send: Oai2ClaUpstreamSender = async () => {
+        calls += 1
+        arrivals += 1
+        // decided on entry, before the barrier parks the first caller
+        const longWindow = calls === 1
+        if (arrivals === 2) releaseSend()
+        await bothArrived
+        if (longWindow) return upstream429('30') // long window: 30 + grace 1
+        await Promise.resolve()
+        return upstream429('5') // short window: 5 + grace 16
+      }
+      const [first, second] = await Promise.all([
+        service.handleChatCompletions(chatRequest(), send),
+        service.handleChatCompletions(chatRequest(), send),
+      ])
+      expect(calls).toBe(2)
+      expect(first.status).toBe(429)
+      expect(first.body).toBe(UPSTREAM_429_BODY)
+      expect(second.status).toBe(429)
+      expect(second.body).toBe(UPSTREAM_429_BODY)
+      const gated = await service.handleChatCompletions(chatRequest(), async () => {
+        throw new Error('a gated request must not reach the upstream')
+      })
+      expect(gated.status).toBe(429)
+      expect(gated.headers).toContainEqual(['Retry-After', '31'])
+      expect(gated.body).toContain('"reset_seconds":31')
+      expect(calls).toBe(2)
+    } finally {
+      restore()
+    }
+  })
+
+  it('a Store that throws during the cooldown write does not lose the verbatim 429', async () => {
+    const store = new MemoryStore()
+    store.update = async () => {
+      throw new Error('cooldown store down')
+    }
+    const service = createOai2ClaChatService({
+      credentials: [CREDENTIAL],
+      gatewayVersion: 'v7.3.4',
+      store,
+      requestRetry: 0,
+    })
+    const reported: unknown[] = []
+    const originalReport = globalThis.reportError
+    globalThis.reportError = (error: unknown) => {
+      reported.push(error)
+    }
+    try {
+      const response = await service.handleChatCompletions(chatRequest(), async () => upstream429())
+      // the pinned verbatim-429 surface still reaches the client untouched
+      expect(response.status).toBe(429)
+      expect(response.body).toBe(UPSTREAM_429_BODY)
+      expect(response.headers).toEqual([['Content-Type', 'application/json']])
+      // the Store failure is surfaced out-of-band instead of swallowed
+      expect(reported.length).toBe(1)
+      expect((reported[0] as Error).message).toBe('cooldown store down')
+    } finally {
+      globalThis.reportError = originalReport
+    }
   })
 })

@@ -244,19 +244,26 @@ export function createOai2ClaChatService(options: Oai2ClaServiceOptions): Oai2Cl
     } catch {
       return unexpectedEof()
     }
+    // The downstream surface is rendered before any cooldown bookkeeping:
+    // the verbatim-429 pass-through above all must survive a Store failure,
+    // so the write below can never reject this response.
+    const rendered = renderUpstreamFailure(classifyClaudeUpstreamError(upstream.status, bodyText))
+    const outcome: AttemptOutcome = {
+      retryable: upstream.status === 429,
+      response: jsonBody(rendered.status, rendered.body),
+    }
     if (upstream.status === 429) {
       // Rate-limit cooldown (S2d3 5.4): headerless 429s cool for a flat
       // second, reset-carrying headers for the parsed reset plus a bounded
       // random grace. transient-error-cooldown-seconds does not disable this.
       const resetSeconds = parseClaudeRateLimitResetWithFuzz(headerListToRecord(upstream.headers))
-      await writeCooldown(options.store, candidate.credentialIndex, {
+      await persistCooldownBestEffort(options.store, candidate.credentialIndex, {
         untilMs: now() + resetSeconds * 1000,
         resetSeconds,
         lastError: bodyText,
       })
     }
-    const rendered = renderUpstreamFailure(classifyClaudeUpstreamError(upstream.status, bodyText))
-    return { retryable: upstream.status === 429, response: jsonBody(rendered.status, rendered.body) }
+    return outcome
   }
 
   /**
@@ -328,8 +335,36 @@ async function readCooldown(store: Store, credentialIndex: number): Promise<Cool
   return cooldownFromDocument(await store.get(COOLDOWN_NAMESPACE, `${COOLDOWN_KEY_PREFIX}${credentialIndex}`))
 }
 
+/**
+ * Best-effort cooldown persistence: by the time this runs the client-facing
+ * response is already rendered, so a failing Store must not reject it. The
+ * Store error is still surfaced - reported to the runtime's global error
+ * channel (falling back to the console where that API is absent) - rather
+ * than swallowed.
+ */
+async function persistCooldownBestEffort(store: Store, credentialIndex: number, record: CooldownRecord): Promise<void> {
+  try {
+    await writeCooldown(store, credentialIndex, record)
+  } catch (error) {
+    if (typeof reportError === 'function') reportError(error)
+    else console.error(error)
+  }
+}
+
+/**
+ * Persists a rate-limit cooldown through the Store's atomic read-modify-
+ * write: the callback derives the replacement from the current record
+ * alone and may re-run when a competing writer commits first. A still-
+ * longer window already stored for the credential is never shortened, so
+ * concurrent 429s cannot overwrite each other's cooldown; a sequential
+ * write (no live window) always lands exactly as given.
+ */
 async function writeCooldown(store: Store, credentialIndex: number, record: CooldownRecord): Promise<void> {
-  await store.put(COOLDOWN_NAMESPACE, `${COOLDOWN_KEY_PREFIX}${credentialIndex}`, cooldownDocument(record))
+  await store.update(COOLDOWN_NAMESPACE, `${COOLDOWN_KEY_PREFIX}${credentialIndex}`, (current) => {
+    const previous = cooldownFromDocument(current)
+    if (previous !== undefined && previous.untilMs > record.untilMs) return cooldownDocument(previous)
+    return cooldownDocument(record)
+  })
 }
 
 function cooldownDocument(record: CooldownRecord): JsonValue {
