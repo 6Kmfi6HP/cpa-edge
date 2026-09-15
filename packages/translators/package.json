@@ -13,7 +13,8 @@
     "./res2oai": "./src/res2oai/index.ts",
     "./codex-passthrough": "./src/codex-passthrough/index.ts",
     "./cla2oai": "./src/cla2oai/index.ts",
-    "./oai2gem": "./src/oai2gem/index.ts"
+    "./oai2gem": "./src/oai2gem/index.ts",
+    "./oai2oai": "./src/oai2oai/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"

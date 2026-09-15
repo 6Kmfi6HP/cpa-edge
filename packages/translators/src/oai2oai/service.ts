@@ -329,9 +329,10 @@ export function createOai2OaiService(options: Oai2OaiServiceOptions): Oai2OaiSer
       return transportFailure(error)
     }
     if (first.done === true) {
-      // No event at all can only mean the source threw or ended before
-      // the generator produced anything; treat it as a clean empty
-      // stream (headers + terminator) - the recorded close behavior.
+      // The composed generator always yields at least one event (a clean
+      // close yields the synthesized terminator), so an exhausted iterator
+      // here means an empty source; it still commits - headers plus the
+      // terminator alone - and clears the cooldown window.
       await resetCooldownBestEffort(requestedModel)
       return { retryable: false, response: { status: 200, headers: [...SSE_HEADERS], body: DONE_TERMINATOR } }
     }

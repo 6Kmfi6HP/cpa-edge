@@ -8,13 +8,18 @@
  *   versioned record `{ v, d? }`. Queues occupy one record per name at
  *   `q:["<name>"]`, rings `r:["<name>"]` - JSON-encoded key parts make
  *   the addressing collision-free for arbitrary namespace/key strings.
- * - EVERY mutating operation is a compare-and-swap: it re-reads the
- *   record, applies its change, and writes only when the version is
- *   still the one it saw, retrying otherwise. Each committed write
- *   bumps the record's version by exactly one, so versions are strictly
- *   monotonic and a stale writer can never commit over an unseen change
- *   - the lost-update freedom the `update()` contract requires, and the
- *   same guarantee for queue leases and ring appends.
+ * - Every mutating operation runs its read-modify-write inside ONE
+ *   critical section (`exclusive`): a single promise-queue serializes
+ *   mutations, because a version check performed in JavaScript between
+ *   two storage calls can interleave with another handler doing the
+ *   same. Within a section, each committed write bumps the record's
+ *   version by exactly one, so versions stay strictly monotonic.
+ * - `update()` is the one two-phase operation: its callback runs OUTSIDE
+ *   the critical section (callbacks may take arbitrarily long and the
+ *   contract allows re-runs), and the version-checked commit happens
+ *   inside it. A competing writer makes the check fail, and the
+ *   callback re-runs against the newer document - the exact retry
+ *   semantics the memory store documents.
  * - Deletions keep a versioned tombstone: an `update()` that read the
  *   pre-delete value fails its CAS and re-runs against `undefined`,
  *   exactly like the memory store.
@@ -101,14 +106,32 @@ function parseDocStorageKey(storageKey: string): readonly [string, string] | und
 export class DurableObjectStore implements Store {
   private readonly storage: DoStorageLike
   private readonly now: () => number
+  /** Tail of the mutation queue; every critical section chains onto it. */
+  private chain: Promise<void> = Promise.resolve()
 
   constructor(storage: DoStorageLike, options: DurableObjectStoreOptions = {}) {
     this.storage = storage
     this.now = options.now ?? (() => Date.now())
   }
 
+  /**
+   * Runs one critical section with exclusive access to every other
+   * mutation on this store. Failures propagate to the caller; the queue
+   * itself always continues.
+   */
+  private exclusive<T>(section: () => Promise<T>): Promise<T> {
+    const run = this.chain.then(section, section)
+    this.chain = run.then(
+      () => undefined,
+      () => undefined,
+    )
+    return run
+  }
+
   async get(namespace: string, key: string): Promise<JsonValue | undefined> {
-    const record = await this.readDoc(namespace, key)
+    const name = requireName(namespace, 'namespace')
+    const id = requireName(key, 'key')
+    const record = await this.readDoc(name, id)
     const value = record?.d
     return value === undefined ? undefined : detached(value)
   }
@@ -116,26 +139,25 @@ export class DurableObjectStore implements Store {
   async put(namespace: string, key: string, value: JsonValue): Promise<void> {
     const accepted = acceptValue(value, 'value')
     const storageKey = docKey(requireName(namespace, 'namespace'), requireName(key, 'key'))
-    // Unconditional writes still go through CAS so the version stays
-    // strictly monotonic: a last-writer-wins `put` can never reuse a
-    // version another concurrent writer committed, which keeps every
-    // in-flight `update()` honest about what it saw.
-    for (;;) {
+    // Last writer wins - but the version still advances by exactly one
+    // inside the critical section, so in-flight `update()` commits stay
+    // fenced.
+    await this.exclusive(async () => {
       const seenVersion = versionOf(await this.readRecord(storageKey))
-      if (await this.casWrite(storageKey, seenVersion, { v: seenVersion + 1, d: accepted })) return
-    }
+      await this.storage.put(storageKey, { v: seenVersion + 1, d: accepted })
+    })
   }
 
   async delete(namespace: string, key: string): Promise<boolean> {
     const name = requireName(namespace, 'namespace')
     const id = requireName(key, 'key')
-    for (;;) {
+    const storageKey = docKey(name, id)
+    return this.exclusive(async () => {
       const record = await this.readDoc(name, id)
       if (record === undefined || record.d === undefined) return false
-      const storageKey = docKey(name, id)
-      if (await this.casWrite(storageKey, record.v, { v: record.v + 1 })) return true
-      // A competing writer committed first; re-read and re-evaluate.
-    }
+      await this.storage.put(storageKey, { v: record.v + 1 })
+      return true
+    })
   }
 
   async list(namespace: string, prefix?: string): Promise<string[]> {
@@ -170,9 +192,16 @@ export class DurableObjectStore implements Store {
       const current = record?.d
       const next = await mutate(current === undefined ? undefined : (detached(current) as T))
       const accepted = acceptValue(next, 'update result')
-      if (await this.casWrite(storageKey, seenVersion, { v: seenVersion + 1, d: accepted })) {
-        return detached(accepted) as T
-      }
+      // The commit is the only part that needs exclusivity: verify the
+      // version and write in one critical section, so a writer that
+      // committed while the callback was pending is always detected.
+      const committed = await this.exclusive(async () => {
+        const currentVersion = versionOf(await this.readRecord(storageKey))
+        if (currentVersion !== seenVersion) return false
+        await this.storage.put(storageKey, { v: seenVersion + 1, d: accepted })
+        return true
+      })
+      if (committed) return detached(accepted) as T
       // The record moved while the callback ran; run the callback again
       // against the newer document.
     }
@@ -182,13 +211,14 @@ export class DurableObjectStore implements Store {
     const accepted = acceptValue(payload, 'payload')
     const storageKey = queueKey(requireName(queue, 'queue'))
     const id = crypto.randomUUID()
-    for (;;) {
+    await this.exclusive(async () => {
       const record = await this.readQueue(storageKey)
       const seenVersion = record?.v ?? 0
       const items = [...(record?.items ?? [])]
       items.push({ id, payload: accepted, state: 'available', token: undefined, leaseExpiresAt: undefined })
-      if (await this.casWrite(storageKey, seenVersion, { v: seenVersion + 1, items })) return id
-    }
+      await this.storage.put(storageKey, { v: seenVersion + 1, items })
+    })
+    return id
   }
 
   async claim(queue: string, leaseMs: number): Promise<QueueClaim | undefined> {
@@ -196,7 +226,7 @@ export class DurableObjectStore implements Store {
     if (typeof leaseMs !== 'number' || !Number.isFinite(leaseMs) || leaseMs <= 0) {
       throw new CpaError('invalid-input', 'lease duration must be a positive number of milliseconds')
     }
-    for (;;) {
+    return this.exclusive(async () => {
       const record = await this.readQueue(storageKey)
       const seenVersion = record?.v ?? 0
       const items = (record?.items ?? []).map((item) => ({ ...item }))
@@ -223,37 +253,35 @@ export class DurableObjectStore implements Store {
         break
       }
       if (!changed) return undefined
-      if (await this.casWrite(storageKey, seenVersion, { v: seenVersion + 1, items })) {
-        if (leased === undefined) return undefined
-        return Object.freeze({
-          id: leased.id,
-          token: leased.token ?? '',
-          payload: detached(leased.payload),
-          leaseExpiresAt: leased.leaseExpiresAt ?? now + leaseMs,
-        }) satisfies QueueClaim
-      }
-      // A competing claim committed; run the sweep again against the
-      // newer record (the loser leases the next available item).
-    }
+      await this.storage.put(storageKey, { v: seenVersion + 1, items })
+      if (leased === undefined) return undefined
+      return Object.freeze({
+        id: leased.id,
+        token: leased.token ?? '',
+        payload: detached(leased.payload),
+        leaseExpiresAt: leased.leaseExpiresAt ?? now + leaseMs,
+      }) satisfies QueueClaim
+    })
   }
 
   async ack(queue: string, claim: ClaimHandle): Promise<boolean> {
     const storageKey = queueKey(requireName(queue, 'queue'))
     requireHandle(claim)
-    for (;;) {
+    return this.exclusive(async () => {
       const record = await this.readQueue(storageKey)
       if (record === undefined) return false
       const item = record.items.find((entry) => entry.id === claim.id)
       if (item === undefined || item.state !== 'leased' || item.token !== claim.token) return false
       const items = record.items.filter((entry) => entry.id !== claim.id)
-      if (await this.casWrite(storageKey, record.v, { v: record.v + 1, items })) return true
-    }
+      await this.storage.put(storageKey, { v: record.v + 1, items })
+      return true
+    })
   }
 
   async release(queue: string, claim: ClaimHandle): Promise<boolean> {
     const storageKey = queueKey(requireName(queue, 'queue'))
     requireHandle(claim)
-    for (;;) {
+    return this.exclusive(async () => {
       const record = await this.readQueue(storageKey)
       if (record === undefined) return false
       const item = record.items.find((entry) => entry.id === claim.id)
@@ -263,8 +291,9 @@ export class DurableObjectStore implements Store {
           ? { ...entry, state: 'available', token: undefined, leaseExpiresAt: undefined }
           : { ...entry },
       )
-      if (await this.casWrite(storageKey, record.v, { v: record.v + 1, items })) return true
-    }
+      await this.storage.put(storageKey, { v: record.v + 1, items })
+      return true
+    })
   }
 
   async ringAppend(ring: string, entry: JsonValue, capacity: number = DEFAULT_RING_CAPACITY): Promise<void> {
@@ -273,15 +302,15 @@ export class DurableObjectStore implements Store {
       throw new CpaError('invalid-input', 'ring capacity must be a positive whole number')
     }
     const accepted = acceptValue(entry, 'entry')
-    for (;;) {
+    await this.exclusive(async () => {
       const record = await this.readRing(storageKey)
       const seenVersion = record?.v ?? 0
       const entries = [...(record?.e ?? []), accepted]
       // The most recent append decides the capacity; shrinking trims
       // immediately, oldest first.
       const trimmed = entries.length > capacity ? entries.slice(entries.length - capacity) : entries
-      if (await this.casWrite(storageKey, seenVersion, { v: seenVersion + 1, e: trimmed })) return
-    }
+      await this.storage.put(storageKey, { v: seenVersion + 1, e: trimmed })
+    })
   }
 
   async ringRead(ring: string, maxEntries?: number): Promise<JsonValue[]> {
@@ -318,18 +347,6 @@ export class DurableObjectStore implements Store {
     return this.storage.get(storageKey)
   }
 
-  /**
-   * Writes `next` only while the stored version equals `expected`;
-   * resolves false when a competing writer got there first. Every
-   * mutation in this adapter funnels through here, which is what makes
-   * the record versions a reliable fencing token.
-   */
-  private async casWrite(storageKey: string, expected: number, next: unknown): Promise<boolean> {
-    const current = await this.readRecord(storageKey)
-    if (versionOf(current) !== expected) return false
-    await this.storage.put(storageKey, next)
-    return true
-  }
 }
 
 // ---------------------------------------------------------------------------

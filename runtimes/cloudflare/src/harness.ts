@@ -75,6 +75,19 @@ export interface FakeSocket {
   readonly closedWith: { code: number; reason: string } | undefined
 }
 
+/** Builds one fake hibernated socket that records its close call. */
+export function makeFakeSocket(): FakeSocket {
+  let closedWith: { code: number; reason: string } | undefined
+  return {
+    close(code?: number, reason?: string) {
+      closedWith = { code: code ?? 1005, reason: reason ?? '' }
+    },
+    get closedWith() {
+      return closedWith
+    },
+  }
+}
+
 /** Hibernation host recording accepted sockets and their tags. */
 export class SimulatedWebSocketHost {
   readonly accepted: Array<{ socket: FakeSocket; tags: readonly string[] }> = []

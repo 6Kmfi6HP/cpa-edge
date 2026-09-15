@@ -49,7 +49,6 @@ import {
   ExchangeError,
   saveAuthFile,
   AUTH_FILES_NAMESPACE,
-  OAUTH_SESSIONS_NAMESPACE,
   ManagementAuthService,
   prepareManagementSecretSync,
   MANAGEMENT_SWEEP_INTERVAL_MS,
@@ -130,6 +129,8 @@ export interface AlarmDeps {
   readonly fetch: FetchLike
   /** Current normalized config (proxy-url, retention, management). */
   readonly config: () => NormalizedConfig
+  /** Sleeper for in-refresh retry waits; defaults to real time (tests stub it). */
+  readonly sleep?: (ms: number) => Promise<void>
 }
 
 // ---------------------------------------------------------------------------
@@ -285,7 +286,11 @@ async function refreshPass(deps: AlarmDeps): Promise<number | undefined> {
     nextDue = nextDue === undefined ? dueAtMs : Math.min(nextDue, dueAtMs)
     if (!shouldRefresh(input, bookkeeping, now()) || refreshed >= REFRESH_PASS_LIMIT) continue
 
-    const outcome = await refreshCredential(provider, document, { fetch, now })
+    const outcome = await refreshCredential(provider, document, {
+      fetch,
+      now,
+      ...(deps.sleep === undefined ? {} : { sleep: deps.sleep }),
+    })
     refreshed += 1
     if (outcome.ok) {
       const patch = outcome.documentPatch
@@ -379,7 +384,7 @@ function formOf(pairs: ReadonlyArray<readonly [string, string]>): string {
 }
 
 /** Kimi step: fixed ticker, `slow_down` is a no-op (recorded O-5). */
-async function kimiPollStep(doc: DevicePollDocument, fetch: FetchLike): Promise<PollStep> {
+async function kimiPollStep(doc: DevicePollDocument, fetch: FetchLike, nowMs: number): Promise<PollStep> {
   const form = formOf([
     ['client_id', KIMI.clientId],
     ['device_code', doc.device_code],
@@ -391,7 +396,7 @@ async function kimiPollStep(doc: DevicePollDocument, fetch: FetchLike): Promise<
   })
   const error = json === undefined ? undefined : typeof json['error'] === 'string' ? json['error'] : undefined
   if (error === 'authorization_pending' || error === 'slow_down') {
-    return { kind: 'pending', nextPollAtMs: Date.now() + doc.interval_ms, intervalMs: doc.interval_ms }
+    return { kind: 'pending', nextPollAtMs: nowMs + doc.interval_ms, intervalMs: doc.interval_ms }
   }
   if (error === 'expired_token') return { kind: 'terminal', message: 'kimi: device code expired' }
   if (error === 'access_denied') return { kind: 'terminal', message: 'kimi: access denied by user' }
@@ -402,7 +407,7 @@ async function kimiPollStep(doc: DevicePollDocument, fetch: FetchLike): Promise<
 }
 
 /** xAI step: `slow_down` widens the interval by 5 s. */
-async function xaiPollStep(doc: DevicePollDocument, fetch: FetchLike): Promise<PollStep> {
+async function xaiPollStep(doc: DevicePollDocument, fetch: FetchLike, nowMs: number): Promise<PollStep> {
   const form = formOf([
     ['grant_type', 'urn:ietf:params:oauth:grant-type:device_code'],
     ['device_code', doc.device_code],
@@ -414,11 +419,11 @@ async function xaiPollStep(doc: DevicePollDocument, fetch: FetchLike): Promise<P
   })
   const error = json === undefined ? undefined : typeof json['error'] === 'string' ? json['error'] : undefined
   if (error === 'authorization_pending') {
-    return { kind: 'pending', nextPollAtMs: Date.now() + doc.interval_ms, intervalMs: doc.interval_ms }
+    return { kind: 'pending', nextPollAtMs: nowMs + doc.interval_ms, intervalMs: doc.interval_ms }
   }
   if (error === 'slow_down') {
     const widened = doc.interval_ms + 5_000
-    return { kind: 'pending', nextPollAtMs: Date.now() + widened, intervalMs: widened }
+    return { kind: 'pending', nextPollAtMs: nowMs + widened, intervalMs: widened }
   }
   if (error === 'expired_token' || error === 'access_denied') {
     return { kind: 'terminal', message: `xai: ${error}` }
@@ -430,7 +435,7 @@ async function xaiPollStep(doc: DevicePollDocument, fetch: FetchLike): Promise<P
 }
 
 /** Meta step: `slow_down` widens the ticker; non-200 without error keeps polling. */
-async function metaPollStep(doc: DevicePollDocument, fetch: FetchLike): Promise<PollStep> {
+async function metaPollStep(doc: DevicePollDocument, fetch: FetchLike, nowMs: number): Promise<PollStep> {
   const form = formOf([
     ['grant_type', 'urn:ietf:params:oauth:grant-type:device_code'],
     ['device_code', doc.device_code],
@@ -448,18 +453,18 @@ async function metaPollStep(doc: DevicePollDocument, fetch: FetchLike): Promise<
     return { kind: 'success', payload: await mintMetaKey(json, fetch) }
   }
   if (error === 'authorization_pending') {
-    return { kind: 'pending', nextPollAtMs: Date.now() + doc.interval_ms, intervalMs: doc.interval_ms }
+    return { kind: 'pending', nextPollAtMs: nowMs + doc.interval_ms, intervalMs: doc.interval_ms }
   }
   if (error === 'slow_down') {
     const widened = doc.interval_ms + 5_000
-    return { kind: 'pending', nextPollAtMs: Date.now() + widened, intervalMs: widened }
+    return { kind: 'pending', nextPollAtMs: nowMs + widened, intervalMs: widened }
   }
   if (error === 'access_denied' || error === 'expired_token') {
     return { kind: 'terminal', message: `meta: ${error}` }
   }
   if (error !== undefined) return { kind: 'terminal', message: `meta: ${error}` }
   // Unexpected non-200 without an error body: keep polling (recorded).
-  return { kind: 'pending', nextPollAtMs: Date.now() + doc.interval_ms, intervalMs: doc.interval_ms }
+  return { kind: 'pending', nextPollAtMs: nowMs + doc.interval_ms, intervalMs: doc.interval_ms }
 }
 
 /**
@@ -569,10 +574,10 @@ async function devicePass(deps: AlarmDeps): Promise<number | undefined> {
     try {
       step =
         doc.provider === 'kimi'
-          ? await kimiPollStep(doc, fetch)
+          ? await kimiPollStep(doc, fetch, nowMs)
           : doc.provider === 'xai'
-            ? await xaiPollStep(doc, fetch)
-            : await metaPollStep(doc, fetch)
+            ? await xaiPollStep(doc, fetch, nowMs)
+            : await metaPollStep(doc, fetch, nowMs)
     } catch {
       // Vendor egress failed for this step: retry at the next interval.
       const retryAt = nowMs + doc.interval_ms
@@ -707,6 +712,3 @@ export async function runAlarmPass(deps: AlarmDeps & {
   await deps.alarm.setAlarm(nextAlarmAtMs)
   return { nextAlarmAtMs }
 }
-
-/** Namespace string retained for callers that inspect session state. */
-export const SESSIONS_NAMESPACE = OAUTH_SESSIONS_NAMESPACE

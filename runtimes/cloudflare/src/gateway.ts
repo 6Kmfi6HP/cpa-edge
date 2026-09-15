@@ -52,6 +52,7 @@ import { cla2gem, gem2cla, gem2oai, oai2cla, oai2codex, res2oai } from '@cpa-edg
 import {
   claudeCredentialsForChat,
   claudeCredentialsForGemini,
+  classifyProxyUrl,
   codexCredentialsForChat,
   familyModelEligible,
   geminiCredentialsForMessages,
@@ -83,7 +84,6 @@ import {
   compactStreamRejectionBody,
   directionNotMergedBody,
   emptyNotFound,
-  html,
   imageOnlyModelBody,
   imagesUnsupportedModelBody,
   invalidRequestBody,
@@ -504,6 +504,9 @@ export function createCloudflareGateway(options: CloudflareGatewayOptions): Clou
   const plane = createAuthPlane(planeConfig, {
     store,
     now,
+    // Vendor egress for the device-code login endpoints (S7 F5b) must
+    // ride the injected transport so tests script it.
+    fetch: fetchLike,
     ...(options.remoteAddress === undefined ? {} : { remoteAddress: options.remoteAddress }),
   })
 
@@ -577,6 +580,27 @@ export function createCloudflareGateway(options: CloudflareGatewayOptions): Clou
   const codexConfigured = config.providers.some((provider) => provider.family === 'codex-api-key')
   const CALL_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/
 
+  /**
+   * api-call transport for the composed facade: direct egress only - a
+   * proxy-resolved request never reaches it (the F1-501 wrapper
+   * intercepts first).
+   */
+  const apiCallSender = async (request: {
+    readonly method: string
+    readonly url: string
+    readonly headers: HeaderList
+    readonly body: string
+  }): Promise<{ readonly status: number; readonly headers: HeaderList; readonly body: string }> => {
+    const init: Record<string, string> = {}
+    for (const [name, value] of request.headers) init[name] = value
+    const response = await fetchLike(request.url, { method: request.method, headers: init, body: request.body })
+    const headers: Array<[string, string]> = []
+    response.headers.forEach((value, name) => {
+      headers.push([name, value])
+    })
+    return { status: response.status, headers, body: await response.text() }
+  }
+
   const managementApi: ManagementApi | undefined =
     options.managementApi ??
     (managementSecret.length > 0 && (options.configYaml ?? '').length > 0
@@ -585,6 +609,7 @@ export function createCloudflareGateway(options: CloudflareGatewayOptions): Clou
           managementKey: managementSecret,
           store,
           buildInfo: ANCHOR_BUILD_INFO,
+          sendUpstream: apiCallSender,
           ...(options.remoteAddress === undefined ? {} : { clientIp: options.remoteAddress }),
           now,
         })
@@ -1127,19 +1152,15 @@ export function createCloudflareGateway(options: CloudflareGatewayOptions): Clou
     const globalProxy = context.config.proxyUrl
     const resolved = own.trim().length > 0 ? own : globalProxy
     if (resolved.trim().length === 0) return undefined
-    const lowered = resolved.trim().toLowerCase()
-    if (lowered === 'direct' || lowered === 'none') return undefined
-    let parsedUrl: URL
-    try {
-      parsedUrl = new URL(resolved.trim())
-    } catch {
-      return undefined // facade: 400 invalid proxy_url
-    }
-    const scheme = parsedUrl.protocol.replace(':', '').toLowerCase()
-    if (scheme === 'socks5' || scheme === 'socks5h' || scheme === 'http' || scheme === 'https') {
+    const mode = classifyProxyUrl(resolved)
+    if (mode === 'direct') return undefined
+    if (mode === 'proxy') {
       return charsetJson(501, PROXY_UNAVAILABLE_MGMT_BODY)
     }
-    return undefined
+    // A parseable URL with a non-proxy scheme (ftp://, ws://, ...) is
+    // the recorded 400 (S7-06); the facade only checks URL
+    // parseability, so the wrapper owns the scheme validation.
+    return charsetJson(400, '{"error":"invalid proxy_url"}')
   }
 
   /** Handler table; each returns the pre-CORS/trace response. */

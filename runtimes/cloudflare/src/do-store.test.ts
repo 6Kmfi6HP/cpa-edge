@@ -89,7 +89,7 @@ describe('durable object store: documents', () => {
     await expect(store.get('ns', 'a-b')).resolves.toBe(2)
     await expect(store.get('ns"a', 'a')).resolves.toBe(3)
     await expect(store.get('ns', 'a"b')).resolves.toBe(4)
-    await expect(store.list('ns')).resolves.toEqual(['a', 'a-b', 'a"b'])
+    await expect(store.list('ns')).resolves.toEqual(['a', 'a"b', 'a-b'])
   })
 
   it('re-runs the update callback when a competing writer commits first', async () => {
@@ -297,13 +297,13 @@ describe('durable object store: queues', () => {
 describe('durable object store: rings', () => {
   it('appends and reads back oldest-first within capacity', async () => {
     const store = newStore(new SimulatedDoStorage())
-    for (let index = 1; index <= 12; index++) {
+    for (let index = 1; index <= DEFAULT_RING_CAPACITY + 5; index++) {
       await store.ringAppend('logs', { line: `line-${index}` })
     }
     const entries = await store.ringRead('logs')
     expect(entries).toHaveLength(DEFAULT_RING_CAPACITY)
-    expect(entries[0]).toEqual({ line: 'line-1' })
-    expect(entries[entries.length - 1]).toEqual({ line: 'line-12' })
+    expect(entries[0]).toEqual({ line: 'line-6' })
+    expect(entries[entries.length - 1]).toEqual({ line: `line-${DEFAULT_RING_CAPACITY + 5}` })
   })
 
   it('shrinks immediately when a smaller capacity arrives', async () => {

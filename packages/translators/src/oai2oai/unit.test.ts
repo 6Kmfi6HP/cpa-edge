@@ -331,7 +331,7 @@ describe('R2 - upstream wire', () => {
   })
 
   it('composes the URL from the credential base-url with one trailing slash tolerated', async () => {
-    let clock = FROZEN
+    const clock = FROZEN
     const handle = createOai2OaiService({
       apiKeys: [],
       credentials: [{ name: 'p', apiKey: 'k', baseUrl: 'http://u.example/v1//', models: [{ name: 'm' }] }],
@@ -360,7 +360,7 @@ describe('R3 - non-stream pass-through', () => {
   })
 
   it('rewrites the response model back to the alias under force-mapping', async () => {
-    let clock = FROZEN
+    const clock = FROZEN
     const handle = createOai2OaiService({
       apiKeys: [],
       credentials: [{ name: 'p', apiKey: 'k', baseUrl: 'http://u.example/v1', models: [{ name: UPSTREAM_MODEL, alias: ALIAS, forceMapping: true }] }],
@@ -374,7 +374,7 @@ describe('R3 - non-stream pass-through', () => {
   })
 
   it('keeps a force-mapping reply untouched when the model already matches', async () => {
-    let clock = FROZEN
+    const clock = FROZEN
     const handle = createOai2OaiService({
       apiKeys: [],
       credentials: [{ name: 'p', apiKey: 'k', baseUrl: 'http://u.example/v1', models: [{ name: 'm', alias: 'a', forceMapping: true }] }],
@@ -494,7 +494,7 @@ describe('R3 - stream re-framing', () => {
   })
 
   it('rewrites chunk models under force-mapping, splicing only the model span', async () => {
-    let clock = FROZEN
+    const clock = FROZEN
     const handle = createOai2OaiService({
       apiKeys: [],
       credentials: [{ name: 'p', apiKey: 'k', baseUrl: 'http://u.example/v1', models: [{ name: UPSTREAM_MODEL, alias: ALIAS, forceMapping: true }] }],
@@ -529,7 +529,7 @@ describe('R3 - stream re-framing', () => {
       pull(controller) {
         served += 1
         if (served === 1) {
-          controller.enqueue(encoder.encode('data: {"delta": {"a"}}\n\ndata: {"delta"'))
+          controller.enqueue(encoder.encode('data: {"delta": {"a": 1}}\n\ndata: {"delta"'))
           return
         }
         controller.error(new Error('unexpected EOF'))
@@ -542,7 +542,7 @@ describe('R3 - stream re-framing', () => {
     })
     const response = await handle.handleChatCompletions(request(streamRequest), send)
     expect(await readBody(response.body)).toBe(
-      'data: {"delta": {"a"}}\n\ndata: {"error":{"message":"unexpected EOF","type":"server_error","code":"internal_server_error"}}\n\n',
+      'data: {"delta": {"a": 1}}\n\ndata: {"error":{"message":"unexpected EOF","type":"server_error","code":"internal_server_error"}}\n\n',
     )
   })
 
@@ -637,7 +637,7 @@ describe('R4 - facade: gate, boundary, resolution', () => {
   })
 
   it('routes a model without an alias by its name', async () => {
-    let clock = FROZEN
+    const clock = FROZEN
     const handle = createOai2OaiService({
       apiKeys: [],
       credentials: [{ name: 'p', apiKey: 'k', baseUrl: 'http://u.example/v1', models: [{ name: 'm' }] }],
@@ -750,7 +750,7 @@ describe('R4 - facade: upstream errors and the 429 cooldown', () => {
   })
 
   it('keeps the cooldown document in the Store under the model key', async () => {
-    let clock = FROZEN
+    const clock = FROZEN
     const store = new MemoryStore({ now: () => clock })
     const handle = createOai2OaiService({
       apiKeys: ['oracle-local-key-1'],
@@ -806,7 +806,7 @@ describe('R4 - facade: upstream errors and the 429 cooldown', () => {
   })
 
   it('rotates to the next credential on a 429 under request-retry, rendering the last response', async () => {
-    let clock = FROZEN
+    const clock = FROZEN
     const credentials: readonly Oai2OaiCredential[] = [
       { name: 'a', apiKey: 'ka', baseUrl: 'http://a.example/v1', models: [{ name: UPSTREAM_MODEL, alias: ALIAS }] },
       { name: 'b', apiKey: 'kb', baseUrl: 'http://b.example/v1', models: [{ name: 'alt-upstream', alias: ALIAS }] },

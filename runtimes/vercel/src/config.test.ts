@@ -56,7 +56,8 @@ const SAMPLE: Record<string, unknown> = {
 describe('block yaml round-trip', () => {
   it('emits dialect text the parser reconstructs losslessly', () => {
     const yaml = emitBlockYaml(SAMPLE)
-    expect(yaml).not.toContain('{') // block style only, no flow collections
+    // Block style only: no line opens a flow collection.
+    expect(yaml).not.toMatch(/^\s*[\[{]/m)
     const parsed = parseBlockYaml(yaml)
     expect(parsed).toEqual(SAMPLE)
   })
@@ -92,7 +93,7 @@ describe('block yaml round-trip', () => {
 
   it('keeps string scalars distinct from lookalike types', () => {
     const parsed = parseBlockYaml(emitBlockYaml({ a: '123', b: 123, c: 'true', d: true, e: null, f: '~' }))
-    expect(parsed).toEqual({ a: '123', b: 123, c: 'true', d: true, e: null, f: null })
+    expect(parsed).toEqual({ a: '123', b: 123, c: 'true', d: true, e: null, f: '~' })
   })
 
   it('rejects flow collections it does not implement', () => {

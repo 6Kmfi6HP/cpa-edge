@@ -161,10 +161,13 @@ async function handleWrapped(
     if (intercepted !== undefined) return intercepted
   }
 
+  // Clone the request BEFORE the facade consumes its body: the
+  // post-success bookkeeping re-reads the request text.
+  const requestCopy = request.clone()
   const wire = await api.handle(request)
   const replaced = await replaceManagementResponse(method, segments, wire)
   if (replaced !== undefined) return replaced
-  await afterManagementResponse(api, options, method, segments, wire, request)
+  await afterManagementResponse(api, options, method, segments, wire, requestCopy)
   return wire
 }
 
@@ -277,8 +280,8 @@ async function replaceManagementResponse(
   if (
     first === 'plugin-store' &&
     method === 'POST' &&
-    rest.length === 1 &&
-    (rest[0] === 'install' || rest[0]?.endsWith('/install')) &&
+    rest.length === 2 &&
+    rest[1] === 'install' &&
     wire.status >= 500
   ) {
     return management501(PLUGIN_INSTALL_UNAVAILABLE_BODY)

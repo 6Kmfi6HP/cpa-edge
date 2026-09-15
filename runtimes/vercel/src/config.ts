@@ -417,19 +417,34 @@ function parseSequence(
       index += 1
       continue
     }
+    if (rest === '[]') {
+      out.push([])
+      index += 1
+      continue
+    }
+    if (rest === '{}') {
+      out.push({})
+      index += 1
+      continue
+    }
+    if (rest.startsWith('"') || rest.startsWith("'")) {
+      out.push(parseScalar(rest))
+      index += 1
+      continue
+    }
     if (rest.includes(': ') || rest.endsWith(':')) {
       // Nested mapping opened inline after the dash: re-parse it as a
-      // mapping at the item-key column, with the following sibling
-      // keys at the same column.
-      const virtual: YamlLine[] = [{ indent: indent + 4, content: rest }]
+      // mapping at the item-key column (dash indent + 2), with the
+      // following sibling keys already at that same column.
+      const virtual: YamlLine[] = [{ indent: indent + 2, content: rest }]
       let scan = index + 1
       while (scan < lines.length) {
         const candidate = lines[scan]
-        if (candidate === undefined || candidate.indent <= indent + 2) break
+        if (candidate === undefined || candidate.indent < indent + 2) break
         virtual.push(candidate)
         scan += 1
       }
-      const parsed = parseMapping(virtual, 0, indent + 4)
+      const parsed = parseMapping(virtual, 0, indent + 2)
       out.push(parsed.value)
       index = scan
       continue
@@ -515,6 +530,9 @@ function parseScalar(text: string): unknown {
     const parsed = readQuoted(text)
     if (parsed === undefined) throw new Error(`yaml: unterminated quoted scalar: ${text}`)
     return parsed.value
+  }
+  if (text.startsWith('[') || text.startsWith('{')) {
+    throw new Error('yaml: flow collections are outside the config dialect')
   }
   if (text === 'null' || text === '~') return null
   if (text === 'true') return true
