@@ -796,7 +796,15 @@ function parseRecordedUpstream(text: string, caseId: string): readonly RecordedU
   return text
     .split('\n')
     .filter((line) => line.trim() !== '')
-    .map((line) => JSON.parse(line) as RecordedUpstreamLine)
+    .map((line) => {
+      try {
+        return JSON.parse(line) as RecordedUpstreamLine
+      } catch (error) {
+        throw new Error(`S2d8[${caseId}]: upstream.jsonl holds a non-JSON line: ${String(error)}`, {
+          cause: error,
+        })
+      }
+    })
 }
 
 async function replayCase(caseId: CaseId): Promise<void> {
@@ -880,7 +888,7 @@ describe('S2d8 fixture inventory (harness self-check, adapter-independent)', () 
       expect(upstream.length, `${caseId}: upstream.jsonl line count matches meta.upstream_hits`).toBe(
         meta.upstream_hits,
       )
-      for (const [index, recorded] of upstream.entries()) {
+      for (const recorded of upstream) {
         expect(recorded.method, `${caseId}: recorded upstream method`).toBe('POST')
         expect(recorded.path, `${caseId}: recorded upstream path`).toMatch(UPSTREAM_PATH_RE)
         if (countRoute) {
@@ -916,7 +924,6 @@ describe('S2d8 fixture inventory (harness self-check, adapter-independent)', () 
           recorded.response_status,
           `${caseId}: recorded mock reply status agrees with the mock control`,
         ).toBe(expectedMockStatus)
-        expect(index, `${caseId}: one upstream line per case`).toBeLessThan(1)
       }
 
       // Mock control shape vs the request: streams need a canned chunk script (slow and

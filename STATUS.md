@@ -29,7 +29,7 @@
 | S6 | spec: state & storage schemas | 1 | spec-s6-state | merged | 2 | ADMITTED round 2. 17 goldens; 3 catalogs; per-path re-serialization; vertex type; RESP node-contract. Residual editorial: N2 schema omitempty marks, N7 store-auth shape, citation tag split |
 | S7 | spec: platform degradation matrix | 1 | spec-s7-platform | merged | 3 | ADMITTED after 3 rounds. NE registry feeds SPEC §5. RuntimeCapabilities -> I-core; T2/T3/D1 bindings recorded. |
 | I-core | packages/core: scheduling algorithms | 2 | impl-i-core | impl | 0 |  |
-| I-auth | packages/auth: OAuth/device/refresh | 2 | impl-i-auth | impl-adv | 0 | delivered: 153 unit + S3 contract 44/44; impl-review running on adv-impl-2 |
+| I-auth | packages/auth: OAuth/device/refresh | 2 | impl-i-auth | fix | 1 | adv-impl-2 R1: FAIL (B1 backoff-not-cleared; B2 blockedUntilMs dead-end); fixer dispatched 7-item list; N2 ruled (empty tokens skip); N4 ruled (Go Round semantics) |
 | I-tr-S2d1 | packages/translators: OpenAI→Gemini | 2 | — | pending | 0 |  |
 | I-tr-S2d2 | packages/translators: Gemini→OpenAI | 2 | impl-i-tr-s2d2 | impl-adv | 0 | delivered: 123 module tests, package 365 green; contract suite URL defect found + fix dispatched to writer; impl-review pending suite green |
 | I-tr-S2d3 | packages/translators: OpenAI→Claude | 2 | — | merged | 2 | MERGED: oai2cla complete (spec 2 rounds, impl-review 2 rounds). 141 unit + 28 contract green. Residual: Store-get-throw hardening -> T2; N6 UA default blessed; N9 js-tiktoken kept (R-TOK) |
