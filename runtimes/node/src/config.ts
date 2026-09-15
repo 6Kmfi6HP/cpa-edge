@@ -8,7 +8,7 @@
  * normalized result only.
  */
 import { asPlainObject, readNumber, readObject, readString } from '@cpa-edge/auth'
-import { cla2gem, gem2cla, gem2oai, oai2cla, oai2codex, res2oai } from '@cpa-edge/translators'
+import { cla2gem, cla2oai, codexPassthrough, gem2cla, gem2oai, oai2cla, oai2codex, res2oai } from '@cpa-edge/translators'
 
 /** Provider families the registry and dispatch table know about. */
 export type ProviderFamily =
@@ -90,6 +90,8 @@ export interface NormalizedConfig {
   /** true only for the literal `true` state (images routes absent). */
   readonly imageGenerationMode: ImageGenerationMode
   readonly disableCloakingModelList: boolean
+  /** `codex.disable-codex-cloaking`: keeps the caller UA/originator wire. */
+  readonly disableCodexCloaking: boolean
   readonly requestRetry: number
   readonly transientErrorCooldownSeconds: number
   readonly providers: readonly ProviderEntry[]
@@ -236,6 +238,7 @@ export function normalizeRuntimeConfig(input: RuntimeConfigInput): NormalizedCon
     providers.push(...readProviderSection(family, input[family]))
   }
   const claudeCodeSource = readObject(input, 'claude-code') ?? {}
+  const codexSource = readObject(input, 'codex') ?? {}
   return {
     port: readNumber(input, 'port') ?? 0,
     apiKeys: readStringArray(input['api-keys']),
@@ -246,6 +249,7 @@ export function normalizeRuntimeConfig(input: RuntimeConfigInput): NormalizedCon
     },
     imageGenerationMode: readImageGenerationMode(input['disable-image-generation']),
     disableCloakingModelList: claudeCodeSource['disable-cloaking-model-list'] === true,
+    disableCodexCloaking: codexSource['disable-codex-cloaking'] === true,
     requestRetry: readNumber(input, 'request-retry') ?? 0,
     transientErrorCooldownSeconds: readNumber(input, 'transient-error-cooldown-seconds') ?? 0,
     providers,
@@ -318,6 +322,41 @@ export function openAiCompatCredentialsForResponses(config: NormalizedConfig): r
       models: provider.models.map((model) => ({
         name: model.name,
         ...(model.alias !== model.name ? { alias: model.alias } : {}),
+      })),
+    }))
+}
+
+/** Maps codex-api-key entries onto the codex-passthrough facade shape. */
+export function codexCredentialsForPassthrough(config: NormalizedConfig): readonly codexPassthrough.CodexPassthroughCredential[] {
+  return config.providers
+    .filter((provider): provider is ProviderEntry => provider.family === 'codex-api-key')
+    .map((provider) => ({
+      apiKey: provider.apiKey,
+      ...(provider.baseUrl.length > 0 ? { baseUrl: provider.baseUrl } : {}),
+      ...(Object.keys(provider.headers).length === 0 ? {} : { headers: provider.headers }),
+      models: provider.models.map((model) => ({
+        name: model.name,
+        ...(model.alias !== model.name ? { alias: model.alias } : {}),
+        ...(model.forceMapping ? { forceMapping: true } : {}),
+        ...(model.thinking === undefined ? {} : { thinking: true }),
+      })),
+    }))
+}
+
+/** Maps openai-compatibility entries onto the cla2oai facade shape. */
+export function openAiCompatCredentialsForMessages(config: NormalizedConfig): readonly cla2oai.Cla2OaiCredential[] {
+  return config.providers
+    .filter((provider): provider is ProviderEntry => provider.family === 'openai-compatibility')
+    .map((provider) => ({
+      name: provider.providerName,
+      apiKey: provider.apiKey,
+      baseUrl: provider.baseUrl,
+      ...(Object.keys(provider.headers).length === 0 ? {} : { headers: provider.headers }),
+      models: provider.models.map((model) => ({
+        name: model.name,
+        ...(model.alias !== model.name ? { alias: model.alias } : {}),
+        ...(model.isCompat ? { isCompat: true } : {}),
+        ...(model.thinking?.levels !== undefined ? { thinking: { levels: model.thinking.levels } } : {}),
       })),
     }))
 }

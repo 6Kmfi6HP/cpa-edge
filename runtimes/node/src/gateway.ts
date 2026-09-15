@@ -27,15 +27,17 @@ import {
   type FetchLike,
 } from '@cpa-edge/auth'
 import { createManagementApi, type BuildInfo, type ManagementApi } from '@cpa-edge/management'
-import { cla2gem, gem2cla, gem2oai, oai2cla, oai2codex, res2oai } from '@cpa-edge/translators'
+import { cla2gem, cla2oai, codexPassthrough, gem2cla, gem2oai, oai2cla, oai2codex, res2oai } from '@cpa-edge/translators'
 import { decompress as fzstdDecompress } from 'fzstd'
 import {
   claudeCredentialsForChat,
   claudeCredentialsForGemini,
   codexCredentialsForChat,
+  codexCredentialsForPassthrough,
   geminiCredentialsForMessages,
   normalizeRuntimeConfig,
   openAiCompatCredentials,
+  openAiCompatCredentialsForMessages,
   openAiCompatCredentialsForResponses,
   type NormalizedConfig,
 } from './config'
@@ -201,7 +203,7 @@ export const DIRECTIONS: Readonly<Record<string, DirectionSeam>> = {
   'messages:openai-compatibility': {
     id: 'cla2oai',
     importPath: '@cpa-edge/translators/cla2oai',
-    merged: false,
+    merged: true,
   },
   'messages:gemini-api-key': {
     id: 'cla2gem',
@@ -212,7 +214,7 @@ export const DIRECTIONS: Readonly<Record<string, DirectionSeam>> = {
   'responses:codex-api-key': {
     id: 'codex-passthrough',
     importPath: '@cpa-edge/translators/codex-passthrough',
-    merged: false,
+    merged: true,
   },
   'responses:openai-compatibility': {
     id: 'res2oai',
@@ -606,6 +608,25 @@ export function createNodeGateway(options: NodeGatewayOptions): NodeGateway {
     requestRetry: config.requestRetry,
     transientErrorCooldownSeconds: config.transientErrorCooldownSeconds,
   })
+  const cla2OaiService = cla2oai.createCla2OaiService({
+    apiKeys: config.apiKeys,
+    credentials: openAiCompatCredentialsForMessages(config),
+    store,
+    now,
+    requestRetry: config.requestRetry,
+    transientErrorCooldownSeconds: config.transientErrorCooldownSeconds,
+  })
+  const codexPassthroughService = codexPassthrough.createCodexPassthroughService({
+    credentials: codexCredentialsForPassthrough(config),
+    store,
+    now,
+    requestRetry: config.requestRetry,
+    transientErrorCooldownSeconds: config.transientErrorCooldownSeconds,
+    apiKeys: config.apiKeys,
+    gatewayVersion: GATEWAY_VERSION,
+    disableImageGeneration: config.imageGenerationMode,
+    disableCodexCloaking: config.disableCodexCloaking,
+  })
 
   /** Handler outcome: response + the trace-eligible credential index. */
   interface Handled {
@@ -708,19 +729,30 @@ export function createNodeGateway(options: NodeGatewayOptions): NodeGateway {
     if (resolved === undefined) {
       return { response: plainJson(400, claudeModelNotFoundBody(model)) }
     }
+    const messagesFacadeRequest = {
+      method: context.request.method,
+      path: `${context.url.pathname}${context.url.search}`,
+      headers: context.facadeHeaders,
+      body: decoded.text,
+    }
     if (resolved.family === 'gemini-api-key') {
       // cla2gem (S2d8, merged): the gemini upstream; the facade is
       // path-aware (messages + count_tokens).
       try {
-        const response = await cla2GemService.handleV1Messages(
-          {
-            method: context.request.method,
-            path: `${context.url.pathname}${context.url.search}`,
-            headers: context.facadeHeaders,
-            body: decoded.text,
-          },
-          send,
-        )
+        const response = await cla2GemService.handleV1Messages(messagesFacadeRequest, send)
+        return { response, trace: resolved.familyIndex }
+      } catch (error) {
+        if (error instanceof RangeError) {
+          return { response: plainJson(400, claudeInvalidRequestBody(MAX_DEPTH_MESSAGE)) }
+        }
+        throw error
+      }
+    }
+    if (resolved.family === 'openai-compatibility') {
+      // cla2oai (S2d4, merged): the openai-compat chat upstream; the
+      // facade is path-aware (messages + count_tokens).
+      try {
+        const response = await cla2OaiService.handleV1Messages(messagesFacadeRequest, send)
         return { response, trace: resolved.familyIndex }
       } catch (error) {
         if (error instanceof RangeError) {
@@ -750,19 +782,28 @@ export function createNodeGateway(options: NodeGatewayOptions): NodeGateway {
     if (resolved === undefined) {
       return { response: plainJson(400, modelNotFoundBody(model)) }
     }
+    const responsesFacadeRequest = {
+      method: context.request.method,
+      path: `${context.url.pathname}${context.url.search}`,
+      headers: context.facadeHeaders,
+      body: decoded.text,
+    }
     if (resolved.family === 'openai-compatibility') {
       // res2oai (S2d6, merged): Responses client over the openai-compat
       // chat upstream; the facade is path-aware (responses + compact).
       try {
-        const response = await res2OaiService.handleResponses(
-          {
-            method: context.request.method,
-            path: `${context.url.pathname}${context.url.search}`,
-            headers: context.facadeHeaders,
-            body: decoded.text,
-          },
-          send,
-        )
+        const response = await res2OaiService.handleResponses(responsesFacadeRequest, send)
+        return { response, trace: resolved.familyIndex }
+      } catch (error) {
+        if (error instanceof RangeError) return { response: plainJson(400, depthFailureBody()) }
+        throw error
+      }
+    }
+    if (resolved.family === 'codex-api-key') {
+      // codex-passthrough (S2d9, merged): the codex Responses upstream;
+      // the facade is path-aware (responses + compact).
+      try {
+        const response = await codexPassthroughService.handleResponses(responsesFacadeRequest, send)
         return { response, trace: resolved.familyIndex }
       } catch (error) {
         if (error instanceof RangeError) return { response: plainJson(400, depthFailureBody()) }
@@ -790,19 +831,27 @@ export function createNodeGateway(options: NodeGatewayOptions): NodeGateway {
     if (resolved === undefined) {
       return { response: plainJson(400, modelNotFoundBody(model)) }
     }
+    const compactFacadeRequest = {
+      method: context.request.method,
+      path: `${context.url.pathname}${context.url.search}`,
+      headers: context.facadeHeaders,
+      body: decoded.text,
+    }
     if (resolved.family === 'openai-compatibility') {
       // res2oai owns the compact path (S2d6); the stream:true gate above
       // stays route-owned (the pinned S1-18 400).
       try {
-        const response = await res2OaiService.handleResponses(
-          {
-            method: context.request.method,
-            path: `${context.url.pathname}${context.url.search}`,
-            headers: context.facadeHeaders,
-            body: decoded.text,
-          },
-          send,
-        )
+        const response = await res2OaiService.handleResponses(compactFacadeRequest, send)
+        return { response, trace: resolved.familyIndex }
+      } catch (error) {
+        if (error instanceof RangeError) return { response: plainJson(400, depthFailureBody()) }
+        throw error
+      }
+    }
+    if (resolved.family === 'codex-api-key') {
+      // codex-passthrough owns the compact path too (S2d9).
+      try {
+        const response = await codexPassthroughService.handleResponses(compactFacadeRequest, send)
         return { response, trace: resolved.familyIndex }
       } catch (error) {
         if (error instanceof RangeError) return { response: plainJson(400, depthFailureBody()) }

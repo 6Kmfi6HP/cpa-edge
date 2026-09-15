@@ -953,7 +953,12 @@ describe('dispatch seams for unmerged directions', () => {
     expect(await text(messages)).toBe(SEAM_BODY)
   })
 
-  it('responses:codex-api-key stays a seam until codex-passthrough merges', async () => {
+  it('responses:codex-api-key dispatches through codex-passthrough', async () => {
+    const transport = scriptedFetch(() => ({
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+      body: CODEX_SSE,
+    }))
     const gateway = createNodeGateway({
       config: {
         ...BASE_CONFIG,
@@ -965,12 +970,40 @@ describe('dispatch seams for unmerged directions', () => {
           },
         ],
       },
+      fetch: transport.fetch,
     })
-    const responses = await gateway.handle(
+    const response = await gateway.handle(
       request('POST', '/v1/responses', bearer(API_KEY), '{"model": "codex-mock-model", "input": "hi"}'),
     )
-    expect(responses.status).toBe(503)
-    expect(await text(responses)).toBe(SEAM_BODY)
+    expect(response.status).toBe(200)
+    expect(transport.calls[0]?.url).toBe('http://127.0.0.1:21003/responses')
+    expect(header(response, 'X-Cpa-Trace-Id')).toMatch(/^\d{14}-\d+-[0-9a-f]{8}$/)
+    const body = JSON.parse(await text(response)) as { object: string; status: string }
+    expect(body.object).toBe('response')
+    expect(body.status).toBe('completed')
+  })
+
+  it('messages:openai-compatibility dispatches through cla2oai', async () => {
+    const transport = scriptedFetch(() => ({
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+      body: OPENAI_CHAT_JSON,
+    }))
+    const gateway = createNodeGateway({ config: BASE_CONFIG, fetch: transport.fetch })
+    const response = await gateway.handle(
+      request(
+        'POST',
+        '/v1/messages',
+        bearer(API_KEY),
+        '{"model": "mock-model", "messages": [{"role": "user", "content": "Say hello"}], "max_tokens": 100}',
+      ),
+    )
+    expect(response.status).toBe(200)
+    expect(transport.calls[0]?.url).toBe('http://127.0.0.1:18999/v1/chat/completions')
+    expect(header(response, 'X-Cpa-Trace-Id')).toMatch(/^\d{14}-\d+-[0-9a-f]{8}$/)
+    const body = JSON.parse(await text(response)) as { type: string; content: Array<{ text: string }> }
+    expect(body.type).toBe('message')
+    expect(body.content[0]?.text).toBe('Hello from mock openai upstream more')
   })
 })
 

@@ -602,6 +602,22 @@ interface GatewayHandle {
 
 const gateways = new Map<string, Promise<GatewayHandle>>()
 
+/**
+ * Recording-era mock fidelity: S1-18 was recorded before the mock's
+ * happy stream gained the `data: [DONE]` terminator (S2d6 §6 dates that
+ * extension after the S1 batch); its golden ends with the recorded
+ * "upstream stream closed before [DONE]" terminal error frame. The
+ * fixture's mock-response.json is the LATER script's config, so the
+ * terminator is dropped for that one case to reproduce the bytes the
+ * reference actually consumed. Every other case serves its recorded
+ * frames verbatim.
+ */
+function servedSseFrames(caseId: string, mock: MockResponseFile | null): readonly string[] {
+  const frames = mock?.canned_sse_frames ?? []
+  if (caseId !== 'S1-18') return frames
+  return frames.filter((frame) => frame !== 'data: [DONE]')
+}
+
 function scriptedSseStream(frames: readonly string[]): ReadableStream<Uint8Array> {
   const chunks = frames.map((frame) => encoder.encode(`${frame}\n\n`))
   let served = 0
@@ -635,6 +651,7 @@ function buildGateway(
   const now = (): number => clockMs
   const store: Store = new MemoryStore({ now })
   const captured: CapturedUpstreamCall[] = []
+  const sseFrames = servedSseFrames(caseId, mock)
 
   const fetchLike = async (input: unknown, init: unknown): Promise<Response> => {
     const url = String(input)
@@ -662,8 +679,8 @@ function buildGateway(
     const isStream = call.headers.some(
       ([name, value]) => name.toLowerCase() === 'accept' && value === 'text/event-stream',
     )
-    if (isStream && mock.canned_sse_frames !== undefined) {
-      return new Response(scriptedSseStream(mock.canned_sse_frames), {
+    if (isStream && sseFrames.length > 0) {
+      return new Response(scriptedSseStream(sseFrames), {
         status: 200,
         headers: { 'Content-Type': 'text/event-stream' },
       })
@@ -1069,6 +1086,7 @@ const UPSTREAM_CALLS_BY_REQUEST: Readonly<Record<string, number>> = {
 
 /** Golden bodies that compare under a mode other than byte-exact. */
 const BODY_MODE_BY_REQUEST: Readonly<Record<string, BodyMode>> = {
+  'S1-18/responses-stream': 'sse',
   'S1-08/get-trailing': 'trim',
   'S1-19/responses-get-nows': 'trim',
   'S1-17/stream-alt-sse': 'sse',
