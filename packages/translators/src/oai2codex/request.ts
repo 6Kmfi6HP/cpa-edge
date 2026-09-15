@@ -15,7 +15,7 @@ import type { DocumentValue } from './json'
 import { RawJson } from './json'
 import { deriveCodexSessionId, truncateRunes } from './session'
 import { buildShortNameMap, normalizeCodexToolSchemasInBody, shortenToolName } from './tools'
-import type { ChatToCodexContext, CodexUpstreamRequest, WireObject } from './types'
+import type { ChatToCodexContext, CodexUpstreamRequest, WireObject, WireValue } from './types'
 
 /** Instruction truncation for the identity root (runes). */
 const IDENTITY_INSTRUCTION_RUNES = 50
@@ -354,7 +354,9 @@ function appendToolOutput(
   call.consumed = true
   const output = toolOutputContent(record['content'])
   const item: WireObject = { type: call.custom ? 'custom_tool_call_output' : 'function_call_output', call_id: callId }
-  if (output !== undefined) item['output'] = output
+  // A RawJson embedding (non-string tool content) is a serializer-only
+  // value: it never survives into the parsed form of the body.
+  if (output !== undefined) item['output'] = output as WireValue
   items.push(item)
 }
 
@@ -511,7 +513,7 @@ function translateTools(
       const description = readString(fn, 'description')
       if (description !== undefined) tool['description'] = description
       const rawParameters = rawValueAt(rawBody, ['tools', String(index), 'function', 'parameters'])
-      if (rawParameters !== undefined) tool['parameters'] = new RawJson(rawParameters)
+      if (rawParameters !== undefined) tool['parameters'] = new RawJson(rawParameters) as unknown as WireValue
       tool['strict'] = typeof fn['strict'] === 'boolean' ? fn['strict'] : false
       out.push(tool)
       continue
@@ -523,7 +525,7 @@ function translateTools(
         const member = record[key]
         if (member === undefined) continue
         if (key === 'name') tool['name'] = shortenToolName(typeof member === 'string' ? member : '')
-        else tool[key] = member as DocumentValue
+        else tool[key] = member as WireValue
       }
       out.push(tool)
       continue
@@ -591,7 +593,7 @@ function translateTextFormat(responseFormat: unknown, rawBody: string): WireObje
     if (name !== undefined) format['name'] = name
     if (typeof jsonSchema['strict'] === 'boolean') format['strict'] = jsonSchema['strict']
     const rawSchema = rawValueAt(rawBody, ['response_format', 'json_schema', 'schema'])
-    if (rawSchema !== undefined) format['schema'] = new RawJson(rawSchema)
+    if (rawSchema !== undefined) format['schema'] = new RawJson(rawSchema) as unknown as WireValue
     return format
   }
   return undefined

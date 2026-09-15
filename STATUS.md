@@ -18,7 +18,7 @@
 | S2d3 | spec: OpenAI client → Claude upstream | 1 | spec-s2d3-oai2cla | merged | 2 | ADMITTED round 2. 26 goldens. Unlocks I-tr-S2d3. |
 | S2d4 | spec: Claude client → OpenAI upstream | 1 | spec-s2d4-cla2oai | spec | 0 |  |
 | S2d5 | spec: OpenAI client → Codex/Responses upstream | 1 | spec-s2d5-oai2codex | merged | 2 | ADMITTED round 2 (R1-R7 text rider to writer). 26 goldens; union->enum MUST + type-selection pinned. Unlocks I-tr-S2d5. |
-| S2d6 | spec: Responses client → OpenAI chat upstream | 1 | spec-s2d6-res2oai | spec-fix | 1 | R1: adv-spec-1 FAIL (B1 stream usage Ensure; N1 4-golden batch authorized) |
+| S2d6 | spec: Responses client → OpenAI chat upstream | 1 | spec-s2d6-res2oai | spec-fix | 2 | R2: FAIL on F1 one-phrase (or [DONE]) arm + F2/F3 doc sentences; R3 = final |
 | S2d7 | spec: Gemini client → Claude upstream | 1 | spec-s2d7-gem2cla | merged | 2 | ADMITTED round 2. 31 goldens; validator families byte-pinned; empty-stream conductor gate recorded-deviation integrated. Unlocks I-tr-S2d7. |
 | S2d8 | spec: Claude client → Gemini upstream | 1 | spec-s2d8-cla2gem | merged | 2 | ADMITTED round 2. 18 goldens; two-stage thinking rule; byte-encoding MUSTs. Unlocks I-tr-S2d8. |
 | S2d9 | spec: Codex/Responses passthrough semantics | 1 | spec-s2d9-codex | spec | 0 |  |
@@ -37,7 +37,7 @@
 | I-tr-S2d5 | packages/translators: OpenAI→Codex/Responses | 2 | impl-i-tr-s2d5 | impl | 0 |  |
 | I-tr-S2d6 | packages/translators: Responses→OpenAI chat | 2 | — | pending | 0 |  |
 | I-tr-S2d7 | packages/translators: Gemini→Claude | 2 | impl-i-tr-s2d7 | impl-adv | 0 | delivered: 101 unit + S2d7 contract 32/32; impl-review running on adv-impl-1 |
-| I-tr-S2d8 | packages/translators: Claude→Gemini | 2 | — | pending | 0 |  |
+| I-tr-S2d8 | packages/translators: Claude→Gemini | 2 | impl-i-tr-s2d8 | impl | 0 |  |
 | I-tr-S2d9 | packages/translators: Codex passthrough | 2 | — | pending | 0 |  |
 | I-tr-S2d10 | packages/translators: Antigravity redirect | 2 | — | pending | 0 |  |
 | I-exec-openai | packages/executors: openai executor | 2 | — | pending | 0 |  |
@@ -57,4 +57,3 @@
 
 ## Verdict / escalation log
 (appended by orchestrator)
-- 2026-09-16 03:5x S2d8 GATE: PASS (round 2). cla2gem admitted. 12/16 spec steps admitted. I-tr-S2d8 dispatched.

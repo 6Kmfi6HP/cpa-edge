@@ -27,7 +27,7 @@ OUT of scope (owned elsewhere or not covered):
 - Thinking *capability semantics* (suffix parsing, clamping, validation errors, and how a model's capability info gets resolved): S4. S2d8 specifies the two client-visible outcomes of the executor capability pass for this direction only — user-defined/unresolved models keep the mapped `thinkingConfig`; capability-resolved models without thinking support have it stripped (§3.1 `thinking` row, golden-pinned by S2d8-07/10).
 - Plugin interceptors, request/response plugins: absent in recordings; behavior below is the no-plugin baseline.
 
-NE-LENIENT acknowledgment: SPEC §5's compatibility-ruling registry (R-404, R-FIXTURE, and any future registered degradations) applies VERBATIM to the `/v1/messages` and `/v1/messages/count_tokens` surfaces; S2d8 registers no direction-specific leniency or non-equivalence beyond §7/§8.
+NE-LENIENT acknowledgment: SPEC §5's compatibility-ruling registry (R-404, R-FIXTURE, NE-LENIENT, R-SSE, R-TOK, and any future registered degradations) applies VERBATIM to the `/v1/messages` and `/v1/messages/count_tokens` surfaces; S2d8 registers no direction-specific leniency or non-equivalence beyond §7/§8.
 
 ---
 

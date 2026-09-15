@@ -6,7 +6,7 @@
  * escalation, the auth-transport surface, model discovery asymmetries and
  * the upstream header policy.
  */
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { CpaError, MemoryStore } from '@cpa-edge/core'
 import type { Store } from '@cpa-edge/core'
 import {
@@ -15,7 +15,7 @@ import {
   effectiveThinkingLevel,
   extractSourceThinkingConfig,
 } from './thinking'
-import { deriveToolCallId, translateGeminiRequest, translateGeminiToOpenAI, withStreamOptions } from './request'
+import { deriveToolCallId, translateGeminiRequest, translateGeminiToOpenAI } from './request'
 import {
   extractReasoningTexts,
   mapFinishReason,
@@ -48,18 +48,18 @@ import {
 } from './errors'
 import { parseModelMethod, rawModelRecord, renderModelsList, splitV1BetaPath } from './models'
 import { authenticateV1Beta, extractClientCredentials } from './auth'
+import type { Gem2OaiRegistryEntry } from './models'
 import { createGem2OaiService, openAICompatUserAgent } from './service'
 import type {
   Gem2OaiCredential,
-  Gem2OaiRegistryEntry,
   Gem2OaiRequest,
   Gem2OaiResponse,
   Gem2OaiService,
   Gem2OaiUpstreamRequest,
   Gem2OaiUpstreamResponse,
   Gem2OaiUpstreamSender,
-  HeaderList,
 } from './service'
+import type { HeaderList } from './types'
 
 const UPSTREAM_MODEL = 'mock-gpt-model'
 const BASE_URL = 'http://mock.internal:20999/v1'
@@ -251,7 +251,7 @@ describe('thinking — effective level table (stage 2)', () => {
   })
 
   it('unconvertible budgets fail with the recorded message', () => {
-    const body: Record<string, unknown> = { reasoning_effort: '' }
+    const body = { reasoning_effort: '' }
     expect(() => applyRequestThinking(body, { generationConfig: { thinkingConfig: { thinkingBudget: -5 } } })).toThrow(
       CpaError,
     )
@@ -782,7 +782,7 @@ describe('stream — chunk mapping', () => {
     const translator = new OpenAIChunkTranslator(ctx)
     expect(translator.translateChunk(chunk({ role: 'assistant' }))).toEqual([])
     const [text] = translator.translateChunk(chunk({ content: 'Hi' })) as string[]
-    expect(JSON.parse(text)).toEqual({
+    expect(JSON.parse(text ?? '')).toEqual({
       candidates: [{ content: { parts: [{ text: 'Hi' }], role: 'model' }, index: 0 }],
       model: 'mock-gpt-model',
     })
@@ -1410,10 +1410,10 @@ describe('facade — upstream wire', () => {
       'Host',
       'User-Agent',
       'Content-Length',
-      'Accept-Encoding',
       'Authorization',
       'Content-Type',
       'X-Custom',
+      'Accept-Encoding',
     ])
   })
 
@@ -1440,10 +1440,25 @@ describe('facade — upstream wire', () => {
     expect(response.body).toBe('{"error":{"message":"gateway exploded","type":"server_error","code":"internal_server_error"}}')
   })
 
-  it('a pre-commit transport failure renders the plain 500 and rotates on requestRetry', async () => {
+  it('a pre-commit transport failure renders the plain 500; requestRetry rotates candidates', async () => {
+    const exhausted = await facade({ requestRetry: 0 }).handleV1Beta(
+      request('/v1beta/models/mock-model:generateContent', '{"contents":[]}'),
+      async () => {
+        throw new Error('unexpected EOF')
+      },
+    )
+    expect(exhausted.status).toBe(500)
+    expect(exhausted.body).toBe(
+      '{"error":{"message":"unexpected EOF","type":"server_error","code":"internal_server_error"}}',
+    )
+    expect(headerOf(exhausted, 'x-cpa-trace-id')).toBeDefined()
+
+    const credentials: readonly Gem2OaiCredential[] = [
+      credential(),
+      credential({ name: 'second', baseUrl: 'http://mock2.internal:20999/v1' }),
+    ]
+    const service = facade({ requestRetry: 1, credentials })
     const attempts: string[] = []
-    let clock = 1_000
-    const service = facade({ requestRetry: 1, now: () => clock })
     const response = await service.handleV1Beta(
       request('/v1beta/models/mock-model:generateContent', '{"contents":[]}'),
       async (call) => {
@@ -1455,17 +1470,6 @@ describe('facade — upstream wire', () => {
     expect(attempts.length).toBe(2)
     expect(response.status).toBe(200)
     expect((JSON.parse(response.body as string) as Record<string, unknown>)['candidates']).toBeDefined()
-
-    const exhausted = await facade({ requestRetry: 0 }).handleV1Beta(
-      request('/v1beta/models/mock-model:generateContent', '{"contents":[]}'),
-      async () => {
-        throw new Error('unexpected EOF')
-      },
-    )
-    expect(exhausted.status).toBe(500)
-    expect(exhausted.body).toBe(
-      '{"error":{"message":"unexpected EOF","type":"server_error","code":"internal_server_error"}}',
-    )
   })
 
   it('a stream that closes with no translatable chunk commits headers + empty body', async () => {
@@ -1554,7 +1558,7 @@ describe('facade — alt framing modes downstream', () => {
 describe('facade — cooldown mechanics (section 5.3)', () => {
   const errorBody = '{"error":{"message":"mock rate limit","type":"rate_limit_exceeded","code":"rate_limit_exceeded"}}'
 
-  function error429(): Gem2OaiUpstreamResponse {
+  async function error429(): Promise<Gem2OaiUpstreamResponse> {
     return staticBody(errorBody, 429)
   }
 
@@ -1723,7 +1727,7 @@ describe('facade — cooldown mechanics (section 5.3)', () => {
   })
 
   it('requestRetry rotates credentials on 429 and only the last response renders', async () => {
-    let clock = 1_000
+    const clock = 1_000
     const store = new MemoryStore({ now: () => clock })
     const credentials: readonly Gem2OaiCredential[] = [
       credential({ name: 'first', apiKey: 'k1' }),

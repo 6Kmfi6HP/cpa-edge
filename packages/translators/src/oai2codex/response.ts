@@ -8,8 +8,8 @@
  * 2.4-2.5). Usage mapping (section 2.7) and the finish matrix (2.8) are
  * shared.
  */
-import { codexTerminalFailureBody, codexTerminalFailureStatus, emptyIncompleteBody } from './errors'
-import { serializeOrdered } from './json'
+import { codexTerminalFailureBody, codexTerminalFailureStatus, emptyIncompleteBody, incompleteStreamBody } from './errors'
+import { serializeOrdered, wireObject } from './json'
 import { scanDataLines } from './sse'
 import { restoreToolName } from './tools'
 import type { CodexToChatContext, WireObject, WireValue } from './types'
@@ -240,9 +240,7 @@ export class CodexStreamChunkTranslator {
     if (this.sawOutputItem || this.sawMeaningfulDelta) return false
     const output = readArrayValue(response, 'output')
     if (output !== undefined && output.length > 0) return false
-    return readNumber(response['usage'] !== undefined ? { usage: response['usage'] } : {}, 'usage') === undefined
-      ? zeroOutputTokens(response)
-      : zeroOutputTokens(response)
+    return zeroOutputTokens(response)
   }
 
   // -- internals -----------------------------------------------------------
@@ -292,10 +290,15 @@ export class CodexStreamChunkTranslator {
     return state
   }
 
-  private lookupTool(value: Record<string, unknown>): ToolState | undefined {
-    const itemId = readString(value, 'item_id')
-    if (itemId !== undefined) {
-      const byId = this.toolsById.get(itemId)
+  /**
+   * Tool-call state lookup (S2d5 2.6): `item_id` - the event's, or the item
+   * id for `output_item.done` events - then the raw `output_index`, then the
+   * most recent item. An absent state means the flow skipped `added`.
+   */
+  private lookupTool(value: Record<string, unknown>, itemId?: string): ToolState | undefined {
+    const key = readString(value, 'item_id') ?? itemId
+    if (key !== undefined) {
+      const byId = this.toolsById.get(key)
       if (byId !== undefined) return byId
     }
     const outputIndex = readNumber(value, 'output_index')
@@ -361,7 +364,7 @@ export class CodexStreamChunkTranslator {
     const type = item['type']
     if (type === 'function_call' || type === 'custom_tool_call') {
       const full = readString(item, 'arguments') ?? readString(item, 'input') ?? ''
-      const existing = this.lookupTool(value)
+      const existing = this.lookupTool(value, readString(item, 'id'))
       if (existing !== undefined && existing.announced) {
         existing.done = true
         if (existing.argsStreamed || full.length === 0) return none()
@@ -520,15 +523,11 @@ export function translateCodexBufferToChatCompletion(
         return { kind: 'failure', status: 502, body: emptyIncompleteBody() }
       }
       const output = patchOutput(response, collected, indexless)
-      return { kind: 'ok', body: renderChatCompletion(response, output, nameMap, ctx) }
+      const body = renderChatCompletion(response, output, nameMap, ctx)
+      return { kind: 'ok', body, value: wireObject(JSON.parse(body)) }
     }
   }
-  return { kind: 'failure', status: 408, body: incompleteStreamBodyResult() }
-}
-
-function incompleteStreamBodyResult(): string {
-  // Local import avoidance: same pinned body as errors.incompleteStreamBody.
-  return buildIncompleteStreamBody()
+  return { kind: 'failure', status: 408, body: incompleteStreamBody() }
 }
 
 /** E6 condition over the aggregated view: no items, no deltas, zero tokens. */
@@ -600,19 +599,12 @@ function renderChatCompletion(
     if (item === undefined) continue
     const type = item['type']
     if (type === 'message') {
-      const parts = readArrayValue(item, 'content') ?? []
-      for (const part of parts) {
-        const partRecord = readRecord(part)
-        if (partRecord === undefined) continue
-        if (partRecord['type'] === 'output_text' && !sawOutputText) {
-          // Only the FIRST output_text part of each message item counts.
-          sawOutputText = true
-          const text = readString(partRecord, 'text') ?? ''
-          content = (content ?? '') + text
-          break
-        }
+      // Only the FIRST content part of each message item is taken.
+      const partRecord = readRecord((readArrayValue(item, 'content') ?? [])[0])
+      if (partRecord !== undefined && partRecord['type'] === 'output_text') {
+        sawOutputText = true
+        content = (content ?? '') + (readString(partRecord, 'text') ?? '')
       }
-      sawOutputText = false
       continue
     }
     if (type === 'reasoning') {
@@ -691,14 +683,4 @@ function renderChatCompletion(
   const usage = codexUsageObject(response['usage'])
   if (usage !== undefined) completion['usage'] = usage
   return serializeOrdered(completion)
-}
-
-function buildIncompleteStreamBody(): string {
-  // Serialized here to keep this module free of a circular import; the
-  // bytes match errors.incompleteStreamBody exactly.
-  const error: WireObject = {
-    message: 'stream error: stream disconnected before completion: stream closed before response.completed',
-    type: 'invalid_request_error',
-  }
-  return serializeOrdered({ error })
 }
