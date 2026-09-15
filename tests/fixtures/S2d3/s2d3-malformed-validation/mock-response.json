@@ -1,0 +1,27 @@
+{
+ "control_file_per_step": [
+  {
+   "mode": "happy",
+   "script": "bad_json"
+  },
+  {
+   "mode": "happy",
+   "script": "empty"
+  },
+  {
+   "mode": "happy",
+   "script": "no_start"
+  },
+  {
+   "mode": "happy",
+   "script": "start_no_id"
+  },
+  {
+   "mode": "happy",
+   "script": "no_delta"
+  }
+ ],
+ "mode_selection": "mock control file only",
+ "script": "bad_json",
+ "script_note": "canned event list per spec/recordings/S2d3.cases.json (followup_batch)"
+}

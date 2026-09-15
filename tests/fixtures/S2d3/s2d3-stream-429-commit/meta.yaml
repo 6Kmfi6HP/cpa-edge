@@ -1,0 +1,52 @@
+{
+  "case": "s2d3-stream-429-commit",
+  "purpose": "Pin the stream-commit rule (section 4 rule 1) for this direction: a STREAMING client whose upstream returns 429 BEFORE any translated chunk gets a plain HTTP error response - status 429, Content-Type: application/json, verbatim claude-shaped error body, NO SSE headers, NO data: lines, NO [DONE].",
+  "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image eceasy/cli-proxy-api:v7.3.4 (digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266)",
+  "recorded_at": "2026-09-15T18:31:18.476313+00:00",
+  "client_protocol": "raw HTTP/1.1 over TCP socket; User-Agent: oracle-s3-probe/1.0; Connection: close",
+  "upstream_provider": "claude mock (run2 mock_claude.py on 127.0.0.1:20002)",
+  "stream": true,
+  "instance": "S2d3-followup",
+  "instance_port": 8387,
+  "port_note": "worker-2 isolated stack; mock port masked dynamic",
+  "config_fragment": "# S6 recording fleet config (oracle worker-2) — all 8 mock upstreams on run2 ports, NO real credentials.\n# Key conventions per spec/recordings/S6.cases.json; plaintext secret-key (server bcrypt-hashes on startup).\nhost: \"\"\nport: 8387\nremote-management:\n  allow-remote: true\n  secret-key: \"$2a$10$1RXTKGGYqmnhdvfbh1rFiuAYSdDZvKtbHVZDOOZ.zrJgotgczbN3O\"\n  disable-control-panel: true\nauth-dir: \"/root/.cli-proxy-api\"\napi-keys:\n  - \"oracle-local-key-1\"\ndebug: false\nrequest-retry: 0\ntransient-error-cooldown-seconds: -1\nusage-statistics-enabled: false\nopenai-compatibility:\n  - name: \"mock-openai\"\n    base-url: \"http://host.docker.internal:19999/v1\"\n    api-key-entries:\n      - api-key: \"mock-upstream-key\"\n    models:\n      - name: \"mock-gpt-model\"\n        alias: \"mock-model\"\ngemini-api-key:\n  - api-key: \"mock-gem-key\"\n    base-url: \"http://host.docker.internal:20001\"\n    models:\n      - name: \"gemini-mock-model\"\n        alias: \"gm\"\nclaude-api-key:\n  - api-key: \"mock-claude-key\"\n    base-url: \"http://host.docker.internal:20002\"\n    models:\n      - name: \"claude-mock-model\"\n        alias: \"cm\"\n      - name: \"claude-mock-model\"\n        alias: \"cmc\"\n        is-compat: true\n      - name: \"claude-mock-model\"\n        alias: \"cmt-budget\"\n        thinking:\n          min: 1024\n          max: 32000\n      - name: \"claude-mock-model\"\n        alias: \"cmt-levels\"\n        thinking:\n          levels: [\"low\", \"medium\", \"high\", \"max\"]\n  - api-key: \"mock-claude-key\"\n    base-url: \"http://host.docker.internal:20002\"\n    fingerprint-profile: \"claude-code-cli\"\n    models:\n      - name: \"claude-mock-model\"\n        alias: \"cmfp\"\ncodex-api-key:\n  - api-key: \"mock-codex-key\"\n    base-url: \"http://host.docker.internal:20003\"\n    models:\n      - name: \"gpt-mock-codex\"\n        alias: \"cx\"\nxai-api-key:\n  - api-key: \"mock-xai-key\"\n    base-url: \"http://host.docker.internal:20004\"\n    models:\n      - name: \"grok-mock\"\n        alias: \"xg\"\nmeta-api-key:\n  - api-key: \"mock-meta-key\"\n    base-url: \"http://host.docker.internal:20005\"\n    models:\n      - name: \"muse-mock\"\n        alias: \"mm\"\ninteractions-api-key:\n  - api-key: \"mock-int-key\"\n    base-url: \"http://host.docker.internal:20006\"\n    models:\n      - name: \"gemini-mock-model\"\n        alias: \"im\"\nvertex-api-key:\n  - api-key: \"mock-vertex-key\"\n    base-url: \"http://host.docker.internal:20007\"\n    models:\n      - name: \"vertex-mock-model\"\n        alias: \"vm\"\n",
+  "requests": [
+    {
+      "file": "request.http",
+      "step": 1,
+      "repeat": 1
+    }
+  ],
+  "responses": [
+    {
+      "file": "downstream.md",
+      "step": 1,
+      "repeat": 1,
+      "status": 429
+    }
+  ],
+  "dynamic_fields": [
+    "Date",
+    "X-Cpa-Trace-Id",
+    "mock port",
+    "Date",
+    "mock port in upstream.jsonl"
+  ],
+  "control_files_used": [
+    {
+      "mode": "error",
+      "status": 429,
+      "error_body": {
+        "type": "error",
+        "error": {
+          "type": "rate_limit_error",
+          "message": "mock rate limit"
+        }
+      }
+    }
+  ],
+  "notes": [
+    "Run >1s after any prior 429 (or on a fresh credential) so the cooldown does not preempt the upstream call; step2-style cooldown check not needed here."
+  ],
+  "expect_note": "expects in the cases file are predictions; recorded bytes are authoritative"
+}

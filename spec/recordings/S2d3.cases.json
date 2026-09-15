@@ -550,7 +550,7 @@
      }
     }
    ],
-   "record": "all steps: status+headers+body + upstream.jsonl per step. Golds: step1 {\"thinking\":{\"type\":\"enabled\",\"budget_tokens\":24576}}, step2 {\"thinking\":{\"type\":\"disabled\"}}, step3 {\"thinking\":{\"type\":\"enabled\"}} (no budget_tokens key).",
+   "record": "all steps: status+headers+body + upstream.jsonl per step. Recorded outcome (2026-09-16): NO thinking key on the wire in any step - the executor's api-key capability check strips the translator's thinking (see recorded_result and section 2.6). Assert absence of both 'thinking' and 'output_config' keys in all three upstream bodies.",
    "dynamic_fields": [
     "Date",
     "X-Cpa-Trace-Id",
@@ -558,8 +558,9 @@
     "metadata.user_id per step (recomputable)",
     "mock port"
    ],
-   "notes": "If the recorded step1 differs (e.g. budget clamped or dropped), record actual and flag - registry/catalog state could theoretically interfere.",
-   "recorded_result": "RECORDED 2026-09-16: all three efforts (high/none/auto) produced upstream bodies WITHOUT a thinking key - the translator computes thinking but the executor's api-key capability check strips it (ResolveModelInfo -> Thinking nil -> StripThinkingConfig). reasoning_effort is a wire no-op for stock claude-api-key alias models. Section 2.6 corrected to match recorded bytes."
+   "notes": "Recorded 2026-09-16: reasoning_effort is a wire no-op for stock claude-api-key models. Section 2.6 corrected to match. Follow-up case 20 (thinking-config survival) pins the non-stripped variant with models[].thinking configured.",
+   "recorded_result": "RECORDED 2026-09-16: all three efforts (high/none/auto) produced upstream bodies WITHOUT a thinking key - the translator computes thinking but the executor's api-key capability check strips it (ResolveModelInfo -> Thinking nil -> StripThinkingConfig). reasoning_effort is a wire no-op for stock claude-api-key alias models. Section 2.6 corrected to match recorded bytes.",
+   "meta_purpose_fix": "fixture meta.yaml purpose text may still describe the pre-recording budget expectation - oracle to update meta.yaml purpose to the recorded strip outcome."
   },
   {
    "id": "s2d3-userid-variants",
@@ -1136,7 +1137,571 @@
     "mock port"
    ],
    "notes": "Existing slow-mode proof: probes/mocks/README.md m2 (gemini); same mechanism."
+  },
+  {
+   "id": "s2d3-iscompat-thinking-history",
+   "classification": "RECORDABLE-LOCALLY",
+   "purpose": "Pin B1(b): with the selected model entry is-compat: true, an assistant message carrying a non-empty reasoning_content string gets a LEADING unsigned thinking block {\"type\":\"thinking\",\"thinking\":\"Prior reasoning\",\"signature\":\"\"} in its content array (before the text block); user/tool history and the rest of the body unchanged; no reasoning_content anywhere else on the wire. Non-compat default (drop) is already pinned by contrast via cases 1-18 (no reasoning_content in any upstream body).",
+   "mock_script": "happy",
+   "control": {
+    "mode": "happy"
+   },
+   "requests": [
+    {
+     "step": 1,
+     "mode": "non-stream",
+     "curl": "curl -sS -v http://127.0.0.1:<port>/v1/chat/completions -H 'Authorization: Bearer <api-key>' -H 'Content-Type: application/json' -d '{\"model\":\"cmc\",\"messages\":[{\"role\":\"user\",\"content\":\"First question\"},{\"role\":\"assistant\",\"content\":\"Prior answer\",\"reasoning_content\":\"Prior reasoning\"},{\"role\":\"user\",\"content\":\"Follow up\"}]}'",
+     "headers": {
+      "Authorization": "Bearer <api-key>",
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "model": "cmc",
+      "messages": [
+       {
+        "role": "user",
+        "content": "First question"
+       },
+       {
+        "role": "assistant",
+        "content": "Prior answer",
+        "reasoning_content": "Prior reasoning"
+       },
+       {
+        "role": "user",
+        "content": "Follow up"
+       }
+      ]
+     }
+    }
+   ],
+   "record": "status+headers+body + upstream.jsonl. Gold: upstream messages[1] content = [thinking{\"thinking\":\"Prior reasoning\",\"signature\":\"\"}, text{\"text\":\"Prior answer\"}] in that order; upstream body still model claude-mock-model, stream:true; cache_control placement unchanged (last block of last eligible message).",
+   "dynamic_fields": [
+    "Date",
+    "X-Cpa-Trace-Id",
+    "downstream created",
+    "metadata.user_id (sha256 of 'content:First question')",
+    "mock port"
+   ],
+   "notes": "REQUIRES the follow-up config fragment (alias cmc, is-compat: true). If the thinking block does not appear or appears with different key order, record actual and flag.",
+   "recorded_result": "RECORDED 2026-09-16: assistant content = [thinking{\"thinking\":\"Prior reasoning\",\"signature\":\"\"}, text] as predicted; nothing else changed."
+  },
+  {
+   "id": "s2d3-thinking-config-survival",
+   "classification": "RECORDABLE-LOCALLY",
+   "purpose": "Pin thinking-config survival when models[].thinking is configured (closes the recorded-strip contrast of case 8): step1 alias cmt-budget (thinking {min:1024,max:32000}) + reasoning_effort high -> thinking {\"type\":\"enabled\",\"budget_tokens\":24576} on the wire (no strip; budget within range); step2 alias cmt-levels (thinking levels [low,medium,high,max]) + reasoning_effort high -> adaptive style: thinking {\"type\":\"adaptive\"} + output_config {\"effort\":\"high\"}; step3 cmt-levels + reasoning_effort none -> thinking {\"type\":\"disabled\"}.",
+   "mock_script": "happy",
+   "control": {
+    "mode": "happy"
+   },
+   "requests": [
+    {
+     "step": 1,
+     "mode": "non-stream",
+     "curl": "curl -sS -v http://127.0.0.1:<port>/v1/chat/completions -H 'Authorization: Bearer <api-key>' -H 'Content-Type: application/json' -d '{\"model\":\"cmt-budget\",\"messages\":[{\"role\":\"user\",\"content\":\"Budget thinking\"}],\"reasoning_effort\":\"high\"}'",
+     "headers": {
+      "Authorization": "Bearer <api-key>",
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "model": "cmt-budget",
+      "messages": [
+       {
+        "role": "user",
+        "content": "Budget thinking"
+       }
+      ],
+      "reasoning_effort": "high"
+     }
+    },
+    {
+     "step": 2,
+     "mode": "non-stream",
+     "curl": "curl -sS -v http://127.0.0.1:<port>/v1/chat/completions -H 'Authorization: Bearer <api-key>' -H 'Content-Type: application/json' -d '{\"model\":\"cmt-levels\",\"messages\":[{\"role\":\"user\",\"content\":\"Level thinking\"}],\"reasoning_effort\":\"high\"}'",
+     "headers": {
+      "Authorization": "Bearer <api-key>",
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "model": "cmt-levels",
+      "messages": [
+       {
+        "role": "user",
+        "content": "Level thinking"
+       }
+      ],
+      "reasoning_effort": "high"
+     }
+    },
+    {
+     "step": 3,
+     "mode": "non-stream",
+     "curl": "curl -sS -v http://127.0.0.1:<port>/v1/chat/completions -H 'Authorization: Bearer <api-key>' -H 'Content-Type: application/json' -d '{\"model\":\"cmt-levels\",\"messages\":[{\"role\":\"user\",\"content\":\"No thinking levels\"}],\"reasoning_effort\":\"none\"}'",
+     "headers": {
+      "Authorization": "Bearer <api-key>",
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "model": "cmt-levels",
+      "messages": [
+       {
+        "role": "user",
+        "content": "No thinking levels"
+       }
+      ],
+      "reasoning_effort": "none"
+     }
+    }
+   ],
+   "record": "all steps: status+headers+body + upstream.jsonl. Golds: step1 thinking enabled+budget 24576; step2 thinking adaptive + output_config.effort 'high'; step3 thinking disabled. If any step deviates (e.g. budget clamped, effort mapped), record actual bytes and flag.",
+   "dynamic_fields": [
+    "Date",
+    "X-Cpa-Trace-Id",
+    "downstream created",
+    "metadata.user_id per step",
+    "mock port"
+   ],
+   "notes": "REQUIRES the follow-up config fragment (aliases cmt-budget + cmt-levels with thinking blocks). This closes the section 7.3 thinking-survival deferral.",
+   "recorded_result": "RECORDED 2026-09-16: step1 {enabled, budget_tokens:24576, display:summarized}; step2 {adaptive, display:summarized} + output_config.effort high; step3 {disabled} (no display). The display:summarized field is a recorded addition (thinking-summary application)."
+  },
+  {
+   "id": "s2d3-fingerprint-cli-profile",
+   "classification": "RECORDABLE-LOCALLY",
+   "purpose": "Pin the fingerprint-profile: claude-code-cli variant on an api-key credential (closes the deferral): CLI identity headers (Anthropic-Dangerous-Direct-Browser-Access: true, X-App: cli, X-Stainless-Retry-Count: 0, X-Stainless-Runtime: node, X-Stainless-Lang: js, X-Stainless-Timeout: 600, X-Claude-Code-Session-Id: <UUID>, Connection: keep-alive, assembled Anthropic-Beta set, Accept/Accept-Encoding transport negotiation), cloaking-injected body (Claude Code system prompt + identity metadata.user_id + billing tags + 1h cache_control TTL), and the credential-metadata rewrite of metadata. The X-Claude-Code-Session-Id and any UUID-valued body fields are DYNAMIC - mask them.",
+   "mock_script": "happy",
+   "control": {
+    "mode": "happy"
+   },
+   "requests": [
+    {
+     "step": 1,
+     "mode": "non-stream",
+     "curl": "curl -sS -v http://127.0.0.1:<port>/v1/chat/completions -H 'Authorization: Bearer <api-key>' -H 'Content-Type: application/json' -d '{\"model\":\"cmfp\",\"messages\":[{\"role\":\"user\",\"content\":\"Fingerprinted\"}]}'",
+     "headers": {
+      "Authorization": "Bearer <api-key>",
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "model": "cmfp",
+      "messages": [
+       {
+        "role": "user",
+        "content": "Fingerprinted"
+       }
+      ]
+     }
+    }
+   ],
+   "record": "status+headers+body + upstream.jsonl (upstream headers AND body are the gold). Record the full emitted header set and body verbatim; mask UUID-shaped values (X-Claude-Code-Session-Id and any uuid fields in metadata/billing tags) in meta.yaml dynamic_fields.",
+   "dynamic_fields": [
+    "Date",
+    "X-Cpa-Trace-Id",
+    "downstream created",
+    "X-Claude-Code-Session-Id (UUID)",
+    "any UUID fields in metadata/billing tags",
+    "mock port"
+   ],
+   "notes": "REQUIRES the follow-up config fragment (second claude-api-key entry with fingerprint-profile: claude-code-cli, alias cmfp). Record whatever the reference actually emits - do not normalize the betas/system prompt; byte-record and mask only UUIDs.",
+   "recorded_result": "RECORDED 2026-09-16 (UUIDs masked): UA claude-cli/2.1.258 (external, cli); betas incl. oauth-2025-04-20; full X-Stainless-* set; X-Claude-Code-Session-Id UUID; body: billing-header + persona system blocks (1h TTL cache markers), <system-reminder> date block in first user message (date dynamic), metadata.user_id = JSON string {device_id, account_uuid, session_id}."
+  },
+  {
+   "id": "s2d3-model-suffix",
+   "classification": "RECORDABLE-LOCALLY",
+   "purpose": "Resolve open question 8: model alias with a thinking suffix, 'cm(4096)'. Pins (a) whether the suffixed alias routes to the claude provider at all (200 vs 400 model_not_found), and (b) if it routes, what lands on the wire: expected upstream model claude-mock-model with ParseSuffix applied, and the suffix-derived thinking budget STRIPPED by the capability check (recorded case-8 mechanism), i.e. NO thinking key.",
+   "mock_script": "happy",
+   "control": {
+    "mode": "happy"
+   },
+   "requests": [
+    {
+     "step": 1,
+     "mode": "non-stream",
+     "curl": "curl -sS -v http://127.0.0.1:<port>/v1/chat/completions -H 'Authorization: Bearer <api-key>' -H 'Content-Type: application/json' -d '{\"model\":\"cm(4096)\",\"messages\":[{\"role\":\"user\",\"content\":\"Suffix probe\"}]}'",
+     "headers": {
+      "Authorization": "Bearer <api-key>",
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "model": "cm(4096)",
+      "messages": [
+       {
+        "role": "user",
+        "content": "Suffix probe"
+       }
+      ]
+     }
+    }
+   ],
+   "record": "status+headers+body + upstream.jsonl if routed; the downstream error body if not routed. Either outcome is the pin - record actual.",
+   "dynamic_fields": [
+    "Date",
+    "X-Cpa-Trace-Id",
+    "downstream created",
+    "mock port"
+   ],
+   "notes": "Uses the existing alias cm; no config change.",
+   "recorded_result": "RECORDED 2026-09-16: cm(4096) ROUTED (200); suffix stripped; upstream model claude-mock-model; NO thinking key (suffix budget stripped by capability check). Resolves section 8 OQ-8."
+  },
+  {
+   "id": "s2d3-stream-429-commit",
+   "classification": "RECORDABLE-LOCALLY",
+   "purpose": "Pin the stream-commit rule (section 4 rule 1) for this direction: a STREAMING client whose upstream returns 429 BEFORE any translated chunk gets a plain HTTP error response - status 429, Content-Type: application/json, verbatim claude-shaped error body, NO SSE headers, NO data: lines, NO [DONE].",
+   "mock_script": "error",
+   "control": {
+    "mode": "error",
+    "status": 429,
+    "error_body": {
+     "type": "error",
+     "error": {
+      "type": "rate_limit_error",
+      "message": "mock rate limit"
+     }
+    }
+   },
+   "requests": [
+    {
+     "step": 1,
+     "mode": "stream",
+     "curl": "curl -sS -v -N http://127.0.0.1:<port>/v1/chat/completions -H 'Authorization: Bearer <api-key>' -H 'Content-Type: application/json' -d '{\"model\":\"cm\",\"messages\":[{\"role\":\"user\",\"content\":\"Stream but rate limited\"}],\"stream\":true}'",
+     "headers": {
+      "Authorization": "Bearer <api-key>",
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "model": "cm",
+      "messages": [
+       {
+        "role": "user",
+        "content": "Stream but rate limited"
+       }
+      ],
+      "stream": true
+     },
+     "control": {
+      "mode": "error",
+      "status": 429,
+      "error_body": {
+       "type": "error",
+       "error": {
+        "type": "rate_limit_error",
+        "message": "mock rate limit"
+       }
+      }
+     }
+    }
+   ],
+   "record": "status+headers+body. Gold: 429, Content-Type application/json, NO text/event-stream header, body == the mock error JSON verbatim.",
+   "dynamic_fields": [
+    "Date",
+    "X-Cpa-Trace-Id",
+    "mock port"
+   ],
+   "notes": "Run >1s after any prior 429 (or on a fresh credential) so the cooldown does not preempt the upstream call; step2-style cooldown check not needed here.",
+   "recorded_result": "RECORDED 2026-09-16: plain 429 JSON (application/json), verbatim body, no SSE headers, no [DONE] - as predicted."
+  },
+  {
+   "id": "s2d3-empty-stream",
+   "classification": "RECORDABLE-LOCALLY",
+   "purpose": "Pin section 4 rule 9: an upstream 200 SSE stream with NO translatable data: line produces downstream SSE headers + a bare 'data: [DONE]' and nothing else (HTTP 200). Step1 script 'empty' (zero events); step2 script 'ping_only' (a single ping event, still no data: line) - both must produce the same downstream frame set (headers + [DONE]).",
+   "mock_script": "empty",
+   "control": {
+    "mode": "happy",
+    "script": "empty"
+   },
+   "requests": [
+    {
+     "step": 1,
+     "mode": "stream",
+     "curl": "curl -sS -v -N http://127.0.0.1:<port>/v1/chat/completions -H 'Authorization: Bearer <api-key>' -H 'Content-Type: application/json' -d '{\"model\":\"cm\",\"messages\":[{\"role\":\"user\",\"content\":\"Say nothing\"}],\"stream\":true}'",
+     "headers": {
+      "Authorization": "Bearer <api-key>",
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "model": "cm",
+      "messages": [
+       {
+        "role": "user",
+        "content": "Say nothing"
+       }
+      ],
+      "stream": true
+     },
+     "control": {
+      "mode": "happy",
+      "script": "empty"
+     }
+    },
+    {
+     "step": 2,
+     "mode": "stream",
+     "curl": "curl -sS -v -N http://127.0.0.1:<port>/v1/chat/completions -H 'Authorization: Bearer <api-key>' -H 'Content-Type: application/json' -d '{\"model\":\"cm\",\"messages\":[{\"role\":\"user\",\"content\":\"Ping only\"}],\"stream\":true}'",
+     "headers": {
+      "Authorization": "Bearer <api-key>",
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "model": "cm",
+      "messages": [
+       {
+        "role": "user",
+        "content": "Ping only"
+       }
+      ],
+      "stream": true
+     },
+     "control": {
+      "mode": "happy",
+      "script": "ping_only"
+     }
+    }
+   ],
+   "record": "full SSE downstream per step (status, headers, frames). Gold: 200 + text/event-stream headers + exactly one frame 'data: [DONE]' in both steps. REQUIRES mock extension: script 'empty' (200 + SSE content-type + immediate clean chunked close, zero events) and 'ping_only' (one 'event: ping' + 'data: {\"type\":\"ping\"}' event, then clean close).",
+   "dynamic_fields": [
+    "Date",
+    "X-Cpa-Trace-Id",
+    "mock port"
+   ],
+   "notes": "The stream path performs NO aggregation validation (section 5.3) - contrast with case 25 step 'empty' for the non-stream client.",
+   "recorded_result": "RECORDED 2026-09-16 - DEVIATION from the pre-recording prediction: BOTH steps returned HTTP 500 {\"error\":{\"message\":\"empty_stream: upstream stream closed before first payload\",\"type\":\"server_error\",\"code\":\"internal_server_error\"}} (JSON, no SSE). A first-payload gate (sdk/cliproxy/auth/conductor_stream.go) fails before headers commit; a ping event does not satisfy it. Section 4 rule 9 corrected."
+  },
+  {
+   "id": "s2d3-malformed-validation",
+   "classification": "RECORDABLE-LOCALLY",
+   "purpose": "Pin the aggregation-validation 5-message set (section 5.3) for non-stream clients: each malformed/short upstream buffer -> HTTP 502 with the EXACT gateway message wrapped as {'error':{'message':'<exact msg>','type':'server_error','code':'internal_server_error'}}. Steps: 1 bad_json -> 'claude executor: upstream returned malformed stream data'; 2 empty -> 'claude executor: upstream returned empty stream response'; 3 no_start -> 'claude executor: upstream stream response is missing message_start'; 4 start_no_id -> 'claude executor: upstream stream message_start is missing id or model'; 5 no_delta -> 'claude executor: upstream stream response ended before message completion'. (The 6th message, 'upstream returned error event: <msg>' incl. its message->type->unknown fallback, is already pinned by case 16 step 2.)",
+   "mock_script": "validation",
+   "control": {
+    "mode": "happy",
+    "script": "bad_json"
+   },
+   "requests": [
+    {
+     "step": 1,
+     "mode": "non-stream",
+     "curl": "curl -sS -v http://127.0.0.1:<port>/v1/chat/completions -H 'Authorization: Bearer <api-key>' -H 'Content-Type: application/json' -d '{\"model\":\"cm\",\"messages\":[{\"role\":\"user\",\"content\":\"Validation 1\"}]}'",
+     "headers": {
+      "Authorization": "Bearer <api-key>",
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "model": "cm",
+      "messages": [
+       {
+        "role": "user",
+        "content": "Validation 1"
+       }
+      ]
+     },
+     "control": {
+      "mode": "happy",
+      "script": "bad_json"
+     }
+    },
+    {
+     "step": 2,
+     "mode": "non-stream",
+     "curl": "curl -sS -v http://127.0.0.1:<port>/v1/chat/completions -H 'Authorization: Bearer <api-key>' -H 'Content-Type: application/json' -d '{\"model\":\"cm\",\"messages\":[{\"role\":\"user\",\"content\":\"Validation 2\"}]}'",
+     "headers": {
+      "Authorization": "Bearer <api-key>",
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "model": "cm",
+      "messages": [
+       {
+        "role": "user",
+        "content": "Validation 2"
+       }
+      ]
+     },
+     "control": {
+      "mode": "happy",
+      "script": "empty"
+     }
+    },
+    {
+     "step": 3,
+     "mode": "non-stream",
+     "curl": "curl -sS -v http://127.0.0.1:<port>/v1/chat/completions -H 'Authorization: Bearer <api-key>' -H 'Content-Type: application/json' -d '{\"model\":\"cm\",\"messages\":[{\"role\":\"user\",\"content\":\"Validation 3\"}]}'",
+     "headers": {
+      "Authorization": "Bearer <api-key>",
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "model": "cm",
+      "messages": [
+       {
+        "role": "user",
+        "content": "Validation 3"
+       }
+      ]
+     },
+     "control": {
+      "mode": "happy",
+      "script": "no_start"
+     }
+    },
+    {
+     "step": 4,
+     "mode": "non-stream",
+     "curl": "curl -sS -v http://127.0.0.1:<port>/v1/chat/completions -H 'Authorization: Bearer <api-key>' -H 'Content-Type: application/json' -d '{\"model\":\"cm\",\"messages\":[{\"role\":\"user\",\"content\":\"Validation 4\"}]}'",
+     "headers": {
+      "Authorization": "Bearer <api-key>",
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "model": "cm",
+      "messages": [
+       {
+        "role": "user",
+        "content": "Validation 4"
+       }
+      ]
+     },
+     "control": {
+      "mode": "happy",
+      "script": "start_no_id"
+     }
+    },
+    {
+     "step": 5,
+     "mode": "non-stream",
+     "curl": "curl -sS -v http://127.0.0.1:<port>/v1/chat/completions -H 'Authorization: Bearer <api-key>' -H 'Content-Type: application/json' -d '{\"model\":\"cm\",\"messages\":[{\"role\":\"user\",\"content\":\"Validation 5\"}]}'",
+     "headers": {
+      "Authorization": "Bearer <api-key>",
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "model": "cm",
+      "messages": [
+       {
+        "role": "user",
+        "content": "Validation 5"
+       }
+      ]
+     },
+     "control": {
+      "mode": "happy",
+      "script": "no_delta"
+     }
+    }
+   ],
+   "record": "per step: status+headers+body + upstream.jsonl. Gold per step: 502 + the exact message listed above. REQUIRES mock extension - five scripts (specification): bad_json: one frame 'data: {\"type\":\"message_start\", not-json' then clean close; empty: 200 + SSE content-type + clean close with zero events; no_start: frames 'data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}' + 'data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":1}}' + 'data: {\"type\":\"message_stop\"}' then clean close (no message_start); start_no_id: frame 'data: {\"type\":\"message_start\",\"message\":{\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-mock-model\",\"content\":[],\"usage\":{\"input_tokens\":9}}}' (message.id absent) + a message_delta + message_stop, then clean close; no_delta: valid message_start (id msg_val_01, model from request) + text delta + message_stop but NO message_delta, then clean close.",
+   "dynamic_fields": [
+    "Date",
+    "X-Cpa-Trace-Id",
+    "mock port"
+   ],
+   "notes": "All steps hit the non-stream path (client stream flag false) so the aggregation validation runs before translation.",
+   "recorded_result": "RECORDED 2026-09-16: all five 502 messages byte-exact (malformed stream data / empty stream response / missing message_start / missing id or model / ended before message completion)."
+  },
+  {
+   "id": "s2d3-retry-after",
+   "classification": "RECORDABLE-LOCALLY",
+   "purpose": "Pin Retry-After semantics end to end: upstream 429 WITH a 'Retry-After: 1' response header -> step1 (direct): does the header reach the direct verbatim-429 downstream response? Static analysis predicts NO (SafeResponseHeaders materializes Retry-After only for cooldown/home errors; statusErr/claudeRateLimitError carry no Headers()). step2 (immediately after step1, <1s): the cooldown response carries Retry-After: 1 (already seen in case 14 step 2) - record to confirm equivalence. Record actual bytes either way.",
+   "mock_script": "error",
+   "control": {
+    "mode": "error",
+    "status": 429,
+    "error_body": {
+     "type": "error",
+     "error": {
+      "type": "rate_limit_error",
+      "message": "mock rate limit"
+     }
+    },
+    "retry_after": "1"
+   },
+   "requests": [
+    {
+     "step": 1,
+     "mode": "non-stream",
+     "curl": "curl -sS -v http://127.0.0.1:<port>/v1/chat/completions -H 'Authorization: Bearer <api-key>' -H 'Content-Type: application/json' -d '{\"model\":\"cm\",\"messages\":[{\"role\":\"user\",\"content\":\"Retry after me\"}]}'",
+     "headers": {
+      "Authorization": "Bearer <api-key>",
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "model": "cm",
+      "messages": [
+       {
+        "role": "user",
+        "content": "Retry after me"
+       }
+      ]
+     },
+     "control": {
+      "mode": "error",
+      "status": 429,
+      "error_body": {
+       "type": "error",
+       "error": {
+        "type": "rate_limit_error",
+        "message": "mock rate limit"
+       }
+      },
+      "retry_after": "1"
+     }
+    },
+    {
+     "step": 2,
+     "mode": "non-stream",
+     "curl": "curl -sS -v http://127.0.0.1:<port>/v1/chat/completions -H 'Authorization: Bearer <api-key>' -H 'Content-Type: application/json' -d '{\"model\":\"cm\",\"messages\":[{\"role\":\"user\",\"content\":\"Retry after me\"}]}'",
+     "headers": {
+      "Authorization": "Bearer <api-key>",
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "model": "cm",
+      "messages": [
+       {
+        "role": "user",
+        "content": "Retry after me"
+       }
+      ]
+     },
+     "control": {
+      "mode": "happy"
+     },
+     "timing": "MUST be sent within 1s of step1 completing (cooldown window ~1s)"
+    }
+   ],
+   "record": "both steps: status+headers+body. Gold: step1 429 + verbatim body + presence/absence of a downstream Retry-After header (record actual); step2 429 + model_cooldown envelope + Retry-After (record actual value; the upstream Retry-After parse adds a random 1-30s grace - mask any fuzz-derived value in dynamic_fields).",
+   "dynamic_fields": [
+    "Date",
+    "X-Cpa-Trace-Id",
+    "Retry-After value if fuzz-derived",
+    "reset_time/reset_seconds in cooldown envelope",
+    "mock port"
+   ],
+   "notes": "REQUIRES mock extension: control key 'retry_after' -> the mock adds header 'Retry-After: <value>' to the error-mode response. Run LAST on the batch (the 429 poisons the credential for ~1s).",
+   "recorded_result": "RECORDED 2026-09-16: step1 direct verbatim 429 has NO Retry-After header (prediction confirmed); step2 cooldown response has Retry-After: 27 (fuzz-derived grace from upstream Retry-After: 1 - masked as dynamic; compare case 14 whose upstream sent no header -> Retry-After: 1)."
   }
  ],
- "recording_status": "All 18 cases RECORDED 2026-09-16 by oracle-runner-2 into tests/fixtures/S2d3/ (isolated stack: reference 127.0.0.1:8387, claude mock on 20002; ports/host masked as dynamic fields per meta.yaml). 18/18 fixtures present; recorded_result notes added where reality refined the prediction (case 14: cooldown surfaces as HTTP 429 + Retry-After: 1, not 500). Everything else matched."
+ "recording_status": "ROUND 1: cases 1-18 recorded 2026-09-16 (isolated stack: reference 127.0.0.1:8387, claude mock 20002). ROUND-1 FOLLOW-UP BATCH (adversary-authorized): cases 19-26 recorded 2026-09-16 with the config fragment (aliases cmc/cmt-budget/cmt-levels/cmfp) + new mock scripts (empty, ping_only, bad_json, no_start, start_no_id, no_delta) + retry_after control key. 26/26 fixtures present in tests/fixtures/S2d3/. Recorded deviations folded into spec/sections/S2d3-oai2cla.md: case 14 cooldown status 429; case 8 thinking strip; case 24 empty-stream bootstrap gate (500 empty_stream, NOT SSE+[DONE]); case 26 cooldown Retry-After is fuzz-derived when the upstream carries reset info.",
+ "followup_batch": {
+  "authorized_by": "adversary round-1 review (reports/adversary/S2d3.md) via orchestrator",
+  "config_fragment_needed": "Add to claude-api-key (hot-reload works; keep the existing cm entry intact):\n\nclaude-api-key:\n  - api-key: \"mock-claude-key\"\n    base-url: \"http://host.docker.internal:20002\"\n    models:\n      - name: \"claude-mock-model\"\n        alias: \"cm\"\n      - name: \"claude-mock-model\"\n        alias: \"cmc\"\n        is-compat: true\n      - name: \"claude-mock-model\"\n        alias: \"cmt-budget\"\n        thinking:\n          min: 1024\n          max: 32000\n      - name: \"claude-mock-model\"\n        alias: \"cmt-levels\"\n        thinking:\n          levels: [\"low\", \"medium\", \"high\", \"max\"]\n  - api-key: \"mock-claude-key\"\n    base-url: \"http://host.docker.internal:20002\"\n    fingerprint-profile: \"claude-code-cli\"\n    models:\n      - name: \"claude-mock-model\"\n        alias: \"cmfp\"",
+  "new_mock_scripts": [
+   "empty",
+   "ping_only",
+   "bad_json",
+   "no_start",
+   "start_no_id",
+   "no_delta"
+  ],
+  "new_control_keys": [
+   "retry_after (string) -> add 'Retry-After: <value>' header on error-mode responses"
+  ],
+  "case_ids": [
+   "s2d3-iscompat-thinking-history",
+   "s2d3-thinking-config-survival",
+   "s2d3-fingerprint-cli-profile",
+   "s2d3-model-suffix",
+   "s2d3-stream-429-commit",
+   "s2d3-empty-stream",
+   "s2d3-malformed-validation",
+   "s2d3-retry-after"
+  ]
+ }
 }

@@ -1,0 +1,8 @@
+{
+ "control_file_per_step": [
+  {
+   "mode": "happy"
+  }
+ ],
+ "mode_selection": "mock control file only"
+}

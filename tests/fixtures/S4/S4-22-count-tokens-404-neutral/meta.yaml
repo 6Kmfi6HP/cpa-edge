@@ -1,0 +1,84 @@
+{
+ "id": "S4-22-count-tokens-404-neutral",
+ "purpose": "count_tokens endpoint 404 is availability-NEUTRAL: it rotates across all credentials but sets NO cooldown \u2014 repeated count_tokens requests keep hitting the pool \u2014 while the same 404 on a chat request DOES cool (12 h not-found cooldown) and the next chat request returns 503 auth_unavailable.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image eceasy/cli-proxy-api:v7.3.4 (digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266)",
+ "recorded_at": "2026-09-16T01:18:55",
+ "config_yaml": "host: \"\"\nport: 18317\nremote-management:\n  allow-remote: true\n  secret-key: \"oracle-mgmt-key-1\"\n  disable-control-panel: true\nauth-dir: \"/root/.cli-proxy-api\"\napi-keys:\n  - \"oracle-local-key-1\"\ndebug: false\nrequest-retry: 0\nmax-retry-credentials: 0\nmax-retry-interval: 10\ntransient-error-cooldown-seconds: 2\nusage-statistics-enabled: false\nrouting:\n  strategy: \"round-robin\"\n  session-affinity: false\nopenai-compatibility:\n  - name: \"mock-openai\"\n    base-url: \"http://host.docker.internal:18999/v1\"\n    api-key-entries:\n      - api-key: \"s4-oai-key-1\"\n      - api-key: \"s4-oai-key-2\"\n      - api-key: \"s4-oai-key-3\"\n    models:\n      - name: \"mock-gpt-model\"\n        alias: \"mock-model\"\n      - name: \"mock-pool-1\"\n        alias: \"pool-model\"\n      - name: \"mock-pool-2\"\n        alias: \"pool-model\"\n      - name: \"mock-iso-1\"\n        alias: \"iso-model-1\"\n      - name: \"mock-iso-2\"\n        alias: \"iso-model-2\"\ngemini-api-key:\n  - api-key: \"s4-gem-key-a\"\n    base-url: \"http://host.docker.internal:19001\"\n    models:\n      - name: \"gemini-mock-model\"\n        alias: \"ctm\"\n  - api-key: \"s4-gem-key-b\"\n    base-url: \"http://host.docker.internal:19001\"\n    models:\n      - name: \"gemini-mock-model\"\n        alias: \"ctm\"\n",
+ "controls": {
+  "openai": null,
+  "gemini": {
+   "mode": "error",
+   "status": 404
+  },
+  "codex": null
+ },
+ "mock_type": "gemini",
+ "observed_wire_sequence": [
+  [
+   1,
+   "s4-gem-key-a",
+   404,
+   "POST",
+   "/v1beta/models/gemini-mock-model:countTokens"
+  ],
+  [
+   1,
+   "s4-gem-key-b",
+   404,
+   "POST",
+   "/v1beta/models/gemini-mock-model:countTokens"
+  ],
+  [
+   2,
+   "s4-gem-key-a",
+   404,
+   "POST",
+   "/v1beta/models/gemini-mock-model:countTokens"
+  ],
+  [
+   2,
+   "s4-gem-key-b",
+   404,
+   "POST",
+   "/v1beta/models/gemini-mock-model:countTokens"
+  ],
+  [
+   3,
+   "s4-gem-key-a",
+   404,
+   "POST",
+   "/v1beta/models/gemini-mock-model:generateContent"
+  ],
+  [
+   3,
+   "s4-gem-key-b",
+   404,
+   "POST",
+   "/v1beta/models/gemini-mock-model:generateContent"
+  ]
+ ],
+ "http_statuses": [
+  {
+   "step": 1,
+   "status": "404"
+  },
+  {
+   "step": 2,
+   "status": "404"
+  },
+  {
+   "step": 3,
+   "status": "404"
+  },
+  {
+   "step": 4,
+   "status": "503"
+  }
+ ],
+ "dynamic_fields": [
+  "Date",
+  "X-Cpa-Trace-Id",
+  "wire-log ts"
+ ],
+ "note": "S4-21 step 1 uses the Responses websocket transport (GET /v1/responses upgrade): source shows /v1/ws is the wsrelay provider-bridge (external provider clients), not a chat request surface; a bonus /v1/ws probe is recorded in downstream.md."
+}

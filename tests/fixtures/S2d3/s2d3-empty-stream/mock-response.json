@@ -1,0 +1,15 @@
+{
+ "control_file_per_step": [
+  {
+   "mode": "happy",
+   "script": "empty"
+  },
+  {
+   "mode": "happy",
+   "script": "ping_only"
+  }
+ ],
+ "mode_selection": "mock control file only",
+ "script": "empty",
+ "script_note": "canned event list per spec/recordings/S2d3.cases.json (followup_batch)"
+}

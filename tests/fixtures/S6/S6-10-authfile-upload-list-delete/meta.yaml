@@ -115,7 +115,7 @@
   "disk_captures": [
     {
       "file": "disk/root/.cli-proxy-api/s6-test-claude.json",
-      "what": "uploaded file bytes on disk after step 1 (verbatim upload)"
+      "what": "on-disk auth file after step 1 (re-serialized by the token store: single-line JSON, alphabetical keys, disabled:false injected)"
     },
     {
       "file": "disk/root/.cli-proxy-api/.listing-after-delete.txt",

@@ -15,9 +15,9 @@
 | S1 | spec: endpoint inventory | 1 | spec-s1-endpoints | merged | 2 | ADMITTED round 2. 25 goldens (283 files). Feeds T1 routing + all handler contracts. 4 residual nits -> writer cleanup, no re-gate per reviewer. |
 | S2d1 | spec: OpenAI client → Gemini upstream | 1 | spec-s2d1-oai2gem | spec | 0 |  |
 | S2d2 | spec: Gemini client → OpenAI upstream | 1 | spec-s2d2-gem2oai | spec-adv-r2 | 1 | fixes + 26 goldens; round-2 running on adv-spec-4; R-ORDER registered in SPEC |
-| S2d3 | spec: OpenAI client → Claude upstream | 1 | spec-s2d3-oai2cla | spec-adv | 0 | section+18 goldens done; review assigned adv-spec-1 |
+| S2d3 | spec: OpenAI client → Claude upstream | 1 | spec-s2d3-oai2cla | merged | 2 | ADMITTED round 2. 26 goldens. Unlocks I-tr-S2d3. |
 | S2d4 | spec: Claude client → OpenAI upstream | 1 | spec-s2d4-cla2oai | spec | 0 |  |
-| S2d5 | spec: OpenAI client → Codex/Responses upstream | 1 | spec-s2d5-oai2codex | spec-adv | 0 | section+24 goldens done; review assigned adv-spec-5; wire-note cooldown correction recorded |
+| S2d5 | spec: OpenAI client → Codex/Responses upstream | 1 | spec-s2d5-oai2codex | spec-fix | 1 | R1: adv-spec-5 FAIL (B1 union->enum MUST + golden; B2 type-selection rules); N1-N12 dispatched; E6 golden authorized |
 | S2d6 | spec: Responses client → OpenAI chat upstream | 1 | spec-s2d6-res2oai | spec | 0 |  |
 | S2d7 | spec: Gemini client → Claude upstream | 1 | spec-s2d7-gem2cla | spec-adv-r2 | 1 | fixes done + 6 new goldens; round-2 queued on adv-spec-2 |
 | S2d8 | spec: Claude client → Gemini upstream | 1 | spec-s2d8-cla2gem | spec | 0 | section+18 cases done; rulings sent; recording queued w5 |
@@ -26,13 +26,13 @@
 | S3 | spec: auth flows | 1 | spec-s3-auth | merged | 3 | ADMITTED after 3 rounds. Goldens: 44 dirs. Unlocked I-auth + S3 contract tests. |
 | S4 | spec: scheduling | 1 | spec-s4-scheduling | spec-fix | 1 | R1: adv-spec-1 FAIL (B1 per-family ID parts; B2 auth_index seeds; B3 WS preference MIRROR ruling; B4 route overrides); 3-golden batch authorized |
 | S5 | spec: management API | 1 | spec-s5-mgmt | merged | 2 | ADMITTED round 2. 22 goldens / 168 steps. Unlocks I-mgmt (after I-auth interfaces land) + S5 contract tests. |
-| S6 | spec: state & storage schemas | 1 | spec-s6-state | spec-fix | 1 | R1: adv-spec-6 FAIL (B1 catalog pipelines; B2 PING nil-frame; B3 cloak key; B4 indented writes; B5 vertex row; B6 logs limit). All text fixes |
+| S6 | spec: state & storage schemas | 1 | spec-s6-state | spec-adv-r2 | 1 | fixes applied (19-point verified); round-2 running on adv-spec-6 |
 | S7 | spec: platform degradation matrix | 1 | spec-s7-platform | merged | 3 | ADMITTED after 3 rounds. NE registry feeds SPEC §5. RuntimeCapabilities -> I-core; T2/T3/D1 bindings recorded. |
 | I-core | packages/core: scheduling algorithms | 2 | — | pending | 0 |  |
 | I-auth | packages/auth: OAuth/device/refresh | 2 | impl-i-auth | impl | 0 |  |
 | I-tr-S2d1 | packages/translators: OpenAI→Gemini | 2 | — | pending | 0 |  |
 | I-tr-S2d2 | packages/translators: Gemini→OpenAI | 2 | — | pending | 0 |  |
-| I-tr-S2d3 | packages/translators: OpenAI→Claude | 2 | — | pending | 0 |  |
+| I-tr-S2d3 | packages/translators: OpenAI→Claude | 2 | impl-i-tr-s2d3 | impl | 0 |  |
 | I-tr-S2d4 | packages/translators: Claude→OpenAI | 2 | — | pending | 0 |  |
 | I-tr-S2d5 | packages/translators: OpenAI→Codex/Responses | 2 | — | pending | 0 |  |
 | I-tr-S2d6 | packages/translators: Responses→OpenAI chat | 2 | — | pending | 0 |  |
@@ -57,3 +57,4 @@
 
 ## Verdict / escalation log
 (appended by orchestrator)
+- 2026-09-16 02:0x S2d3 GATE: PASS (round 2). oai2cla admitted: 26 goldens incl. is-compat, fingerprint profile, empty-stream 500 gate, Retry-After fuzz. I-tr-S2d3 dispatched.

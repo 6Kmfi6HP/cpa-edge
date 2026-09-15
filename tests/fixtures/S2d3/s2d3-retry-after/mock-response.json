@@ -1,0 +1,20 @@
+{
+ "control_file_per_step": [
+  {
+   "mode": "error",
+   "status": 429,
+   "error_body": {
+    "type": "error",
+    "error": {
+     "type": "rate_limit_error",
+     "message": "mock rate limit"
+    }
+   },
+   "retry_after": "1"
+  },
+  {
+   "mode": "happy"
+  }
+ ],
+ "mode_selection": "mock control file only"
+}

@@ -1,0 +1,54 @@
+# S4-22-count-tokens-404-neutral requests
+
+
+### Step 1
+POST /v1beta/models/ctm:countTokens HTTP/1.1
+Host: 127.0.0.1:18317
+User-Agent: curl/8.7.1
+Accept: */*
+x-goog-api-key: oracle-local-key-1
+Content-Type: application/json
+Content-Type: application/json
+Content-Length: 59
+
+{"model": "ctm", "contents": [{"parts": [{"text": "s4"}]}]}
+
+
+### Step 2
+POST /v1beta/models/ctm:countTokens HTTP/1.1
+Host: 127.0.0.1:18317
+User-Agent: curl/8.7.1
+Accept: */*
+x-goog-api-key: oracle-local-key-1
+Content-Type: application/json
+Content-Type: application/json
+Content-Length: 59
+
+{"model": "ctm", "contents": [{"parts": [{"text": "s4"}]}]}
+
+
+### Step 3
+POST /v1/chat/completions HTTP/1.1
+Host: 127.0.0.1:18317
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-local-key-1
+Content-Type: application/json
+Content-Type: application/json
+Content-Length: 82
+
+{"model": "ctm", "messages": [{"role": "user", "content": "s4"}], "stream": false}
+
+
+### Step 4
+POST /v1/chat/completions HTTP/1.1
+Host: 127.0.0.1:18317
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-local-key-1
+Content-Type: application/json
+Content-Type: application/json
+Content-Length: 82
+
+{"model": "ctm", "messages": [{"role": "user", "content": "s4"}], "stream": false}
+

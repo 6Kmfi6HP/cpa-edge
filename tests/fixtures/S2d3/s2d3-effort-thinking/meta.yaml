@@ -1,6 +1,6 @@
 {
   "case": "s2d3-effort-thinking",
-  "purpose": "Pin reasoning_effort -> thinking for an unregistered (user-defined) model = budget style: 'high' -> thinking {type:enabled,budget_tokens:24576}; 'none' -> {type:disabled}; 'auto' -> {type:enabled} (no budget_tokens). Body key order pins thinking position (after metadata).",
+  "purpose": "Pin reasoning_effort handling for an UNCONFIGURED model (claude-mock-model has no models[].thinking block): RECORDED OUTCOME - the thinking key is STRIPPED from the upstream body entirely (no thinking key on the wire) for reasoning_effort high/none/auto; section 2.6 recorded-strip rule. The pre-recording expectation (thinking enabled+24576 / disabled / enabled) was a prediction and did NOT hold; case 20 (s2d3-thinking-config-survival) pins the configured-model contrast where thinking SURVIVES.",
   "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image eceasy/cli-proxy-api:v7.3.4 (digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266)",
   "recorded_at": "2026-09-15T17:56:59.744829+00:00",
   "client_protocol": "raw HTTP/1.1 over TCP socket; User-Agent: oracle-s3-probe/1.0 (unless omitted by the case); Connection: close",
@@ -65,7 +65,8 @@
     }
   ],
   "notes": [
-    "If the recorded step1 differs (e.g. budget clamped or dropped), record actual and flag - registry/catalog state could theoretically interfere."
+    "If the recorded step1 differs (e.g. budget clamped or dropped), record actual and flag - registry/catalog state could theoretically interfere.",
+    "housekeeping 2026-09-16: purpose text updated to the recorded outcome per round-1 review"
   ],
   "expect_note": "expects in the cases file are predictions; recorded bytes are authoritative"
 }

@@ -1,0 +1,20 @@
+# S4-21-ws-transport-preference requests
+
+
+### Step 1 (websocket)
+GET /v1/responses HTTP/1.1 [upgrade headers as per ws_client.py]
+text frame: {"model": "wsx", "input": "s4", "stream": true}
+
+
+### Step 2
+POST /v1/chat/completions HTTP/1.1
+Host: 127.0.0.1:18317
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-local-key-1
+Content-Type: application/json
+Content-Type: application/json
+Content-Length: 82
+
+{"model": "wsx", "messages": [{"role": "user", "content": "s4"}], "stream": false}
+
