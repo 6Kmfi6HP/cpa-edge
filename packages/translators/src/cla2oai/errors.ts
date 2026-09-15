@@ -158,11 +158,19 @@ const SUMMARY_CUT_SEQUENCE = '": {"'
 /** Where the `": {"` cut may still fire (bytes from the start). */
 const SUMMARY_CUT_WINDOW = 50
 
-/** Strips ANSI escape sequences and stray control characters. */
+/**
+ * Strips ANSI escape sequences and stray control characters. The
+ * control-character classes are the point of the sanitizer, so the
+ * lint rule guarding against accidental control usage is waived here.
+ */
 function sanitizeSummaryText(text: string): string {
-  return text
-    .replace(/\u001b\[[0-9;]*[A-Za-z]/g, '')
-    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
+  return (
+    text
+      // eslint-disable-next-line no-control-regex -- ANSI escape stripping
+      .replace(/\u001b\[[0-9;]*[A-Za-z]/g, '')
+      // eslint-disable-next-line no-control-regex -- control-character stripping
+      .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
+  )
 }
 
 /** Truncates to the summary rune cap. */

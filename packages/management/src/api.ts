@@ -1510,15 +1510,15 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
       const failed: Array<{ name: string; error: string }> = []
       for (const part of files) {
         const name = part.filename ?? ''
+        if (!name.endsWith('.json')) {
+          failed.push({ name, error: 'file must be .json' })
+          continue
+        }
         // The multipart file name becomes a Store key exactly like the
         // `name=` upload path, so it faces the same validity rule.
         const invalid = checkAuthFileName(name)
         if (invalid !== undefined) {
           failed.push({ name, error: invalid })
-          continue
-        }
-        if (!name.endsWith('.json')) {
-          failed.push({ name, error: 'file must be .json' })
           continue
         }
         const parsed = parseJsonGo(part.value)

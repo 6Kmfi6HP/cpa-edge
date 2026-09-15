@@ -87,7 +87,12 @@ function recordedSend(caseRecord: RecordedCase, log: CapturedUpstream[]) {
       return { status: 200, headers: [], body: streamOf(mock.writes) }
     }
     if (mock.sseScript !== undefined) {
-      return { status: 200, headers: [], body: streamOf([mock.sseScript]) }
+      // Some scripts end with a `MOCK: ` control instruction for the
+      // recording harness (e.g. the S2d9-08 disconnect note); it is not
+      // wire bytes. Serve the script up to that line, then close.
+      const instruction = mock.sseScript.indexOf('\nMOCK: ')
+      const served = instruction === -1 ? mock.sseScript : mock.sseScript.slice(0, instruction + 1)
+      return { status: 200, headers: [], body: streamOf([served]) }
     }
     throw new Error(`unexpected upstream call for ${caseRecord.id}`)
   }
@@ -148,7 +153,12 @@ function expectedUpstreamLines(
   }))
 }
 
-function assertUpstream(log: CapturedUpstream[], expected: ReturnType<typeof expectedUpstreamLines>, context: string): void {
+function assertUpstream(
+  log: CapturedUpstream[],
+  expected: ReturnType<typeof expectedUpstreamLines>,
+  context: string,
+  maskSession: boolean,
+): void {
   expect(log.length, `${context}: upstream call count`).toBe(expected.length)
   for (let i = 0; i < expected.length; i++) {
     const captured = log[i]
@@ -157,10 +167,10 @@ function assertUpstream(log: CapturedUpstream[], expected: ReturnType<typeof exp
     expect(captured.request.method, `${context}: upstream ${i} method`).toBe(want.method)
     expect(captured.path, `${context}: upstream ${i} path`).toBe(want.path)
     expect(
-      captured.request.headers.map(([name, value]) => [name, maskValue(name, value, true)] as [string, string]),
+      captured.request.headers.map(([name, value]) => [name, maskValue(name, value, maskSession)] as [string, string]),
       `${context}: upstream ${i} headers (ordered)`,
     ).toEqual(want.headers)
-    expect(maskBody(captured.request.body, true), `${context}: upstream ${i} body`).toBe(want.body)
+    expect(maskBody(captured.request.body, maskSession), `${context}: upstream ${i} body`).toBe(want.body)
   }
 }
 
@@ -191,7 +201,7 @@ describe('S2d9 golden replay - single-session cases', () => {
       const log: CapturedUpstream[] = []
       const response = await service.handleResponses(clientRequestOf(caseRecord), recordedSend(caseRecord, log))
       await assertDownstream(response, caseRecord, caseId)
-      assertUpstream(log, expectedUpstreamLines(caseRecord, !caseRecord.clientPromptCacheKey), caseId)
+      assertUpstream(log, expectedUpstreamLines(caseRecord, !caseRecord.clientPromptCacheKey), caseId, !caseRecord.clientPromptCacheKey)
     })
   }
 })
@@ -210,7 +220,7 @@ describe('S2d9 golden replay - cooldown-window session pairs', () => {
     await assertDownstream(responseB, second, 'S2d9-12')
 
     expect(log.length, 'S2d9-11/12 pair: exactly one upstream call').toBe(1)
-    assertUpstream(log, expectedUpstreamLines(first, true), 'S2d9-11/12 pair')
+    assertUpstream(log, expectedUpstreamLines(first, true), 'S2d9-11/12 pair', true)
   })
 
   test('S2d9-10 -> S2d9-18: upstream 404 model_not_found, then 503 auth_unavailable (no upstream call)', async () => {
@@ -226,6 +236,6 @@ describe('S2d9 golden replay - cooldown-window session pairs', () => {
     await assertDownstream(responseB, second, 'S2d9-18')
 
     expect(log.length, 'S2d9-10/18 pair: exactly one upstream call').toBe(1)
-    assertUpstream(log, expectedUpstreamLines(first, true), 'S2d9-10/18 pair')
+    assertUpstream(log, expectedUpstreamLines(first, true), 'S2d9-10/18 pair', true)
   })
 })

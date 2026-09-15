@@ -222,17 +222,9 @@ export async function translateResponsesPassthrough(
   let text = rawBody
 
   text = rewriteModel(text, ctx.upstreamModel)
-  text = await rebuildInput(text, { convertRoles: true, stripBreakpoints: true, normalizeIds: true })
-  if (process.env['S9DEBUG'] === '1') {
-    const s = rawSpanAt(text, ['tools'])
-    console.log('AFTER-INPUT tools: ' + (s === undefined ? 'ABSENT' : text.slice(s.start, s.end).slice(0, 400)))
-  }
+  text = await rebuildInput(text, { responsesRoute: true, normalizeIds: true })
   const toolsState = applyToolsMatrix(text, ctx)
   text = toolsState.text
-  if (process.env['S9DEBUG'] === '1') {
-    const s = rawSpanAt(text, ['tools'])
-    console.log('AFTER-TOOLS tools: ' + (s === undefined ? 'ABSENT' : text.slice(s.start, s.end).slice(0, 400)))
-  }
 
   // stream_options leaves its original position; the preserved delivery
   // member re-enters at its slot in the append sequence.
@@ -292,7 +284,7 @@ export async function translateCompactPassthrough(
   let text = rawBody
 
   text = rewriteModel(text, ctx.upstreamModel)
-  text = await rebuildInput(text, { convertRoles: false, stripBreakpoints: false, normalizeIds: false })
+  text = await rebuildInput(text, { responsesRoute: false, normalizeIds: false })
 
   const toolsSpan = rawSpanAt(text, ['tools'])
   const toolsEmpty = toolsSpan === undefined || (scanArrayElements(text, toolsSpan)?.length ?? 0) === 0
@@ -328,21 +320,29 @@ async function resolveSession(
 // ---------------------------------------------------------------------------
 
 interface InputRewriteOptions {
-  /** `system` message roles become `developer` (/responses only). */
-  readonly convertRoles: boolean
-  /** `prompt_cache_breakpoint` members leave content parts (/responses only). */
-  readonly stripBreakpoints: boolean
+  /** The /responses route may rewrite message items (roles, breakpoints). */
+  readonly responsesRoute: boolean
   /** Typed item ids are normalized (/responses only). */
   readonly normalizeIds: boolean
 }
 
 /**
- * Rewrites the top-level `input` member: a string becomes the synthesized
- * user message; an array re-marshals message items compactly (role and
- * breakpoint rules applied), sanitizes reasoning items (signature
- * validation, content promotion, orphan-id drops) and passes every other
- * item through with optional id patches. Elements join with compact
- * separators - the recorded RawMessage-marshal shape.
+ * Rewrites the top-level `input` member. A string becomes the synthesized
+ * user message. An array re-splices with compact separators - the
+ * recorded RawMessage-marshal shape - while each item keeps its own bytes
+ * unless a rule changes it:
+ *
+ * - message items re-marshal compactly ONLY when the /responses rewrite
+ *   applies (a `system` role or a `prompt_cache_breakpoint` part is
+ *   present somewhere in the array); otherwise they pass raw, matching
+ *   the recorded S2d9-05/S2d9-15 shapes;
+ * - reasoning items sanitize in place: a valid `encrypted_content` keeps
+ *   the item verbatim, an invalid signature and its orphan id drop as
+ *   member deletions, and a non-empty `content` promotes its
+ *   `reasoning_text` parts into `summary` before `content` is forced
+ *   empty;
+ * - every other item passes raw, with the id plan applied as an in-place
+ *   value patch.
  */
 async function rebuildInput(text: string, options: InputRewriteOptions): Promise<string> {
   const span = rawSpanAt(text, ['input'])
@@ -363,15 +363,27 @@ async function rebuildInput(text: string, options: InputRewriteOptions): Promise
   const items = elements.map((element) => text.slice(element.span.start, element.span.end))
 
   const idPlan = options.normalizeIds === true ? await planInputItemIds(items.map(itemIdInput)) : undefined
+  const rewriteMessages =
+    options.responsesRoute === true && items.some((raw) => messageNeedsRewrite(raw, options))
   const rebuilt: string[] = []
   for (let index = 0; index < items.length; index++) {
     const raw = items[index] ?? '{}'
     const action = idPlan?.[index]
     if (action !== undefined && action.kind === 'drop') continue
-    rebuilt.push(rebuildInputItem(raw, options, action))
+    rebuilt.push(rebuildInputItem(raw, rewriteMessages, action))
   }
   const joined = `[${rebuilt.join(',')}]`
   return text.slice(0, span.start) + joined + text.slice(span.end)
+}
+
+/** True when one message item carries a `system` role or a breakpoint part. */
+function messageNeedsRewrite(raw: string, options: InputRewriteOptions): boolean {
+  const parsed = tryParseJson(raw)
+  if (!isPlainObject(parsed) || parsed['type'] !== 'message') return false
+  if (parsed['role'] === 'system') return true
+  const content = parsed['content']
+  if (!Array.isArray(content)) return false
+  return content.some((part) => isPlainObject(part) && part['prompt_cache_breakpoint'] !== undefined)
 }
 
 /** Identity inputs of one raw item for the id plan. */
@@ -386,38 +398,31 @@ function itemIdInput(raw: string): ItemIdInput {
 }
 
 /** Rewrites one input item per its type. */
-function rebuildInputItem(
-  raw: string,
-  options: InputRewriteOptions,
-  action: ItemIdAction | undefined,
-): string {
+function rebuildInputItem(raw: string, rewriteMessages: boolean, action: ItemIdAction | undefined): string {
   const parsed = tryParseJson(raw)
   if (!isPlainObject(parsed)) return raw
   const type = parsed['type']
 
-  if (type === 'message') return rebuildMessageItem(raw, parsed, options, action)
+  if (type === 'message') {
+    if (rewriteMessages !== true) return patchItemId(raw, action)
+    return rebuildMessageItem(raw, parsed, action)
+  }
   if (type === 'reasoning') return rebuildReasoningItem(raw, parsed, action)
   return patchItemId(raw, action)
 }
 
 /** Compact re-marshal of a message item: roles, parts, id. */
-function rebuildMessageItem(
-  raw: string,
-  parsed: Record<string, unknown>,
-  options: InputRewriteOptions,
-  action: ItemIdAction | undefined,
-): string {
+function rebuildMessageItem(raw: string, parsed: Record<string, unknown>, action: ItemIdAction | undefined): string {
   const itemSpan: RawSpan = { start: 0, end: raw.length }
   const members = scanObjectMembers(raw, itemSpan) ?? []
   const out: WireObject = {}
   for (const member of members) {
     if (member.key === 'role') {
-      const role = options.convertRoles === true && parsed['role'] === 'system' ? 'developer' : parsed['role']
-      out['role'] = wireValueOf(role)
+      out['role'] = parsed['role'] === 'system' ? 'developer' : wireValueOf(parsed['role'])
       continue
     }
     if (member.key === 'content') {
-      out['content'] = rebuildContentParts(parsed['content'], options)
+      out['content'] = rebuildContentParts(parsed['content'])
       continue
     }
     if (member.key === 'id') {
@@ -429,18 +434,15 @@ function rebuildMessageItem(
   return serializeOrdered(out)
 }
 
-/**
- * Content parts of a message: objects keep their member order (with the
- * cache-breakpoint member dropped on the /responses route), non-objects
- * splice verbatim.
- */
-function rebuildContentParts(content: unknown, options: InputRewriteOptions): WireValue {
+/** Content parts of a message: objects keep their member order minus the
+ * `prompt_cache_breakpoint` members; non-objects splice verbatim. */
+function rebuildContentParts(content: unknown): WireValue {
   if (!Array.isArray(content)) return wireValueOf(content)
   return content.map((part) => {
     if (!isPlainObject(part)) return wireValueOf(part)
     const out: WireObject = {}
     for (const key of Object.keys(part)) {
-      if (options.stripBreakpoints === true && key === 'prompt_cache_breakpoint') continue
+      if (key === 'prompt_cache_breakpoint') continue
       out[key] = wireValueOf(part[key])
     }
     return out
@@ -448,11 +450,12 @@ function rebuildContentParts(content: unknown, options: InputRewriteOptions): Wi
 }
 
 /**
- * Sanitizes one reasoning item: items with non-empty `content` or a valid
- * `encrypted_content` re-marshal compactly (content promoted into the
- * summary when the summary is empty, content forced empty, invalid
- * signatures and their ids dropped); items with neither keep their raw
- * bytes minus the dropped members - the recorded sjson-delete shape.
+ * Sanitizes one reasoning item with byte-preserving edits: a non-empty
+ * `content` promotes its `reasoning_text` parts into `summary` (the
+ * content value is forced `[]`, the summary value is replaced or
+ * appended); an invalid `encrypted_content` drops itself, and the item id
+ * drops with it (the store=false orphan rule); a valid signature keeps
+ * every byte verbatim.
  */
 function rebuildReasoningItem(raw: string, parsed: Record<string, unknown>, action: ItemIdAction | undefined): string {
   const encrypted = parsed['encrypted_content']
@@ -460,8 +463,16 @@ function rebuildReasoningItem(raw: string, parsed: Record<string, unknown>, acti
   const content = parsed['content']
   const contentNonEmpty = Array.isArray(content) && content.length > 0
 
-  if (!contentNonEmpty && !encryptedValid) {
-    let out = raw
+  let out = raw
+  if (contentNonEmpty) {
+    const promoted = promoteReasoningParts(content)
+    const summaryEmpty = !Array.isArray(parsed['summary']) || (parsed['summary'] as readonly unknown[]).length === 0
+    if (summaryEmpty && promoted.length > 0) {
+      out = setRawMember(out, 'summary', serializeOrdered(promoted))
+    }
+    out = setRawMember(out, 'content', '[]')
+  }
+  if (!encryptedValid) {
     if (encrypted !== undefined) {
       const member = memberOfRaw(out, 'encrypted_content')
       if (member !== undefined) out = deleteMember(out, member)
@@ -470,43 +481,7 @@ function rebuildReasoningItem(raw: string, parsed: Record<string, unknown>, acti
     if (idMember !== undefined) out = deleteMember(out, idMember)
     return out
   }
-
-  const itemSpan: RawSpan = { start: 0, end: raw.length }
-  const members = scanObjectMembers(raw, itemSpan) ?? []
-  const out: WireObject = {}
-  let summaryWritten = false
-  for (const member of members) {
-    if (member.key === 'content') {
-      out['content'] = contentNonEmpty ? [] : wireValueOf(parsed['content'])
-      continue
-    }
-    if (member.key === 'encrypted_content') {
-      if (!encryptedValid) continue
-      out['encrypted_content'] = encrypted as string
-      continue
-    }
-    if (member.key === 'id') {
-      if (!encryptedValid) continue
-      out['id'] = action !== undefined && action.kind === 'rewrite' ? action.value : wireValueOf(parsed['id'])
-      continue
-    }
-    if (member.key === 'summary') {
-      out['summary'] = wireValueOf(parsed['summary'])
-      summaryWritten = true
-      continue
-    }
-    out[member.key] = wireValueOf(parsed[member.key])
-  }
-  if (contentNonEmpty) {
-    const summary = parsed['summary']
-    const summaryEmpty = !Array.isArray(summary) || summary.length === 0
-    if (summaryEmpty) {
-      const promoted = promoteReasoningParts(content)
-      if (promoted.length > 0) out['summary'] = promoted
-      else if (!summaryWritten) out['summary'] = []
-    }
-  }
-  return serializeOrdered(out)
+  return patchItemId(out, action)
 }
 
 /** `reasoning_text` parts of a content array as `summary_text` parts. */
@@ -522,11 +497,20 @@ function promoteReasoningParts(content: readonly unknown[]): readonly WireValue[
   return out
 }
 
+/** Sets one member of a raw item to compact bytes (replace or append). */
+function setRawMember(raw: string, key: string, valueJson: string): string {
+  const member = memberOfRaw(raw, key)
+  if (member === undefined) {
+    return appendMember(raw, { start: 0, end: raw.length }, `"${key}":${valueJson}`)
+  }
+  return replaceMemberValue(raw, member, valueJson)
+}
+
 function memberOfRaw(text: string, key: string): RawMember | undefined {
   return (scanObjectMembers(text, { start: 0, end: text.length }) ?? []).find((member) => member.key === key)
 }
 
-/** Applies the id plan to a raw item of any other type. */
+/** Applies the id plan to a raw item (in-place value patch). */
 function patchItemId(raw: string, action: ItemIdAction | undefined): string {
   if (action === undefined || action.kind !== 'rewrite') return raw
   const member = memberOfRaw(raw, 'id')
@@ -548,10 +532,14 @@ interface ToolsRewriteState {
 
 /**
  * Applies the builtin alias rewrite and the image-generation matrix to the
- * tools/tool_choice members, then reports the final tools state. Under
- * `off` (the default) an image-generation tool is appended whenever none
- * is declared; `true`/`all`/`chat` strip declared image tools instead;
- * `passthrough` and native Lite requests leave everything alone.
+ * tools/tool_choice members. The tools array re-splices with compact
+ * separators whenever anything changes, each element keeping its own bytes
+ * (recorded S2d9-04: the declared function tool and the alias-rewritten
+ * `web_search` entry keep their original spacing, the appended
+ * image-generation tool is compact). Under `off` (the default) an
+ * image-generation tool is appended whenever none is declared;
+ * `true`/`all`/`chat` strip declared image tools instead; `passthrough`
+ * and native Lite requests leave everything alone.
  */
 function applyToolsMatrix(text: string, ctx: PassthroughRequestContext): ToolsRewriteState {
   let out = text
@@ -564,33 +552,42 @@ function applyToolsMatrix(text: string, ctx: PassthroughRequestContext): ToolsRe
     return { text: out, empty: true, createdMember: false }
   }
 
-  out = rewriteWebSearchAliases(out, toolsSpan)
+  const elements = scanArrayElements(out, toolsSpan) ?? []
+  const kept: string[] = []
+  let changed = false
   const stripping = ctx.imageMode === 'true' || ctx.imageMode === 'all' || ctx.imageMode === 'chat'
-  if (stripping) {
-    const current = rawSpanAt(out, ['tools'])
-    if (current !== undefined) {
-      const elements = scanArrayElements(out, current) ?? []
-      for (let i = elements.length - 1; i >= 0; i--) {
-        const element = elements[i]
-        if (element === undefined) continue
-        const parsed = tryParseJson(out.slice(element.span.start, element.span.end))
-        if (isPlainObject(parsed) && parsed['type'] === 'image_generation') {
-          out = deleteElement(out, element)
-        }
-      }
+  let declaredImageTool = false
+  for (const element of elements) {
+    let elementText = out.slice(element.span.start, element.span.end)
+    const parsed = tryParseJson(elementText)
+    const record = isPlainObject(parsed) ? parsed : undefined
+    if (record !== undefined && record['type'] === 'image_generation') declaredImageTool = true
+    if (stripping && record !== undefined && record['type'] === 'image_generation') {
+      changed = true
+      continue
     }
+    const aliased = rewriteToolElementType(elementText, { start: 0, end: elementText.length })
+    if (aliased !== elementText) {
+      changed = true
+      elementText = aliased
+    }
+    kept.push(elementText)
   }
 
   let empty: boolean
-  const currentSpan = rawSpanAt(out, ['tools'])
-  if (currentSpan === undefined) {
-    empty = true
+  if (ctx.imageMode === 'off' && ctx.lite !== true && !declaredImageTool) {
+    kept.push(IMAGE_GENERATION_TOOL_JSON)
+    changed = true
+    empty = false
   } else {
-    if (ctx.imageMode === 'off' && ctx.lite !== true && !imageToolDeclared(out, currentSpan)) {
-      out = appendElement(out, currentSpan, IMAGE_GENERATION_TOOL_JSON)
-      empty = false
-    } else {
-      empty = (scanArrayElements(out, currentSpan)?.length ?? 0) === 0
+    empty = kept.length === 0
+  }
+
+  if (changed) {
+    const rebuilt = `[${kept.join(',')}]`
+    const currentSpan = rawSpanAt(out, ['tools'])
+    if (currentSpan !== undefined) {
+      out = out.slice(0, currentSpan.start) + rebuilt + out.slice(currentSpan.end)
     }
   }
 

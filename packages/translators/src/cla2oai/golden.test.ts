@@ -49,7 +49,6 @@ const CREDENTIALS = [
     models: [{ name: 'mock-gpt-model', alias: 'mock-model-compat', isCompat: true }],
   },
 ]
-const BASE_URL = 'http://host.docker.internal:21999/v1'
 const encoder = new TextEncoder()
 
 const CASES = [

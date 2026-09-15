@@ -30,11 +30,14 @@ export function decodeBase64Url(text: string): Uint8Array | undefined {
     const code = text.charCodeAt(i)
     const value = code < 128 ? REVERSE[code] ?? -1 : -1
     if (value < 0) return undefined
-    buffer = (buffer << 6) | value
+    buffer = ((buffer << 6) | value) & 0xffff
     bits += 6
     if (bits >= 8) {
       bits -= 8
       out[outIndex] = (buffer >> bits) & 0xff
+      // Keep only the bits the next byte still needs; without the mask
+      // the accumulator outgrows the integer range mid-string.
+      buffer &= (1 << bits) - 1
       outIndex++
     }
   }

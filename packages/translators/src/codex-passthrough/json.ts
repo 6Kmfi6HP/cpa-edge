@@ -444,8 +444,10 @@ export function appendMember(text: string, objectSpan: RawSpan, memberJson: stri
 
 /**
  * Appends one serialized element at the end of the JSON array spanning
- * `arraySpan` inside `text`. An empty array gains its first element
- * without a leading comma.
+ * `arraySpan` inside `text` with a compact separator (recorded S2d9-04:
+ * the client's own `, ` between declared tools survives, the appended
+ * tool lands on a plain `,`). An empty array gains its first element
+ * without a separator.
  */
 export function appendElement(text: string, arraySpan: RawSpan, elementJson: string): string {
   const elements = scanArrayElements(text, arraySpan)

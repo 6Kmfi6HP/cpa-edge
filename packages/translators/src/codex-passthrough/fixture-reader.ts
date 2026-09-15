@@ -174,14 +174,11 @@ function parseDownstreamFile(text: string): RecordedDownstream {
     }
   }
   const bodyMatch = /## Body(?: \/ byte stream)?[^\n]*\n```\n([\s\S]*?)\n```/.exec(text)
-  // The fenced body is the exact bytes plus ONE trailing newline.
-  const body = bodyMatch === null ? '' : stripOneTrailingNewline(bodyMatch[1] ?? '')
+  // The capture already excludes the single newline the file format adds
+  // before its closing fence, so it IS the exact received body.
+  const body = bodyMatch === null ? '' : bodyMatch[1] ?? ''
   const stream = text.includes('chunked framing preserved') ? body : undefined
   return { status, headers, body, stream }
-}
-
-function stripOneTrailingNewline(text: string): string {
-  return text.endsWith('\n') ? text.slice(0, -1) : text
 }
 
 function parseMockFile(path: string): RecordedMock {

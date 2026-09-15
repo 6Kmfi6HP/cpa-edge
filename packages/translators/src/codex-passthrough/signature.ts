@@ -38,7 +38,9 @@ export function isValidEncryptedContent(value: unknown): value is string {
   const trimmed = value.trim()
   if (trimmed.length === 0) return false
   if (!trimmed.startsWith(ENCRYPTED_CONTENT_PREFIX)) return false
-  const decoded = decodeBase64Url(trimmed.slice(ENCRYPTED_CONTENT_PREFIX.length))
+  // The prefix is how a valid envelope's first bytes read when encoded -
+  // the WHOLE value is the base64url payload.
+  const decoded = decodeBase64Url(trimmed)
   if (decoded === undefined) return false
   if (decoded.length < MIN_DECODED_BYTES) return false
   if (decoded[0] !== VERSION_BYTE) return false

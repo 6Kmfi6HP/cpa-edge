@@ -19,12 +19,7 @@ import {
   convertBudgetToLevel,
   effectiveThinkingLevel,
 } from './thinking'
-import {
-  buildMessages,
-  buildToolChoice,
-  buildTools,
-  translateClaudeToOpenAI,
-} from './request'
+import { buildToolChoice, buildTools, translateClaudeToOpenAI } from './request'
 import {
   argumentsAreValidObject,
   buildToolNameIndex,
@@ -56,15 +51,16 @@ import {
   summarizeUpstreamError,
 } from './errors'
 import { countTranslatedBodyTokens, estimateClaudeInputTokens } from './tokens'
+import { serializeOrdered } from './json'
 import { createCla2OaiService } from './service'
 import type {
   Cla2OaiRequest,
   Cla2OaiResponse,
-  Cla2OaiUpstreamRequest,
   Cla2OaiUpstreamResponse,
   Cla2OaiUpstreamSender,
 } from './service'
 import { decodeCloakedModelId } from './types'
+import type { WireObject } from './types'
 
 const encoder = new TextEncoder()
 
@@ -101,19 +97,6 @@ function jsonReply(body: string, status = 200): Cla2OaiUpstreamResponse {
     body: new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(encoder.encode(body))
-        controller.close()
-      },
-    }),
-  }
-}
-
-function sseReply(frames: readonly string[]): Cla2OaiUpstreamResponse {
-  return {
-    status: 200,
-    headers: [['Content-Type', 'text/event-stream']],
-    body: new ReadableStream<Uint8Array>({
-      start(controller) {
-        for (const frame of frames) controller.enqueue(encoder.encode(frame))
         controller.close()
       },
     }),
@@ -173,7 +156,7 @@ describe('cla2oai request translation', () => {
       model: 'm',
       system: [
         { type: 'text', text: '   ' },
-        { type: 'text', text: 'x-anthropic-billing-header: {\"tier\":\"free\"}' },
+        { type: 'text', text: 'x-anthropic-billing-header: {"tier":"free"}' },
         { type: 'image', source: { type: 'url', url: 'https://x.test/i.png' } },
       ],
       messages: [{ role: 'user', content: 'Hi' }],
@@ -511,7 +494,11 @@ describe('cla2oai request translation', () => {
         { name: 'bare', input_schema: { type: 'object' } },
       ],
     })
-    const rendered = JSON.parse(JSON.stringify(entries[0]))
+    // parameters is spliced raw (already sorted + HTML-escaped), so the
+    // entries are serialized through the ordered serializer first.
+    const rendered = JSON.parse(serializeOrdered(entries[0] as never)) as {
+      function: { parameters: { patternProperties: Record<string, unknown>; properties: Record<string, unknown> } }
+    }
     expect(Object.keys(rendered.function.parameters)).toEqual([
       'patternProperties',
       'properties',
@@ -519,12 +506,10 @@ describe('cla2oai request translation', () => {
     ])
     expect(Object.keys(rendered.function.parameters.properties)).toEqual(['city', 'code'])
     // The unsupported pattern value and key are gone; the supported ones stay.
-    expect(rendered.function.parameters.properties.code).toEqual({ type: 'string' })
+    expect(rendered.function.parameters.properties['code']).toEqual({ type: 'string' })
     expect(Object.keys(rendered.function.parameters.patternProperties)).toEqual(['^x_'])
-    expect(JSON.parse(JSON.stringify(entries[1])).function.parameters).toEqual({
-      properties: {},
-      type: 'object',
-    })
+    const bare = JSON.parse(serializeOrdered(entries[1] as never)) as { function: { parameters: unknown } }
+    expect(bare.function.parameters).toEqual({ properties: {}, type: 'object' })
   })
 
   it('detects unsupported unicode property escapes', () => {
@@ -592,14 +577,14 @@ describe('cla2oai thinking pipeline', () => {
   })
 
   it('fails unconvertible budgets with the recorded message before dispatch', () => {
-    const body: Record<string, unknown> = { reasoning_effort: '' }
+    const body: WireObject = { reasoning_effort: '' }
     expect(() => applyRequestThinking(body, { thinking: { type: 'enabled', budget_tokens: -5 } }, capability)).toThrow(
       'budget -5 cannot be converted to a valid level',
     )
   })
 
   it('leaves the body untouched without a stage-1 effort key', () => {
-    const body: Record<string, unknown> = {}
+    const body: WireObject = {}
     applyRequestThinking(body, { thinking: { type: 'enabled', budget_tokens: 8192 } }, capability)
     expect(body).toEqual({})
   })
@@ -608,7 +593,7 @@ describe('cla2oai thinking pipeline', () => {
     const raw = (thinking: unknown, outputConfig?: unknown) =>
       JSON.stringify({ model: 'm', thinking, output_config: outputConfig, messages: [{ role: 'user', content: 'Hi' }] })
     const ctx = { upstreamModel: 'mock-gpt-model', stream: false }
-    const effortOf = (text: string) => JSON.parse(translateClaudeToOpenAI(text, ctx).body).reasoning_effort
+    const effortOf = (text: string) => (JSON.parse(text) as Record<string, unknown>).reasoning_effort
 
     const translated1 = translateClaudeToOpenAI(raw({ type: 'adaptive' }, { effort: 'AUTO' }), ctx)
     applyRequestThinking(translated1.value, JSON.parse(raw({ type: 'adaptive' }, { effort: 'AUTO' })), capability)
@@ -681,10 +666,12 @@ describe('cla2oai non-stream response translation', () => {
       ],
     })
     const parsed = JSON.parse(translateOpenAIResponseToClaude(upstream, { toolNames }))
+    // Reasoning accumulates into a thinking block flushed BEFORE the
+    // text; the text pieces merge into one run and the tool_calls item
+    // flushes both before its tool_use block.
     expect(parsed.content).toEqual([
-      { type: 'text', text: 'ab' },
       { type: 'thinking', thinking: 'why' },
-      { type: 'text', text: 'c' },
+      { type: 'text', text: 'abc' },
       { type: 'tool_use', id: 'c9', name: 'other', input: {} },
     ])
   })
@@ -742,7 +729,7 @@ describe('cla2oai stream state machine', () => {
 
   it('joins multiple data lines of one frame with a newline', async () => {
     const frames: Array<{ event?: string; dataLines: readonly string[] }> = []
-    for await (const event of decodeUpstreamSseFrames([source('data: {"a":\ndata: 1}\n\n')])) {
+    for await (const event of decodeUpstreamSseFrames(bytesSource('data: {"a":\ndata: 1}\n\n'))) {
       if (event.kind === 'frame') frames.push(event.frame)
     }
     expect(frames).toEqual([{ dataLines: ['{"a":', '1}'] }])
@@ -761,19 +748,38 @@ describe('cla2oai stream state machine', () => {
     expect(done.join('')).toContain('"stop_reason":"tool_use"')
   })
 
-  it('synthesizes belated starts with tool_<index> names and buffered text after tool blocks', async () => {
+  it('synthesizes belated starts with tool_<index> names and buffers interleaved text', () => {
     const translator = new OpenAIToClaudeStreamTranslator(ctx)
     const events: string[] = []
     for (const e of translator.processChunk(chunk({ role: 'assistant' }))) events.push(e)
-    // Tool accumulator never gets a name; text arrives while it is open.
-    for (const e of translator.processChunk(chunk({ tool_calls: [{ index: 3, id: 'c2', function: { arguments: '{"x":' } }], content: 'interleaved' }))) events.push(e)
+    // Accumulator 0 completes (id + name) and opens the only tool block;
+    // accumulator 3 collects arguments but never gets a name.
+    for (const e of translator.processChunk(
+      chunk({
+        tool_calls: [
+          { index: 0, id: 'c1', type: 'function', function: { name: 'get_weather', arguments: '' } },
+          { index: 3, function: { arguments: '{"x":' } },
+        ],
+      }),
+    )) events.push(e)
+    // Text arriving while the tool block is open buffers, not inline.
+    for (const e of translator.processChunk(chunk({ content: 'interleaved' }))) events.push(e)
     for (const e of translator.processChunk(chunk({}, 'stop'))) events.push(e)
     const all = events.join('')
-    expect(all).toContain('"content_block_start","index":1,"content_block":{"type":"tool_use","id":"c2","name":"tool_3","input":{}}')
-    expect(all).toContain('"partial_json":"{\\"x\\":')
-    // Buffered text flushes after the tool blocks with a fresh index.
-    expect(all.indexOf('tool_3')).toBeLessThan(all.indexOf('"type":"text_delta","text":"interleaved"'))
+    expect(all).toContain('"content_block_start","index":0,"content_block":{"type":"tool_use","id":"c1","name":"Get_Weather","input":{}}')
+    // Ascending finalize: tool 0 flushes (no args -> start+stop only),
+    // then the belated tool 3 with its synthesized name and argument
+    // delta, then the buffered text as a fresh block.
+    expect(all).toContain('"content_block_stop","index":0')
+    // The belated block never received an id, so it carries the
+    // server-generated toolu_ id plus the synthesized name.
+    expect(all).toContain('"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_')
+    expect(all).toContain('"name":"tool_3","input":{}}')
+    expect(all).toContain('"index":1,"delta":{"type":"input_json_delta","partial_json":"{\\"x\\":"}')
     expect(all).toContain('"content_block_start","index":2,"content_block":{"type":"text","text":""}')
+    expect(all).toContain('"index":2,"delta":{"type":"text_delta","text":"interleaved"}')
+    // Tool blocks precede the buffered text.
+    expect(all.indexOf('tool_3')).toBeLessThan(all.indexOf('"type":"text_delta","text":"interleaved"'))
   })
 
   it('classifies finish reasons per announced tool arguments', () => {
@@ -805,7 +811,7 @@ describe('cla2oai stream state machine', () => {
 
   it('fails a pre-commit error payload with the payload status and text', async () => {
     const pipeline = translateOpenAIToClaudeFrames(
-      [source('data: {"error":{"message":"boom","code":"x"},"status":429}\n\n')],
+      bytesSource('data: {"error":{"message":"boom","code":"x"},"status":429}\n\n'),
       ctx,
     )
     await expect(async () => {
@@ -817,27 +823,40 @@ describe('cla2oai stream state machine', () => {
 
   it('renders malformed frames and bare JSON lines as 502 failures', async () => {
     await expect(async () => {
-      for await (const _frame of translateOpenAIToClaudeFrames([source('data: {broken\n\n')], ctx)) {
+      for await (const _frame of translateOpenAIToClaudeFrames(bytesSource('data: {broken\n\n'), ctx)) {
         void _frame
       }
     }).rejects.toMatchObject({ status: 502 })
     await expect(async () => {
-      for await (const _frame of translateOpenAIToClaudeFrames([source('{"bare":1}\n')], ctx)) {
+      for await (const _frame of translateOpenAIToClaudeFrames(bytesSource('{"bare":1}\n'), ctx)) {
         void _frame
       }
     }).rejects.toMatchObject({ status: 502 })
   })
 
   it('ends empty when the upstream produced no data frame at all', async () => {
-    const bootstrap = await bootstrapCla2OaiStream([source('')], ctx)
+    const bootstrap = await bootstrapCla2OaiStream(bytesSource(''), ctx)
     expect(bootstrap.kind).toBe('committed-empty')
   })
 
   it('renders the terminal error frame after committed events on a transport failure', async () => {
+    // Pull-based delivery: enqueueing everything in start() and calling
+    // error() would discard the queued chunks per the streams spec.
+    const firstFrame = encoder.encode('data: ' + JSON.stringify(chunk({ role: 'assistant' })) + '\n\n')
+    const secondFrame = encoder.encode('data: ' + JSON.stringify(chunk({ content: 'hi' })) + '\n\n')
+    let served = 0
     const source = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(encoder.encode('data: ' + JSON.stringify(chunk({ role: 'assistant' })) + '\n\n'))
-        controller.enqueue(encoder.encode('data: ' + JSON.stringify(chunk({ content: 'hi' })) + '\n\n'))
+      pull(controller) {
+        if (served === 0) {
+          served += 1
+          controller.enqueue(firstFrame)
+          return
+        }
+        if (served === 1) {
+          served += 1
+          controller.enqueue(secondFrame)
+          return
+        }
         controller.error(new Error('reset'))
       },
     })
@@ -848,17 +867,15 @@ describe('cla2oai stream state machine', () => {
     const all = frames.join('')
     expect(all).toContain('event: message_start')
     expect(all).toContain('"type":"text_delta","text":"hi"')
-    expect(all).toContain('event: error\ndata: {"type":"error","error":{"type":"api_error","message":"unexpected EOF"}}')
+    // The terminal frame is the last collected item, rendered verbatim
+    // by the facade's framer in the golden suite; here it carries the
+    // pinned message and nothing else follows it.
+    expect(frames[frames.length - 1]).toBe('E:unexpected EOF')
     expect(all).not.toContain('message_stop')
   })
 
-  function source(text: string): ReadableStream<Uint8Array> {
-    return new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(encoder.encode(text))
-        controller.close()
-      },
-    })
+  async function* bytesSource(text: string): AsyncIterable<Uint8Array> {
+    yield encoder.encode(text)
   }
 
   async function* streamToIterable(stream: ReadableStream<Uint8Array>): AsyncIterable<Uint8Array> {
@@ -1078,10 +1095,13 @@ describe('cla2oai facade', () => {
     const store = new MemoryStore()
     const service = serviceOf({ store, now: () => clock })
     const request = requestOf('{"model":"mock-model","messages":[{"role":"user","content":"Hi"}]}')
+    // Spaced (Python-style) error body: the 7.8 `": {"` cut mangles the
+    // JSON candidate, so the cooldown message embeds the RAW body
+    // verbatim - the recorded branch.
     const limited: Cla2OaiUpstreamSender = async () => ({
       status: 429,
       headers: [['Content-Type', 'application/json'], ['Retry-After', '7']],
-      body: bytesOf('{"error":{"message":"limited"}}'),
+      body: bytesOf('{"error": {"message": "limited"}}'),
     })
     const first = await service.handleV1Messages(request, limited)
     expect(first.status).toBe(429)
@@ -1092,12 +1112,13 @@ describe('cla2oai facade', () => {
       dispatched += 1
       return jsonReply('{"id":"x","model":"mock-gpt-model","choices":[]}')
     })
-    // Inside the hinted 7s window: cooldown surface, no dispatch.
+    // Inside the hinted 7s window: cooldown surface, no dispatch; the
+    // Retry-After header is ceil(resetIn) - 6s remain at t+1s.
     expect(gated.status).toBe(429)
-    expect(headerOf(gated, 'retry-after')).toBe('7')
+    expect(headerOf(gated, 'retry-after')).toBe('6')
     expect(dispatched).toBe(0)
     expect(JSON.parse(gated.body as string).error.message).toContain(
-      'All credentials for model mock-model are cooling down via provider openai-compatible-mock-openai (last error: {"error":{"message":"limited"}})',
+      'All credentials for model mock-model are cooling down via provider openai-compatible-mock-openai (last error: {"error": {"message": "limited"}})',
     )
 
     clock += 7_000
@@ -1110,7 +1131,7 @@ describe('cla2oai facade', () => {
   })
 
   it('surfaces store failures through reportError without failing the response', async () => {
-    let clock = 1_789_506_604_000
+    const clock = 1_789_506_604_000
     const failingStore = new MemoryStore()
     const spy = vi.spyOn(failingStore, 'update').mockRejectedValue(new Error('store down'))
     const reporter = vi.fn()
