@@ -19,7 +19,7 @@
 | S2d4 | spec: Claude client → OpenAI upstream | 1 | spec-s2d4-cla2oai | spec | 0 |  |
 | S2d5 | spec: OpenAI client → Codex/Responses upstream | 1 | spec-s2d5-oai2codex | spec-adv | 0 | section+24 goldens done; review assigned adv-spec-5; wire-note cooldown correction recorded |
 | S2d6 | spec: Responses client → OpenAI chat upstream | 1 | spec-s2d6-res2oai | spec | 0 |  |
-| S2d7 | spec: Gemini client → Claude upstream | 1 | spec-s2d7-gem2cla | spec-adv | 0 | section+25 goldens done; review assigned adv-spec-2 (spec-reviewer; impl-review must differ) |
+| S2d7 | spec: Gemini client → Claude upstream | 1 | spec-s2d7-gem2cla | spec-fix | 1 | R1: adv-spec-2 FAIL (B1 tokenizer ruling unapplied; B2 validator strings/goldens); R-TOK registered in SPEC §5 |
 | S2d8 | spec: Claude client → Gemini upstream | 1 | spec-s2d8-cla2gem | spec | 0 | section+18 cases done; rulings sent; recording queued w5 |
 | S2d9 | spec: Codex/Responses passthrough semantics | 1 | spec-s2d9-codex | spec | 0 |  |
 | S2d10 | spec: Antigravity redirect rules | 1 | spec-s2d10-antigravity | spec | 0 |  |
