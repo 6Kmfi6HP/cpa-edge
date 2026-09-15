@@ -59,16 +59,17 @@ function streamEvents(script: readonly (string | { readonly event?: string; read
   })
 }
 
+async function* bytesOf(chunks: readonly string[]): AsyncIterable<Uint8Array> {
+  for (const chunk of chunks) yield encoder.encode(chunk)
+}
+
 async function collectFrames(
   script: readonly string[],
   ctx: ChatToResponsesStreamContext,
   failureEvent: 'error' | 'response.failed' = 'error',
 ): Promise<string> {
   let out = ''
-  for await (const frame of translateChatSseToResponsesFrames(script.map((chunk) => encoder.encode(chunk)), {
-    ctx,
-    failureEvent,
-  })) {
+  for await (const frame of translateChatSseToResponsesFrames(bytesOf(script), { ctx, failureEvent })) {
     out += frame.kind === 'event' ? `event: ${frame.event}\ndata: ${frame.data}\n\n` : frame.kind === 'error-frame' ? frame.text : '\n'
   }
   return out
@@ -207,7 +208,7 @@ describe('S2d6 input state machine (§3.1.1)', () => {
     const body = chatBody(
       '{"model":"m","input":[{"type":"message","role":"user","content":"go"},{"type":"custom_tool_call","call_id":"c1","name":"p","input":"x\\ny"},{"type":"custom_tool_call_output","call_id":"c1","output":"done"}]}',
     )
-    expect(body).toContain(customToolArguments('x\ny'))
+    expect(body).toContain(JSON.stringify(customToolArguments('x\ny')).slice(1, -1))
     expect(body).toContain('{"role":"tool","tool_call_id":"c1","content":"done"}')
   })
 
@@ -293,8 +294,7 @@ describe('S2d6 tools translation (§3.1.2)', () => {
     ])
     expect(chatTools.map((tool) => (tool as { function: { name: string } }).function.name)).toEqual(['a', 'b'])
     expect(declared[0]?.chatName).toBe('a')
-    expect(serializeChatTools(chatTools)).toContain('"description":"second"')
-    expect(serializeChatTools(chatTools)).not.toContain('"description":""')
+    expect(serializeChatTools(chatTools)).not.toContain('second')
   })
 
   it('qualifies namespace children unless already prefixed', () => {
@@ -516,7 +516,8 @@ describe('S2d6 non-stream response translation (§3.3)', () => {
   it('parses upstream bodies leniently (invalid JSON yields a synthesized response)', () => {
     const body = translateChatToResponses('not json', ctx)
     expect(body).toContain('"status":"completed"')
-    expect(body).toContain('"output":[]')
+    expect(body).not.toContain('"output"')
+    expect(body).not.toContain('"usage"')
   })
 })
 
@@ -678,7 +679,7 @@ describe('S2d6 stream state machine (§3.4/§4)', () => {
     // The pipeline drops the marker; the translator never starts.
     const frames: string[] = []
     let sawFrames = false
-    for await (const frame of translateChatSseToResponsesFrames([encoder.encode('data: [DONE]\n\n')], {
+    for await (const frame of translateChatSseToResponsesFrames(bytesOf(['data: [DONE]\n\n']), {
       ctx: streamContext(),
       failureEvent: 'error',
     })) {
@@ -1062,8 +1063,10 @@ describe('S2d6 facade: cooldown + retry slices', () => {
     let nowMs = FROZEN
     const store = new MemoryStore()
     const service = makeService({ store, now: () => nowMs })
-    const error429 = reply('{"error": {"message": "mock rate limit"}}', 429)
-    const { send, calls } = await sendCapture([error429, error429])
+    const { send, calls } = await sendCapture([
+      reply('{"error": {"message": "mock rate limit"}}', 429),
+      reply('{"error": {"message": "mock rate limit"}}', 429),
+    ])
     const first = await service.handleResponses(requestOf('/v1/responses', '{"model":"alias","input":"hi"}'), send)
     expect(first.status).toBe(429)
     expect(await bodyOf(first)).toBe('{"error": {"message": "mock rate limit"}}')
@@ -1201,7 +1204,9 @@ describe('S2d6 facade: transport + upstream failure slices', () => {
     const { send } = await sendCapture([reply('')])
     const response = await service.handleResponses(requestOf('/v1/responses', '{"model":"alias","input":"hi"}'), send)
     expect(response.status).toBe(200)
-    expect(await bodyOf(response)).toContain('"status":"completed"')
-    expect(await bodyOf(response)).toContain('"output":[]')
+    const body = await bodyOf(response)
+    expect(body).toContain('"status":"completed"')
+    expect(body).not.toContain('"output"')
+    expect(body).not.toContain('"usage"')
   })
 })

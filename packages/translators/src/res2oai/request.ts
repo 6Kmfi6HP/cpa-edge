@@ -262,7 +262,6 @@ class MessageAssembler {
             ? (item['arguments'] as string)
             : ''
       this.pendingCalls.push(sortKeysDeep(chatToolCallEntry(callId, chatName, argumentsText)) as WireObject)
-      if (callId.length > 0) this.awaiting.add(callId)
       return
     }
 
@@ -308,10 +307,10 @@ class MessageAssembler {
       ? customOutputContent(item['output'])
       : functionOutputContent(item, bodyText, itemIndex)
     if (callId.length > 0 && this.awaiting.has(callId)) {
-      // The tool message stays adjacent to its assistant block: it defers
-      // with it while earlier outputs are still awaited, and its call id
-      // is consumed only after the message is placed.
-      this.emit({ role: 'tool', tool_call_id: callId, content })
+      // Tool messages never defer: they complete the adjacency block
+      // (assistant(tool_calls) -> tool messages) that the deferral gate
+      // exists to protect.
+      this.out.push({ role: 'tool', tool_call_id: callId, content })
       this.awaiting.delete(callId)
       if (this.awaiting.size === 0) this.flushDeferred()
       return
@@ -358,6 +357,12 @@ class MessageAssembler {
         this.pendingReasoning = undefined
       }
       this.emit(message)
+    }
+    // The flushed calls now await their outputs; messages arriving next
+    // defer until the outputs complete.
+    for (const call of calls) {
+      const id = call['id']
+      if (typeof id === 'string' && id.length > 0) this.awaiting.add(id)
     }
     this.mergeableAssistantIndex = undefined
   }
