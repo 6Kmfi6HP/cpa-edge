@@ -1,13 +1,14 @@
 /**
  * Upstream header assembly for the gemini-api-key executor (S2d8 2.2).
  *
- * The recorded wire pins the exact set and order:
- * `Host`, `User-Agent: Go-http-client/1.1`, `Content-Length`,
- * `Content-Type: application/json`, `x-goog-api-key`, `Accept-Encoding: gzip`.
- * No client headers are forwarded (credential `custom-headers` are the
- * only exception, not exercised by the goldens), `Authorization` is never
- * set, and NO `Accept` header is sent - stream-ness is expressed by the
- * URL alone (`:streamGenerateContent?alt=sse`).
+ * The recorded wire pins the exact set, names and order (the Go client's
+ * canonical spellings): `Host`, `User-Agent: Go-http-client/1.1`,
+ * `Content-Length`, `Content-Type: application/json`, `X-Goog-Api-Key`,
+ * `Accept-Encoding: gzip`. No client headers are forwarded (credential
+ * `custom-headers` are the only exception, not exercised by the goldens),
+ * `Authorization` is never set, and NO `Accept` header is sent -
+ * stream-ness is expressed by the URL alone
+ * (`:streamGenerateContent?alt=sse`).
  */
 /** User-Agent of the recorded upstream wire (Go default client). */
 export const GEMINI_UPSTREAM_USER_AGENT = 'Go-http-client/1.1'
@@ -45,7 +46,7 @@ export function buildGeminiUpstreamHeaders(input: GeminiUpstreamHeadersInput): H
     ['User-Agent', GEMINI_UPSTREAM_USER_AGENT],
     ['Content-Length', String(new TextEncoder().encode(input.body).length)],
     ['Content-Type', 'application/json'],
-    ['x-goog-api-key', input.apiKey],
+    ['X-Goog-Api-Key', input.apiKey],
     ['Accept-Encoding', 'gzip'],
   ]
   for (const name of Object.keys(input.credentialHeaders ?? {})) {

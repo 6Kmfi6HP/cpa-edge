@@ -485,7 +485,7 @@ export function buildGenerationConfig(request: Record<string, unknown>, ctx: Cla
   if (staged !== undefined) {
     hadThinking = true
     for (const key of Object.keys(staged)) {
-      config[key] = staged[key]
+      config[key] = staged[key] as WireValue
     }
   }
   if (ctx.thinking?.kind === 'unsupported') {

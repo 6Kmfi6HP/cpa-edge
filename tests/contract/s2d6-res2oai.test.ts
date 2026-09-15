@@ -406,8 +406,9 @@ const UPSTREAM_BASE_URL = `${UPSTREAM_ORIGIN}/v1`
 const UPSTREAM_MODEL = 'mock-gpt-model'
 const MODEL_ALIAS = 'mock-model'
 const UPSTREAM_USER_AGENT = 'cli-proxy-openai-compat'
-const VERSION_IMAGE = 'eceasy/cli-proxy-api:v7.3.4'
+const VERSION_TAG = 'CLIProxyAPI v7.3.4'
 const VERSION_COMMIT = '8335eac731946bd4eff18f500653f93736df53d6'
+const VERSION_IMAGE_DIGEST = 'sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266'
 const RESPONSES_PATH = '/v1/responses'
 const RESPONSES_COMPACT_PATH = '/v1/responses/compact'
 const CHAT_WIRE_PATH = '/v1/chat/completions'
@@ -838,7 +839,7 @@ async function resolveMockScript(
     )
     const events = asArray(mockFile.events)
     if (events !== undefined) {
-      const terminator = asString(mockFile.terminator)
+      const terminator = asString(mockFile.terminator) ?? null
       const abortAfter = mode === 'disconnect' ? control.after : undefined
       if (abortAfter !== undefined && (!Number.isInteger(abortAfter) || abortAfter < 0)) {
         throw new Error(`S2d6[${caseId}]: disconnect control must carry a non-negative integer "after"`)
@@ -1224,7 +1225,11 @@ function assertUpstreamClauses(caseId: CaseId, captured: CapturedUpstreamCall): 
   }
 }
 
-function assertDownstreamClauses(caseId: CaseId, result: DownstreamAssertionResult): void {
+function assertDownstreamClauses(
+  caseId: CaseId,
+  result: DownstreamAssertionResult,
+  usageOrderOverride?: readonly string[],
+): void {
   const context = `S2d6[${caseId}] downstream clauses`
   if (result.decoded === undefined) {
     const body = parseJsonRecord(result.body, context)
@@ -1238,13 +1243,15 @@ function assertDownstreamClauses(caseId: CaseId, result: DownstreamAssertionResu
     const usage = asRecord(body.usage)
     if (usage !== undefined) {
       // §3.3/§8-4: Ensure appends BOTH detail objects after total_tokens (this order).
-      expect(usageKeyOrder(usage), `${context}: non-stream usage key order (details appended after total)`).toEqual([
-        'input_tokens',
-        'output_tokens',
-        'total_tokens',
-        'output_tokens_details',
-        'input_tokens_details',
-      ])
+      expect(usageKeyOrder(usage), `${context}: non-stream usage key order (details appended after total)`).toEqual(
+        usageOrderOverride ?? [
+          'input_tokens',
+          'output_tokens',
+          'total_tokens',
+          'output_tokens_details',
+          'input_tokens_details',
+        ],
+      )
     }
     return
   }
@@ -1277,19 +1284,21 @@ function assertDownstreamClauses(caseId: CaseId, result: DownstreamAssertionResu
   if (caseId === 'S2d6-stream-usage-incomplete') {
     const terminal = frames.find((frame) => frame.event === 'response.incomplete')
     if (terminal === undefined) throw new Error(`${context}: expected a response.incomplete terminal frame`)
-    const response = asRecordOrThrow(
-      asRecord(parseJsonRecord(terminal.data, `${context}: terminal payload`)).response,
-      `${context}: terminal response object`,
+    const terminalPayload = parseJsonRecord(terminal.data, `${context}: terminal payload`)
+    const usage = asRecordOrThrow(
+      asRecordOrThrow(terminalPayload.response, `${context}: terminal response object`).usage,
+      `${context}: terminal usage`,
     )
-    const usage = asRecordOrThrow(response.usage, `${context}: terminal usage`)
     // §3.5 stream shape: cached_tokens inline (2nd key), reasoning_tokens appended after total.
-    expect(usageKeyOrder(usage), `${context}: stream usage key order (§3.5)`).toEqual([
-      'input_tokens',
-      'input_tokens_details',
-      'output_tokens',
-      'total_tokens',
-      'output_tokens_details',
-    ])
+    expect(usageKeyOrder(usage), `${context}: stream usage key order (§3.5)`).toEqual(
+      usageOrderOverride ?? [
+        'input_tokens',
+        'input_tokens_details',
+        'output_tokens',
+        'total_tokens',
+        'output_tokens_details',
+      ],
+    )
   }
 }
 
@@ -1382,6 +1391,8 @@ interface ReplayOptions {
   readonly script?: MockScript
   /** Override the expected downstream body (derived tests swap the usage object). */
   readonly expectedBody?: string
+  /** Override the usage key-order clause (derived tests expect the reasoning>0 orders). */
+  readonly expectedUsageOrder?: readonly string[]
 }
 
 async function replayCase(session: ReplaySession, caseId: CaseId, options: ReplayOptions = {}): Promise<void> {
@@ -1429,7 +1440,7 @@ async function replayCase(session: ReplaySession, caseId: CaseId, options: Repla
       ? files.recorded
       : { ...files.recorded, body: options.expectedBody }
   const result = await assertDownstreamStep(produced, expected, caseId)
-  assertDownstreamClauses(caseId, result)
+  assertDownstreamClauses(caseId, result, options.expectedUsageOrder)
 }
 
 // ─── Derived expectations (no golden; spec §3.3/§3.5 source-cited) ────────────────────
@@ -1479,3 +1490,307 @@ function patchUsageWithReasoning(script: MockScript, caseId: string): MockScript
   }
   throw new Error(`S2d6[${caseId}] derived: cannot patch an error script`)
 }
+
+// ─── ASCII guard (pythonJson byte fidelity) ──────────────────────────────────────────
+
+function assertAsciiStrings(value: unknown, context: string): void {
+  if (typeof value === 'string') {
+    for (const character of value) {
+      if (character.charCodeAt(0) > 0x7e) {
+        throw new Error(`${context}: non-ASCII string breaks mock byte fidelity: ${JSON.stringify(value)}`)
+      }
+    }
+  } else if (Array.isArray(value)) {
+    value.forEach((entry, index) => assertAsciiStrings(entry, `${context}[${index}]`))
+  } else if (value !== null && typeof value === 'object') {
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      assertAsciiStrings(entry, `${context}.${key}`)
+    }
+  }
+}
+
+// ─── Suites ──────────────────────────────────────────────────────────────────────────
+
+/** Recorded wire header orders (stable across all 27 fixtures; differs by upstream mode). */
+const NONSTREAM_WIRE_HEADER_ORDER = [
+  'Host',
+  'User-Agent',
+  'Content-Length',
+  'Authorization',
+  'Content-Type',
+  'Accept-Encoding',
+] as const
+const STREAM_WIRE_HEADER_ORDER = [
+  'Host',
+  'User-Agent',
+  'Content-Length',
+  'Accept',
+  'Authorization',
+  'Cache-Control',
+  'Content-Type',
+  'Accept-Encoding',
+] as const
+
+/** SSE goldens that end with the clean-close WriteDone `\n` vs the failure-frame close. */
+const CLEAN_CLOSE_CASES: ReadonlySet<string> = new Set([
+  'S2d6-stream-basic',
+  'S2d6-stream-reasoning',
+  'S2d6-stream-slow',
+  'S2d6-stream-toolcalls',
+  'S2d6-stream-usage-incomplete',
+])
+/** Recorded middleware-abort surfaces: the trace header is absent exactly here. */
+const TRACE_ABSENT_CASES: ReadonlySet<string> = new Set([
+  'S2d6-auth-missing',
+  'S2d6-badbody-notfound',
+  'S2d6-compact-stream-rejected',
+  'S2d6-model-notfound',
+])
+
+describe('S2d6 fixture inventory (harness self-check, adapter-independent)', () => {
+  it('exposes exactly the 27 admitted golden cases, each internally consistent', async () => {
+    expect([...fixtureCaseDirs]).toEqual([...EXPECTED_CASES])
+
+    for (const caseId of EXPECTED_CASES) {
+      const context = `S2d6[${caseId}]`
+      const meta = await readCaseMeta(caseId)
+      expect(meta.id, `${context}: meta.id echoes the directory name`).toBe(caseId)
+      expect(meta.anchor.includes(VERSION_TAG), `${context}: version anchor tag`).toBe(true)
+      expect(meta.anchor.includes(VERSION_IMAGE_DIGEST), `${context}: version anchor image digest`).toBe(true)
+      expect(meta.anchor.includes(VERSION_COMMIT), `${context}: version anchor commit`).toBe(true)
+      expect(typeof meta.recorded_at === 'string' && meta.recorded_at.length > 0, `${context}: recorded_at`).toBe(true)
+      validateDynamicFields(caseId, meta.dynamic_fields)
+
+      const request = parseRequestFile(await readFixtureText(caseId, 'request.http'))
+      expect(request.method, `${context}: route method`).toBe('POST')
+      expect(
+        request.path === RESPONSES_PATH || request.path === RESPONSES_COMPACT_PATH,
+        `${context}: route path is the recorded Responses surface`,
+      ).toBe(true)
+      expect(headerValue(request.headers, 'content-length'), `${context}: request body bytes match Content-Length`).toBe(
+        String(encoder.encode(request.body).length),
+      )
+      if (caseId === 'S2d6-auth-missing') {
+        expect(headerValue(request.headers, 'authorization'), `${context}: the auth-missing request carries no key`).toBeUndefined()
+      } else {
+        expect(headerValue(request.headers, 'authorization'), `${context}: recorded gateway key`).toBe(
+          `Bearer ${GATEWAY_API_KEY}`,
+        )
+      }
+      if (caseId !== 'S2d6-badbody-notfound') {
+        parseJsonRecord(request.body, `${context}: client body (NE-LENIENT replays are well-formed)`)
+      }
+
+      const recorded = parseDownstreamFile(await readFixtureText(caseId, 'downstream.md'))
+      expect(Number(meta.http_status), `${context}: meta http_status agrees with the recording`).toBe(recorded.status)
+      const contentType = headerValue(recorded.headers, 'content-type')
+      expect(contentType, `${context}: response head records Content-Type`).toBeDefined()
+      if (contentType === 'text/event-stream') {
+        expect(headerValue(recorded.headers, 'cache-control'), `${context}: SSE commit records Cache-Control`).toBe('no-cache')
+        expect(headerValue(recorded.headers, 'connection'), `${context}: SSE commit records Connection`).toBe('keep-alive')
+        expect(headerValue(recorded.headers, 'transfer-encoding'), `${context}: SSE recording is chunked`).toBe('chunked')
+        expect(headerValue(recorded.headers, 'content-length'), `${context}: chunked recordings carry no Content-Length`).toBeUndefined()
+        // Structural decode of the golden bytes under the §4.1 framing rules.
+        const decoded = decodeDownstreamSse(recorded.body, `${context}: golden SSE`)
+        const dataFrameCount = decoded.frames.length - (decoded.failureLead.at(-1) === true ? 1 : 0)
+        for (let index = 0; index < dataFrameCount; index += 1) {
+          expect(
+            asRecordOrThrow(JSON.parse(decoded.frames[index]?.data ?? 'null'), `${context} frame ${index}`).sequence_number,
+            `${context}: golden data frames number strictly +1 from 1`,
+          ).toBe(index + 1)
+        }
+        if (decoded.failureLead.at(-1) === true) {
+          const payload = asRecordOrThrow(JSON.parse(decoded.frames.at(-1)?.data ?? 'null'), `${context} failure frame`)
+          expect(payload.sequence_number, `${context}: golden failure frame seq == data-frame count (§5.2)`).toBe(
+            dataFrameCount,
+          )
+        }
+        expect(decoded.trailingWriteDone, `${context}: golden clean-close WriteDone rule`).toBe(CLEAN_CLOSE_CASES.has(caseId))
+      } else {
+        expect(headerValue(recorded.headers, 'content-length'), `${context}: JSON recording records Content-Length`).toBe(
+          String(encoder.encode(recorded.body).length),
+        )
+      }
+      expect(
+        (headerValue(recorded.headers, 'x-cpa-trace-id') !== undefined) === !TRACE_ABSENT_CASES.has(caseId),
+        `${context}: recorded trace-header presence matches the middleware-vs-handler split`,
+      ).toBe(true)
+
+      const wire = parseWireLines(await readFixtureText(caseId, 'upstream.jsonl'))
+      expect(wire.length, `${context}: wire line count == meta upstream_hits`).toBe(meta.upstream_hits)
+      for (const [index, line] of wire.entries()) {
+        expect(line.method, `${context} wire ${index}: method`).toBe('POST')
+        expect(
+          line.path === CHAT_WIRE_PATH || line.path === RESPONSES_COMPACT_PATH,
+          `${context} wire ${index}: known upstream path`,
+        ).toBe(true)
+        expect(line.headers.Authorization, `${context} wire ${index}: Authorization is redacted in the log`).toBe('<redacted>')
+        expect(line.headers['User-Agent'], `${context} wire ${index}: fixed compat User-Agent`).toBe(UPSTREAM_USER_AGENT)
+        expect(line.credential, `${context} wire ${index}: recorded credential name`).toBe(UPSTREAM_API_KEY)
+        expect(line.headers['Content-Length'], `${context} wire ${index}: logged Content-Length matches the body`).toBe(
+          String(encoder.encode(line.body).length),
+        )
+        const headerOrder = Object.keys(line.headers)
+        const expectedOrder = line.headers.Accept === undefined ? NONSTREAM_WIRE_HEADER_ORDER : STREAM_WIRE_HEADER_ORDER
+        expect(headerOrder, `${context} wire ${index}: stable recorded header order (stream vs non-stream)`).toEqual([
+          ...expectedOrder,
+        ])
+      }
+
+      const resolved = await resolveMockScript(caseId)
+      if (resolved.script.kind === 'nonstream') assertAsciiStrings(resolved.script.reply, `${context}: canned reply`)
+      if (resolved.script.kind === 'stream') {
+        assertAsciiStrings(resolved.script.script.events, `${context}: SSE script events`)
+        expect(
+          resolved.script.script.terminator === null ||
+            resolved.script.script.terminator === undefined ||
+            resolved.script.script.terminator === 'data: [DONE]',
+          `${context}: only the data: [DONE] terminator is recorded`,
+        ).toBe(true)
+      }
+      if (resolved.script.kind === 'error') {
+        expect(resolved.script.status, `${context}: recorded error mode is the 429`).toBe(429)
+        assertAsciiStrings(resolved.script.body, `${context}: error reply body`)
+      }
+
+      // meta.yaml canned_* duplicates must agree with the scripted mock file when both exist.
+      if (await fixtureFileExists(caseId, 'mock-response.json')) {
+        const mockFile = await readFixtureJson<unknown>(caseId, 'mock-response.json')
+        if (meta.mock_control.cannedNonstream !== undefined) {
+          expect(meta.mock_control.cannedNonstream, `${context}: meta canned_nonstream echoes mock-response.json`).toEqual(
+            mockFile,
+          )
+        }
+        if (meta.mock_control.cannedSse !== undefined) {
+          expect(meta.mock_control.cannedSse, `${context}: meta canned_sse echoes mock-response.json`).toEqual(mockFile)
+        }
+      }
+    }
+
+    // ── cross-case pins ──────────────────────────────────────────────────────────────
+    const bodyOf = async (caseId: CaseId): Promise<string> =>
+      parseDownstreamFile(await readFixtureText(caseId, 'downstream.md')).body
+    const wireOf = async (caseId: CaseId): Promise<readonly WireLine[]> =>
+      parseWireLines(await readFixtureText(caseId, 'upstream.jsonl'))
+
+    // stream-slow is byte-equal to stream-basic (timing is meta-only).
+    expect(await bodyOf('S2d6-stream-slow'), 'stream-slow golden bytes == stream-basic').toBe(await bodyOf('S2d6-stream-basic'))
+
+    // compact-streamfalse pins the stream-key DELETION: its upstream body equals the
+    // passthrough case's although the client sent "stream":false.
+    const compactPassthroughWire = await wireOf('S2d6-compact-passthrough')
+    const compactStreamfalseWire = await wireOf('S2d6-compact-streamfalse')
+    expect(compactStreamfalseWire[0]?.body, 'compact-streamfalse upstream body == passthrough (stream deleted)').toBe(
+      compactPassthroughWire[0]?.body,
+    )
+    expect(compactPassthroughWire[0]?.path, 'compact upstream path').toBe(RESPONSES_COMPACT_PATH)
+
+    // The 429 pair: one shared recording session, gap above the ~1s rate-limit window.
+    const metaA = await readCaseMeta('S2d6-error-nostream-429')
+    const metaB = await readCaseMeta('S2d6-error-stream-429')
+    expect(metaA.mock_control.mode, 'pair case A error mode').toBe('error')
+    expect(metaB.mock_control.mode, 'pair case B error mode').toBe('error')
+    expect(
+      Math.abs(Date.parse(metaA.recorded_at) - Date.parse(metaB.recorded_at)) >= 2_000,
+      'the two 429 goldens recorded >= 2s apart (cooldown expired for the second)',
+    ).toBe(true)
+    // The mock's served 429 bytes: the non-stream golden passed them through VERBATIM.
+    expect(await bodyOf('S2d6-error-nostream-429'), 'nostream-429 golden == pythonJson(mock 429 body), verbatim').toBe(
+      pythonJson(RATE_LIMIT_429_BODY),
+    )
+    const stream429Body = await bodyOf('S2d6-error-stream-429')
+    expect(stream429Body, 'stream-429 golden is the sanitized re-marshal with SORTED keys (§5.1)').toBe(
+      '{"error":{"code":429,"message":"mock rate limit","status":"RESOURCE_EXHAUSTED","type":"rate_limit_exceeded"}}',
+    )
+
+    // Fixture-authoritative divergence (spec §6): empty200 is the conductor empty_stream
+    // 500 with the message prefix — not the source-derived 502 hint in meta.expect_hints.
+    const emptyMeta = await readCaseMeta('S2d6-stream-empty200')
+    expect(Number(emptyMeta.http_status), 'empty200 recorded status is 500 (conductor classification)').toBe(500)
+    expect(await bodyOf('S2d6-stream-empty200'), 'empty200 recorded body').toBe(
+      '{"error":{"message":"empty_stream: upstream stream closed before first payload","type":"server_error","code":"internal_server_error"}}',
+    )
+
+    // badbody reference-behavior pin (NE-LENIENT documentation, not a rewrite target).
+    const badbody = await bodyOf('S2d6-badbody-notfound')
+    expect(badbody, 'badbody golden keeps the reference lenient model_not_found bytes').toBe(
+      '{"error":{"message":"unknown provider for model ","type":"invalid_request_error","code":"model_not_found","param":"model"}}',
+    )
+
+    // Default-script anchors: the derived variants ride these two fixture files.
+    const basicMeta = await readCaseMeta('S2d6-nostream-basic')
+    const streamBasicMeta = await readCaseMeta('S2d6-stream-basic')
+    expect(basicMeta.mock_control.variant, 'nostream-basic anchors the default non-stream reply').toBe('default')
+    expect(streamBasicMeta.mock_control.variant, 'stream-basic anchors the default SSE script').toBe('default-stream-done')
+    expect(DEFAULT_NONSTREAM_REPLY, 'DEFAULT_NONSTREAM_REPLY is the anchored fixture file').toEqual(
+      await readFixtureJson<unknown>('S2d6-nostream-basic', 'mock-response.json'),
+    )
+    expect(DEFAULT_STREAM_SCRIPT, 'DEFAULT_STREAM_SCRIPT is the anchored fixture file').toEqual(
+      await readFixtureJson<unknown>('S2d6-stream-basic', 'mock-response.json'),
+    )
+
+    // Derived-case surgery targets: each recorded usage object must occur exactly once.
+    for (const [caseId, needle] of [
+      ['S2d6-nostream-basic', RECORDED_NONSTREAM_USAGE],
+      ['S2d6-stream-usage-incomplete', RECORDED_STREAM_USAGE],
+    ] as const) {
+      const body = await bodyOf(caseId)
+      expect(body.split(needle).length - 1, `${caseId}: derived usage surgery target occurs exactly once`).toBe(1)
+    }
+
+    assertAsciiStrings(RATE_LIMIT_429_BODY, 'RATE_LIMIT_429_BODY')
+  })
+})
+
+suite(suiteTitle, () => {
+  for (const caseId of REPLAY_CASES) {
+    it(`${caseId} — replays the recorded golden: upstream wire byte-exact, downstream surface byte-exact`, async () => {
+      const session = makeSession()
+      await replayCase(session, caseId)
+    })
+  }
+
+  it('S2d6-badbody-notfound — NE-LENIENT divergence replay: strict 400, JSON error shape, zero upstream calls', async () => {
+    const session = makeSession()
+    await replayCase(session, 'S2d6-badbody-notfound')
+  })
+
+  it('S2d6-error-nostream-429 + S2d6-error-stream-429 — verbatim vs sanitized 429 pair on ONE shared session', async () => {
+    // One service + one store for both cases, replayed in recording order; the harness
+    // clock advances +2500ms between the steps (recorded gap ~2.5-3.5s > the ~1s
+    // rate-limit window), so the second request must still reach the upstream and
+    // observe its own 429 — a cooldown short-circuit fails against the recorded golden.
+    const session = makeSession()
+    await replayCase(session, 'S2d6-error-nostream-429')
+    session.advanceClock(PAIR_GAP_MS)
+    await replayCase(session, 'S2d6-error-stream-429')
+  })
+
+  it('derived (no golden): upstream reasoning_tokens>0 — non-stream usage order (spec §3.3)', async () => {
+    const caseId = 'S2d6-nostream-basic' as CaseId
+    const session = makeSession()
+    const resolved = await resolveMockScript(caseId)
+    const script = patchUsageWithReasoning(resolved.script, caseId)
+    const files = await loadCaseFiles(caseId)
+    const expectedBody = withSwappedUsage(files.recorded.body, RECORDED_NONSTREAM_USAGE, DERIVED_NONSTREAM_USAGE, 'derived nonstream')
+    await replayCase(session, caseId, {
+      script,
+      expectedBody,
+      expectedUsageOrder: ['input_tokens', 'output_tokens', 'output_tokens_details', 'total_tokens', 'input_tokens_details'],
+    })
+  })
+
+  it('derived (no golden): upstream reasoning_tokens>0 — stream usage order (spec §3.5)', async () => {
+    const caseId = 'S2d6-stream-usage-incomplete' as CaseId
+    const session = makeSession()
+    const resolved = await resolveMockScript(caseId)
+    const script = patchUsageWithReasoning(resolved.script, caseId)
+    const files = await loadCaseFiles(caseId)
+    const expectedBody = withSwappedUsage(files.recorded.body, RECORDED_STREAM_USAGE, DERIVED_STREAM_USAGE, 'derived stream')
+    await replayCase(session, caseId, {
+      script,
+      expectedBody,
+      expectedUsageOrder: ['input_tokens', 'input_tokens_details', 'output_tokens', 'output_tokens_details', 'total_tokens'],
+    })
+  })
+})

@@ -10,7 +10,6 @@
  */
 export type { HeaderList } from './headers'
 export {
-  DEFAULT_GEMINI_BASE_URL,
   GEMINI_UPSTREAM_USER_AGENT,
   buildGeminiUpstreamHeaders,
   headerListToRecord,
@@ -81,7 +80,7 @@ export {
 } from './errors'
 export type { ClaudeErrorExtraction } from './errors'
 
-export { createCla2GemService } from './service'
+export { createCla2GemService, DEFAULT_GEMINI_BASE_URL } from './service'
 export type {
   Cla2GemCredential,
   Cla2GemModelEntry,
