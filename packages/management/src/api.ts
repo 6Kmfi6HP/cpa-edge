@@ -464,10 +464,6 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
     }
     const type = typeof record['type'] === 'string' ? (record['type'] as string).toLowerCase() : ''
     const path = `${effective.authDir}/${fileName}`
-    let seed: { familyLiteral?: string; baseUrl?: string; apiKey?: string; authId: string } = { authId: `${type}:${fileName}` }
-    // Synchronous derivation is impossible with async crypto; reuse a stable
-    // digest-based index via the same Store-independent hash.
-    seed = { ...seed, authId: `${type}:${path}` }
     return syncAuthIndex(`${type}:${path}`)
   }
 
@@ -1853,9 +1849,8 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
     if (method === '') return ginError(400, 'missing method')
     const url = typeof record['url'] === 'string' ? (record['url'] as string) : ''
     if (url === '') return ginError(400, 'missing url')
-    let parsedUrl: URL
     try {
-      parsedUrl = new URL(url)
+      new URL(url)
     } catch {
       return ginError(400, 'invalid url')
     }
@@ -2014,10 +2009,6 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
     if (stored === '') return false
     const { verifyManagementSecret } = await import('@cpa-edge/auth')
     return verifyManagementSecret(presented, stored)
-  }
-
-  const deliverToConnection = (connection: UsageWireConnection, payload: string): void => {
-    pendingDelivery.set(connection, payload)
   }
 
   const pendingDelivery = new WeakMap<UsageWireConnection, string>()

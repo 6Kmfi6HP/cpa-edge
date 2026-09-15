@@ -7,7 +7,7 @@
 
 import type { JsonValue, Store } from '@cpa-edge/core'
 import { goJson, goJsonIndent, ordered, type WireValue } from './gojson'
-import { rfc3339Local, localZoneOffsetMinutes } from './wire'
+import { rfc3339Local } from './wire'
 import { recentRequestBuckets } from './usage'
 
 /** Store namespace holding one document per auth file. */
@@ -147,8 +147,7 @@ export class AuthFileRegistry {
     fields.push(['type', provider])
     fields.push(['unavailable', false])
     fields.push(['updated_at', rfc3339Local(meta.updatedMs, this.zoneOffsetMinutes)])
-    const sorted = fields.sort((left, right) => (left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0))
-    void ordered
+    fields.sort((left, right) => (left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0))
     const out: { [key: string]: WireValue } = {}
     for (const [key, value] of sorted) out[key] = value
     return out

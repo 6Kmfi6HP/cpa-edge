@@ -111,19 +111,6 @@ interface ParseState {
   index: number
 }
 
-function skipIgnorable(state: ParseState, indent: number): void {
-  while (state.index < state.lines.length) {
-    const line = state.lines[state.index]
-    if (line === undefined) break
-    if (line.blank || line.comment) {
-      state.index += 1
-      continue
-    }
-    if (line.indent < indent) break
-    break
-  }
-}
-
 function nextContentLine(state: ParseState, indent: number): DocLine | undefined {
   while (state.index < state.lines.length) {
     const line = state.lines[state.index]

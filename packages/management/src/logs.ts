@@ -18,8 +18,6 @@ export interface LogLineEntryInput {
   readonly requestId: string
 }
 
-export interface LogRingEntryInput extends LogLineEntryInput {}
-
 /** Appends one entry to the ring (capacity 1000). */
 export async function appendLogRing(store: Store, entry: LogLineEntryInput): Promise<void> {
   const value: { [key: string]: JsonValue } = {
@@ -32,7 +30,7 @@ export async function appendLogRing(store: Store, entry: LogLineEntryInput): Pro
 }
 
 /** Reads the whole window, oldest first. */
-export async function readLogRing(store: Store): Promise<LogRingEntryInput[]> {
+export async function readLogRing(store: Store): Promise<LogLineEntryInput[]> {
   const values = await store.ringRead(LOGS_RING)
   return values.map((value) => {
     const record = (typeof value === 'object' && value !== null && !Array.isArray(value) ? value : {}) as {

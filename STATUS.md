@@ -33,9 +33,9 @@
 | I-tr-S2d1 | packages/translators: OpenAI→Gemini | 2 | — | pending | 0 |  |
 | I-tr-S2d2 | packages/translators: Gemini→OpenAI | 2 | — | merged | 1 | MERGED: gem2oai PASS-WITH-NONBLOCKING round 1. 123 module + 26 contract live green. Ledger: N1 depth-cap->400 (T1 hardening), N2 countTokens time-box (T2), N3 failureCount atomicity (S4-impl note), N4 alt-empty spec sentence, N5 model-stamp parity, N6 leniency notes (D2). |
 | I-tr-S2d3 | packages/translators: OpenAI→Claude | 2 | — | merged | 2 | MERGED: oai2cla complete (spec 2 rounds, impl-review 2 rounds). 141 unit + 28 contract green. Residual: Store-get-throw hardening -> T2; N6 UA default blessed; N9 js-tiktoken kept (R-TOK) |
-| I-tr-S2d4 | packages/translators: Claude→OpenAI | 2 | — | pending | 0 |  |
+| I-tr-S2d4 | packages/translators: Claude→OpenAI | 2 | impl-i-tr-s2d4 | impl | 0 |  |
 | I-tr-S2d5 | packages/translators: OpenAI→Codex/Responses | 2 | impl-i-tr-s2d5 | impl | 0 |  |
-| I-tr-S2d6 | packages/translators: Responses→OpenAI chat | 2 | impl-i-tr-s2d6 | impl | 0 |  |
+| I-tr-S2d6 | packages/translators: Responses→OpenAI chat | 2 | impl-i-tr-s2d6 | impl-adv | 0 | delivered: 107 module + 29 contract live; impl-review running on adv-impl-1 |
 | I-tr-S2d7 | packages/translators: Gemini→Claude | 2 | — | merged | 2 | MERGED: gem2cla complete (spec 2 rounds, impl gate 2 rounds incl. S2d7-31 recorded ruling). 108 module + 33 contract green. |
 | I-tr-S2d8 | packages/translators: Claude→Gemini | 2 | impl-i-tr-s2d8 | impl-adv | 0 | delivered: 54+20+21 green; impl-review running on adv-impl-3 |
 | I-tr-S2d9 | packages/translators: Codex passthrough | 2 | impl-i-tr-s2d9 | impl | 0 |  |
