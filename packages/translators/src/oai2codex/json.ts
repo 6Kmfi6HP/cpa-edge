@@ -13,6 +13,18 @@ import { CpaError } from '@cpa-edge/core'
 import type { WireObject, WireValue } from './types'
 
 /**
+ * JSON text embedded VERBATIM during serialization (raw spans recovered from
+ * the client body: tool `parameters`, `text.format.schema`). Wrapping instead
+ * of escaping keeps the recorded byte-exact passthrough.
+ */
+export class RawJson {
+  constructor(readonly raw: string) {}
+}
+
+/** Document value a body builder may hold: plain JSON or raw text. */
+export type DocumentValue = WireValue | RawJson
+
+/**
  * Parses a client body under the strict request boundary (NE-LENIENT):
  * anything that is not valid JSON is rejected instead of being read
  * best-effort.
@@ -105,7 +117,8 @@ export function isPlainObject(value: unknown): value is WireObject {
 }
 
 /** Serializes a value in key-insertion order. Rejects non-JSON values. */
-export function serializeOrdered(value: WireValue): string {
+export function serializeDocument(value: DocumentValue): string {
+  if (value instanceof RawJson) return value.raw
   if (value === null) return 'null'
   if (typeof value === 'string') return serializeString(value)
   if (typeof value === 'boolean') return value ? 'true' : 'false'
@@ -119,7 +132,7 @@ export function serializeOrdered(value: WireValue): string {
     let out = '['
     for (let i = 0; i < value.length; i++) {
       if (i > 0) out += ','
-      out += serializeOrdered(value[i] as WireValue)
+      out += serializeDocument(value[i] as DocumentValue)
     }
     return out + ']'
   }
@@ -133,9 +146,17 @@ export function serializeOrdered(value: WireValue): string {
     if (member === undefined) continue
     if (!first) out += ','
     first = false
-    out += serializeString(key) + ':' + serializeOrdered(member as WireValue)
+    out += serializeString(key) + ':' + serializeDocument(member as DocumentValue)
   }
   return out + '}'
+}
+
+/**
+ * Serializes a pure JSON value in key-insertion order (raw-text embeddings
+ * are not allowed on this surface).
+ */
+export function serializeOrdered(value: WireValue): string {
+  return serializeDocument(value)
 }
 
 /**

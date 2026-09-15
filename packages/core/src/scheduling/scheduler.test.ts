@@ -35,7 +35,7 @@ async function s4Pool(): Promise<ScheduledCredential[]> {
   return identities.map((identity) => ({
     id: identity.id,
     provider: COMPAT,
-    models: ['mock-model'],
+    models: ['mock-model', 'iso-model-1', 'iso-model-2', 'all-blocked'],
     priority: 0,
     weight: 1,
     websocketEnabled: false,
@@ -80,7 +80,7 @@ describe('round-robin scheduling (S4-01)', () => {
     const order: string[] = []
     for (let i = 0; i < 6; i += 1) {
       const pick = await sched.pick(pool, request())
-      order.push(pick?.credential.id)
+      order.push(pick?.credential.id ?? '')
       await sched.recordResult({
         authId: pick?.credential.id ?? '',
         provider: COMPAT,
@@ -209,9 +209,12 @@ describe('retry round admission', () => {
     const round1 = await sched.pick(pool, request({ tried: ['x'], round: 1 }))
     expect(round1?.credential.id).toBe('b')
     // Global request-retry is 2, so b (limit 2) still admits round 2;
-    // a (override 0) never does.
+    // a (override 0) never does. With b already tried, round 2 finds
+    // nobody.
     const round2 = await sched.pick(pool, request({ tried: ['b'], round: 2 }))
-    expect(round2?.credential.id).toBe('a')
+    expect(round2).toBeUndefined()
+    const round2Again = await sched.pick(pool, request({ tried: [], round: 2 }))
+    expect(round2Again?.credential.id).toBe('b')
   })
 
   it('caps retry rounds at max-retry-credentials distinct credentials', async () => {
@@ -253,7 +256,7 @@ describe('session affinity scheduling (S4-11)', () => {
   it('unbinds on credential-attributed failures and preserves bindings on scoped failures', async () => {
     const pool = [simpleCredential('a'), simpleCredential('b')]
     const wall = clock()
-    const sched = scheduler({ sessionAffinity: true }, new MemoryStore({ now: () => wall.now }))
+    const sched = scheduler({ sessionAffinity: true }, new MemoryStore({ now: () => wall.now }), () => wall.now)
     const key = { sessionIdentity: 'sess', affinityScope: COMPAT }
     const first = await sched.pick(pool, request(key))
     expect(first?.credential.id).toBe('a')
@@ -280,12 +283,14 @@ describe('session affinity scheduling (S4-11)', () => {
     })
     const next = await sched.pick(pool, request(key))
     expect(next?.credential.id).toBe('b')
-    // Past the quota window both credentials are schedulable again; the
-    // binding is gone, so the session does NOT stick to a.
+    // Past the quota window a is schedulable again, and the session has
+    // rebound to b (the failover pick), so the session sticks to b - the
+    // stale binding to the failed credential is gone.
     wall.now = T0 + 2_000
+    expect(await sched.availability('a', 'mock-model')).toBeUndefined()
     const after = await sched.pick(pool, request(key))
-    expect(after?.credential.id).toBe('a')
-    expect(after?.fromAffinity).toBe(false)
+    expect(after?.credential.id).toBe('b')
+    expect(after?.fromAffinity).toBe(true)
   })
 
   it('inherits the parent session for subagents when enabled', async () => {

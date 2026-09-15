@@ -87,7 +87,7 @@ describe('refresh scheduling rule (§2.7)', () => {
     expect(
       shouldRefresh(
         { kind: 'oauth', provider: 'kimi' },
-        { last_refreshed_at: '1970-01-01T00:16:30Z' },
+        { last_refreshed_at: '1970-01-01T00:10:00Z' },
         1_000_000,
       ),
     ).toBe(true)

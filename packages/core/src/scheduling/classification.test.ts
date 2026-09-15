@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { RequestScopedRule } from './classification'
 import {
   COMPACT_FAULT_STOP_STATUSES,
   RETRY_ROUND_STATUSES,
@@ -57,17 +58,19 @@ describe('request-fault detection', () => {
 
 describe('request-scoped rules', () => {
   it('matches on status and any substring', () => {
-    const rules = [{ status: 400, match: ['mock'], action: 'continue' }]
+    const rules: RequestScopedRule[] = [{ status: 400, match: ['mock'], action: 'continue' }]
     expect(matchRequestScopedRule(rules, 400, 'mock rate limit')).toBe('continue')
     expect(matchRequestScopedRule(rules, 401, 'mock rate limit')).toBeUndefined()
     expect(matchRequestScopedRule(rules, 400, 'other')).toBeUndefined()
   })
 
   it('matches on regex patterns', () => {
-    const rules = [{ matchRegex: ['quota.*exceeded'], action: 'stop-and-cooldown' }]
+    const rules: RequestScopedRule[] = [{ matchRegex: ['quota.*exceeded'], action: 'stop-and-cooldown' }]
     expect(matchRequestScopedRule(rules, 429, 'quota window exceeded')).toBe('stop-and-cooldown')
     expect(matchRequestScopedRule(rules, 429, 'nope')).toBeUndefined()
-    expect(matchRequestScopedRule([{ matchRegex: ['['] }, { action: 'continue' }], 500, 'text')).toBe('continue')
+    // An invalid pattern never matches, so the rule is skipped.
+    const invalid: RequestScopedRule[] = [{ matchRegex: ['['], action: 'stop' }, { action: 'continue' }]
+    expect(matchRequestScopedRule(invalid, 500, 'text')).toBe('continue')
   })
 
   it('keeps a rule with no constraints always matching', () => {

@@ -348,7 +348,12 @@ async function assertDownstreamStep(
   }
 }
 
-async function replayCase(caseId: string, session: Session, sendLog: Gem2OaiUpstreamRequest[]): Promise<void> {
+async function replayCase(
+  caseId: string,
+  session: Session,
+  sendLog: Gem2OaiUpstreamRequest[],
+  callsBefore = 0,
+): Promise<void> {
   const meta = readCaseMeta(caseId)
   const mockFile = readMockResponse(caseId)
   const requests: readonly RecordedRequest[] = readRecordedRequests(caseId)
@@ -377,10 +382,11 @@ async function replayCase(caseId: string, session: Session, sendLog: Gem2OaiUpst
     await assertDownstreamStep(response, expected, caseId, step)
   }
 
-  expect(sendLog.length, `${caseId}: upstream call count (gateway-local steps make no call)`).toBe(recordedUpstream.length)
+  const caseCalls = sendLog.slice(callsBefore)
+  expect(caseCalls.length, `${caseId}: upstream call count (gateway-local steps make no call)`).toBe(recordedUpstream.length)
   for (let index = 0; index < recordedUpstream.length; index++) {
     const recorded = recordedUpstream[index]
-    const call = sendLog[index]
+    const call = caseCalls[index]
     if (recorded === undefined || call === undefined) continue
     assertUpstreamWire(recorded, call, caseId)
   }
@@ -392,18 +398,18 @@ describe('S2d2 golden replay - facade over the recorded fixtures', () => {
   for (const caseId of ISOLATED_CASES) {
     it(`${caseId}: upstream wire byte-exact, downstream surface byte-exact`, async () => {
       const sendLog: Gem2OaiUpstreamRequest[] = []
-      await replayCase(caseId, createSession(new MemoryStore()), sendLog)
+      await replayCase(caseId, createSession(new MemoryStore()), sendLog, 0)
     })
   }
 
   it('gem2oai-error-429 then gem2oai-cooldown-after-429: escalation pair on one shared session (reset_seconds 4 byte-exact)', async () => {
     const sendLog: Gem2OaiUpstreamRequest[] = []
     const session = createSession(new MemoryStore())
-    await replayCase('gem2oai-error-429', session, sendLog)
-    await replayCase('gem2oai-cooldown-after-429', session, sendLog)
-    // 4 upstream calls total: two 429 feeders + the third 429; the in-window
-    // step makes none (recorded upstream log: 1 + 1 + 1 + 0).
-    expect(sendLog.length).toBe(3)
+    await replayCase('gem2oai-error-429', session, sendLog, 0)
+    // Third consecutive 429 opens the recorded 4-second window; the next
+    // request lands inside it and never reaches the upstream.
+    await replayCase('gem2oai-cooldown-after-429', session, sendLog, sendLog.length)
+    expect(sendLog.length, 'escalation pair: 3 upstream calls total').toBe(3)
   })
 
   it('every fixture body claim is byte-true and every dynamic field is recognized', () => {

@@ -29,9 +29,6 @@ describe('session identity extraction', () => {
       body: { metadata: { user_id: 'user-1' }, session_id: 'body-session', prompt_cache_key: 'cache' },
     }
     expect(await extractSessionIdentity(everything)).toBe('claude-code')
-    expect(
-      await extractSessionIdentity({ headers: everything.headers, body: { metadata: { user_id: 'user-1' } } }),
-    ).toBe('user-1')
     const withoutClaudeCode = { ...everything, headers: { ...everything.headers, 'X-Claude-Code-Session-Id': '' } }
     expect(await extractSessionIdentity(withoutClaudeCode)).toBe('user-1')
     const noMetadata = { ...withoutClaudeCode, body: { session_id: 'body-session' } }

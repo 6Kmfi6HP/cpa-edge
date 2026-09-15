@@ -9,7 +9,6 @@ import {
   OAuthLoginService,
 } from './oauth-login'
 import { OAuthSessionRegistry } from './oauth-sessions'
-import { startXaiDeviceLogin } from './device-flows'
 
 // Golden authorize URLs from tests/fixtures/S3 (S3 §2.3): the query
 // parameter sets, order and escaping are byte-pinned; state and PKCE are
@@ -122,15 +121,16 @@ describe('login-URL service (§2.5 response bodies)', () => {
   })
 })
 
+const DEVICE_PAYLOAD = {
+  device_code: 'dev-1',
+  user_code: 'ABCD-EFGH',
+  verification_uri: 'https://auth.kimi.com/device',
+  verification_uri_complete: 'https://auth.kimi.com/device?user_code=ABCD-EFGH',
+  expires_in: 600,
+  interval: 5,
+}
+
 describe('device-flow login endpoints (§2.5/§2.6)', () => {
-  const DEVICE_PAYLOAD = {
-    device_code: 'dev-1',
-    user_code: 'ABCD-EFGH',
-    verification_uri: 'https://auth.kimi.com/device',
-    verification_uri_complete: 'https://auth.kimi.com/device?user_code=ABCD-EFGH',
-    expires_in: 600,
-    interval: 5,
-  }
 
   it('answers the kimi body with the kmi- state and omits expires_in when the vendor omits it', async () => {
     const svc = service(async () => jsonResponse(DEVICE_PAYLOAD))
@@ -165,35 +165,12 @@ describe('device-flow login endpoints (§2.5/§2.6)', () => {
       void _drop
       return jsonResponse(rest)
     }
-    const directProbe = await startXaiDeviceLogin({
-      fetch: async (url, init) => {
-        console.log('DIRECT-CALL', url, init?.method)
-        if (url.includes('openid-configuration')) {
-          return new Response(
-            JSON.stringify({
-              device_authorization_endpoint: 'https://auth.x.ai/oauth/device/authorize',
-              token_endpoint: 'https://auth.x.ai/oauth/token',
-            }),
-            { status: 200 },
-          )
-        }
-        return new Response(
-          JSON.stringify({ device_code: 'd', user_code: 'U', verification_uri_complete: 'v' }),
-          { status: 200 },
-        )
-      },
-    }).then(
-      (value: unknown) => `resolved ${JSON.stringify(value)}`,
-      (error: unknown) => `threw ${String(error)}`,
-    )
-    console.log('DIRECT', directProbe)
     const xai = await (await serviceWithDiscovery()).xaiLoginUrl()
-    console.log('XAI-DEBUG', JSON.stringify(xai))
     expect(xai.ok).toBe(true)
-    if (xai.ok) expect(JSON.parse(xai.body) as Record<string, unknown>)['expires_in'].toBe(1800)
+    if (xai.ok) expect((JSON.parse(xai.body) as Record<string, unknown>)['expires_in']).toBe(1800)
     const meta = await service(noExpires).metaLoginUrl()
     expect(meta.ok).toBe(true)
-    if (meta.ok) expect(JSON.parse(meta.body) as Record<string, unknown>)['expires_in'].toBe(900)
+    if (meta.ok) expect((JSON.parse(meta.body) as Record<string, unknown>)['expires_in']).toBe(900)
   })
 
   it('answers the pinned 500 bodies when the vendor endpoint is unreachable', async () => {
