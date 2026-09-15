@@ -465,6 +465,11 @@ export function appendElement(text: string, arraySpan: RawSpan, elementJson: str
  * re-serialization the gateway applies to upstream error bodies.
  */
 export function remarshalSortedRaw(objectText: string): string | undefined {
+  return remarshalRawSorted(objectText, false)
+}
+
+/** Shared raw-token remarshal; `objectText` spans one JSON object. */
+function remarshalRawSorted(objectText: string, nested: boolean): string | undefined {
   const span: RawSpan = { start: 0, end: objectText.length }
   const members = scanObjectMembers(objectText, span)
   if (members === undefined) return undefined
@@ -474,7 +479,25 @@ export function remarshalSortedRaw(objectText: string): string | undefined {
     const member = sorted[i]
     if (member === undefined) continue
     if (i > 0) out += ','
-    out += serializeString(member.key) + ':' + objectText.slice(member.valueSpan.start, member.valueSpan.end)
+    const valueText = objectText.slice(member.valueSpan.start, member.valueSpan.end)
+    let spliced = valueText
+    if (valueText.startsWith('{')) spliced = remarshalRawSorted(valueText, true) ?? valueText
+    else if (valueText.startsWith('[')) spliced = remarshalArrayRawSorted(valueText)
+    out += serializeString(member.key) + ':' + spliced
   }
   return out + '}'
+}
+
+/** Sorts every object inside a raw array, element order preserved. */
+function remarshalArrayRawSorted(arrayText: string): string {
+  const span: RawSpan = { start: 0, end: arrayText.length }
+  const elements = scanArrayElements(arrayText, span) ?? []
+  const parts: string[] = []
+  for (const element of elements) {
+    const valueText = arrayText.slice(element.span.start, element.span.end)
+    if (valueText.startsWith('{')) parts.push(remarshalRawSorted(valueText, true) ?? valueText)
+    else if (valueText.startsWith('[')) parts.push(remarshalArrayRawSorted(valueText))
+    else parts.push(valueText)
+  }
+  return `[${parts.join(',')}]`
 }

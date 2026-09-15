@@ -73,10 +73,9 @@
  *   runs, so each variant gets its own gateway; the two V4 ban probes each
  *   ran on a discarded fresh container and get isolated gateways too.
  * • CLOCK: never wall-clock. Before each replayed request the clock
- *   freezes at the second of the golden's own `Date` header, so
- *   models-list `created`/`created_at` fields and the 30m ban countdown
- *   reproduce the recorded bytes with NO masking (the fields stay
- *   dynamic for the oracle, deterministic here).
+ *   freezes at the second of the golden's own `Date` header, keeping
+ *   every now()-driven decision deterministic (the 30m ban countdown
+ *   reproduces `30m0s` exactly; OAuth TTLs never expire mid-replay).
  * • UPSTREAM: the gateway's fetch is injected. Cases whose recorded
  *   upstream.jsonl is empty (or absent) must never call it - the mock
  *   throws, so unplanned egress fails loudly. Cases with recorded wire
@@ -96,8 +95,10 @@
  * • MASKING, strictly per meta.yaml dynamic_fields (unknown entries fail
  *   loudly): `Date` never compared (transport); `X-Cpa-Trace-Id`
  *   presence-only (the value embeds a timestamp + random hex);
- *   `created`/`created_at` NOT masked - the frozen clock makes them
- *   deterministic and their byte-pinning catches clock-plumbing bugs;
+ *   `created`/`created_at` masked in bodies - the recordings show the
+ *   reference stamps them at registry-build time, not request time
+ *   (S1-09 and S1-10 share one stamp while their request clocks differ
+ *   by 12s), so the value is dynamic by the spec's own masking table;
  *   `Content-Length when body is dynamic` - CL is never header-compared,
  *   but golden CL is cross-checked against the produced body length
  *   wherever the body itself is byte-compared. One fixture-declared
@@ -345,6 +346,10 @@ function parseGoldenResponse(caseId: string, file: string, text: string): Golden
   const bodyMatch = BODY_FENCE.exec(text)
   if (bodyMatch === null) throw new Error(`${caseId}/${file}: missing body fence`)
   let body = bodyMatch[1] ?? ''
+  // One artifact (S1-04/head-on-root) captured `curl -i` output under the
+  // body heading: an empty body echoed the response head instead. The
+  // recorded response body is empty; the echo is not body bytes.
+  if (body.startsWith('HTTP/1.1 ')) body = ''
   // The markdown renderer appends a display newline after bodies that do
   // not end in one; the golden Content-Length disambiguates.
   if (
@@ -774,6 +779,19 @@ function maskBanRemaining(body: string): string {
   return body.replace(BAN_REMAINING_MASK, 'Try again in {{BAN-REMAINING}}')
 }
 
+/**
+ * meta.yaml declares `created`/`created_at` dynamic: the reference stamps
+ * them when the model registry is built, not at request time (S1-09 and
+ * S1-10 share one stamp while their request clocks differ by 12s), so the
+ * value is masked on both sides exactly like the other dynamic fields.
+ */
+const CREATED_EPOCH_MASK = /"created":\d+/g
+const CREATED_AT_MASK = /"created_at":"[^"]+"/g
+
+function maskCreatedFields(body: string): string {
+  return body.replace(CREATED_EPOCH_MASK, '"created":{{CREATED}}').replace(CREATED_AT_MASK, '"created_at":"{{CREATED_AT}}"')
+}
+
 /** Recognized meta.yaml dynamic_fields (unknown entries fail loudly). */
 function recognizeDynamicFields(caseId: string, fields: readonly string[]): void {
   for (const field of fields) {
@@ -816,8 +834,14 @@ async function materialize(response: GatewayResponse): Promise<MaterializedRespo
   return { status: response.status, headers: response.headers, body: out, streamed: true }
 }
 
-/** How a golden body compares: byte-exact unless the fixture demands otherwise. */
-type BodyMode = 'exact' | 'sse' | 'redirect' | 'skip-body'
+/**
+ * How a golden body compares: byte-exact unless the fixture demands
+ * otherwise. `trim` covers bodies whose trailing CR/LF did not survive
+ * the markdown rendering (the OQ-1 redirect HTML and the gorilla
+ * handshake text): both sides trim trailing CR/LF and the golden
+ * Content-Length is not cross-checked for them.
+ */
+type BodyMode = 'exact' | 'sse' | 'trim' | 'skip-body'
 
 interface StepVerdict {
   readonly problems: readonly string[]
@@ -828,7 +852,11 @@ function assertGoldenStep(
   golden: GoldenResponse,
   actual: MaterializedResponse,
   mode: BodyMode,
-  opts: { readonly maskBanDuration: boolean; readonly goldenIsHead: boolean },
+  opts: {
+    readonly maskBanDuration: boolean
+    readonly maskCreated: boolean
+    readonly goldenIsHead: boolean
+  },
 ): StepVerdict {
   const problems: string[] = []
   if (golden.status !== actual.status) {
@@ -857,12 +885,18 @@ function assertGoldenStep(
     expectedBody = maskBanRemaining(expectedBody)
     actualBody = maskBanRemaining(actualBody)
   }
+  if (opts.maskCreated) {
+    expectedBody = maskCreatedFields(expectedBody)
+    actualBody = maskCreatedFields(actualBody)
+  }
   if (mode === 'sse') {
     const expectedEvents = decodeSseEvents(expectedBody)
     const actualEvents = decodeSseEvents(actualBody)
     if (expectedEvents.length !== actualEvents.length) {
       problems.push(
-        `SSE frames: golden ${expectedEvents.length} vs actual ${actualEvents.length}`,
+        `SSE frames: golden ${expectedEvents.length} vs actual ${actualEvents.length}\n` +
+          `    golden body: ${JSON.stringify(expectedBody.slice(0, 160))}\n` +
+          `    actual body: ${JSON.stringify(actualBody.slice(0, 160))}`,
       )
     } else {
       for (let index = 0; index < expectedEvents.length; index += 1) {
@@ -879,8 +913,9 @@ function assertGoldenStep(
     }
   } else if (mode === 'skip-body') {
     if (actualBody.length === 0) problems.push('body: expected the S5-owned payload, got an empty body')
-  } else if (mode === 'redirect') {
-    // OQ-1: the 301 HTML body bytes are platform-optional; compare trimmed.
+  } else if (mode === 'trim') {
+    // OQ-1 (redirect HTML) and the gorilla handshake text: the recorded
+    // trailing CR/LF did not survive the markdown; compare trimmed.
     const expectedTrimmed = expectedBody.replace(/\r?\n+$/, '')
     const actualTrimmed = actualBody.replace(/\r?\n+$/, '')
     if (expectedTrimmed !== actualTrimmed) {
@@ -924,11 +959,6 @@ function assertGoldenStep(
   return { problems: [`[${label}] diverges from the golden:`, ...problems.map((p) => `  - ${p}`)] }
 }
 
-/** Golden bodies recorded as HEAD artifacts carry no body by definition. */
-function goldenIsHeadArtifact(requestMethod: string, goldenFile: string): boolean {
-  return requestMethod === 'HEAD' || goldenFile.includes('(HEAD request')
-}
-
 // ─── Upstream-wire assertion (the s2d2 order discipline at the fetch seam) ───────
 
 const UPSTREAM_EXCLUDED = new Set(['host', 'content-length'])
@@ -941,12 +971,13 @@ function assertUpstreamCall(
   if (call.method !== recorded.method) {
     return `${label}: method ${call.method} !== recorded ${recorded.method}`
   }
-  let recordedUrl = ''
-  try {
-    recordedUrl = new URL(recorded.path, 'http://host.docker.internal:18999').href
-  } catch {
-    recordedUrl = recorded.path
-  }
+  const recordedUrl = (() => {
+    try {
+      return new URL(recorded.path, 'http://host.docker.internal:18999').href
+    } catch {
+      return recorded.path
+    }
+  })()
   if (call.url !== recordedUrl) {
     return `${label}: url ${call.url} !== recorded ${recordedUrl}`
   }
@@ -1009,7 +1040,8 @@ const UPSTREAM_CALLS_BY_REQUEST: Readonly<Record<string, number>> = {
 
 /** Golden bodies that compare under a mode other than byte-exact. */
 const BODY_MODE_BY_REQUEST: Readonly<Record<string, BodyMode>> = {
-  'S1-08/get-trailing': 'redirect',
+  'S1-08/get-trailing': 'trim',
+  'S1-19/responses-get-nows': 'trim',
   'S1-17/stream-alt-sse': 'sse',
   'S1-17/stream-no-alt': 'sse',
   'S1-20/mgmt-bearer': 'skip-body',
@@ -1139,6 +1171,9 @@ async function replayRegularRequest(spec: RequestSpec): Promise<void> {
 
   const verdict = assertGoldenStep(spec.key, golden, actual, spec.bodyMode, {
     maskBanDuration: false,
+    maskCreated:
+      entry.meta.dynamic_fields.includes('created') ||
+      entry.meta.dynamic_fields.includes('created_at'),
     goldenIsHead: spec.method === 'HEAD',
   })
   if (verdict.problems.length > 0) {
@@ -1176,7 +1211,7 @@ interface ThresholdRequest {
 }
 
 function parseThresholdRequests(text: string): ThresholdRequest[] {
-  const blocks = text.split(/\n### Attempt \d+[^\n]*\n/).slice(1)
+  const blocks = text.split(/^### Attempt \d+[^\n]*\n/m).slice(1)
   if (blocks.length !== 6) {
     throw new Error(`ip-ban-threshold: expected 6 request blocks, parsed ${blocks.length}`)
   }
@@ -1338,7 +1373,7 @@ function registerS1Group(group: string): void {
   }
 }
 
-const inventory = describe('S1 fixture inventory (harness self-check, adapter-independent)', () => {
+describe('S1 fixture inventory (harness self-check, adapter-independent)', () => {
   it('exposes exactly the 26 admitted golden cases with internally consistent request/response pairs', async () => {
     const onDisk = (await readdir(FIXTURE_ROOT, { withFileTypes: true }))
       .filter((entry) => entry.isDirectory())
@@ -1376,7 +1411,7 @@ const inventory = describe('S1 fixture inventory (harness self-check, adapter-in
         // markdown rendering (registered platform-optional).
         if (
           golden.contentLength !== null &&
-          spec.bodyMode !== 'redirect' &&
+          spec.bodyMode !== 'trim' &&
           encoder.encode(golden.body).length !== golden.contentLength
         ) {
           throw new Error(

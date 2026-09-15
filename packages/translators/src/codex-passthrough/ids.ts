@@ -86,16 +86,16 @@ export async function planInputItemIds(items: readonly ItemIdInput[]): Promise<r
       actions.push({ kind: 'keep' })
       continue
     }
+    // Encrypted reasoning state cannot survive a shortened id: the whole
+    // item leaves the input.
+    if (items[i]?.encryptedValid === true && countRunes(id) > ITEM_ID_RUNE_LIMIT) {
+      actions.push({ kind: 'drop' })
+      continue
+    }
     if (id.startsWith(prefix)) {
       if (countRunes(id) <= ITEM_ID_RUNE_LIMIT) {
         taken.add(id)
         actions.push({ kind: 'keep' })
-        continue
-      }
-      if (items[i]?.encryptedValid === true) {
-        // Encrypted reasoning state cannot survive a shortened id: the
-        // whole item leaves the input.
-        actions.push({ kind: 'drop' })
         continue
       }
       const shortened = await shortenUnique(id, taken)

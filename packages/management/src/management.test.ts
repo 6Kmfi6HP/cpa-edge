@@ -349,21 +349,39 @@ function callApi(
   }))
 }
 
-/** A request whose body parks mid-stream until `release()` fires. */
+/**
+ * A request whose body parks mid-stream until `release()` fires. `started`
+ * resolves once the handler has consumed the first chunk inside
+ * `request.text()`, so a racing request issued afterwards provably runs
+ * after this one reached its body await (and its entry snapshot).
+ */
 function gatedRequest(
   method: string,
   path: string,
   chunks: readonly string[],
-): { request: Request; release: () => void } {
+): { request: Request; started: Promise<void>; release: () => void } {
   let release!: () => void
   const gate = new Promise<void>((resolve) => {
     release = resolve
   })
+  let markStarted!: () => void
+  const started = new Promise<void>((resolve) => {
+    markStarted = resolve
+  })
+  let parked = false
   const encoder = new TextEncoder()
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      for (const chunk of chunks) controller.enqueue(encoder.encode(chunk))
-      void gate.then(() => controller.close())
+      controller.enqueue(encoder.encode(chunks[0] ?? ''))
+    },
+    pull(controller) {
+      if (parked) return
+      parked = true
+      markStarted()
+      void gate.then(() => {
+        for (const chunk of chunks.slice(1)) controller.enqueue(encoder.encode(chunk))
+        controller.close()
+      })
     },
   })
   const request = new Request(managementUrl(path), {
@@ -372,16 +390,11 @@ function gatedRequest(
     body: stream,
     duplex: 'half',
   } as RequestInit & { duplex: 'half' })
-  return { request, release }
+  return { request, started, release }
 }
 
 async function jsonOf(response: Response): Promise<Record<string, unknown>> {
   return JSON.parse(await response.text()) as Record<string, unknown>
-}
-
-/** Lets parked handlers reach their first await before the test continues. */
-async function settle(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 0))
 }
 
 /** Minimal completion record; every field the serializer requires is present. */
@@ -515,7 +528,7 @@ describe('provider list mutation races', () => {
       'ue":{"base-url":"http://slow.test"}}',
     ])
     const slowCall = api.handle(slow.request)
-    await settle()
+    await slow.started
     const fast = await callApi(api, 'PATCH', '/gemini-api-key', {
       body: '{"index":0,"value":{"base-url":"http://fast.test"}}',
     })
@@ -542,7 +555,7 @@ describe('provider list mutation races', () => {
       '{"match":"gem-key-1","value":{"base-url":"http://slow.test"}}',
     ])
     const slowCall = api.handle(slow.request)
-    await settle()
+    await slow.started
     const removed = await callApi(api, 'DELETE', '/gemini-api-key', { query: '?api-key=gem-key-2' })
     expect(removed.status).toBe(200)
     slow.release()
@@ -564,7 +577,7 @@ describe('provider list mutation races', () => {
       '{"match":"gem-key-1","value":{"base-url":"http://slow.test"}}',
     ])
     const slowCall = api.handle(slow.request)
-    await settle()
+    await slow.started
     const removed = await callApi(api, 'DELETE', '/gemini-api-key', { query: '?api-key=gem-key-1' })
     expect(removed.status).toBe(200)
     slow.release()
@@ -584,7 +597,7 @@ describe('provider list mutation races', () => {
       '{"name":"mock-openai","value":{"disabled":true}}',
     ])
     const slowCall = api.handle(slow.request)
-    await settle()
+    await slow.started
     const removed = await callApi(api, 'DELETE', '/openai-compatibility', { query: '?name=mock-openai' })
     expect(removed.status).toBe(200)
     slow.release()
@@ -603,7 +616,7 @@ describe('provider list mutation races', () => {
       '{"match":"gem-key-1","value":{"base-url":"http://slow.test"}}',
     ])
     const slowCall = api.handle(slow.request)
-    await settle()
+    await slow.started
     const replaced = await callApi(api, 'PUT', '/gemini-api-key', {
       body: '[{"api-key":"gem-key-9","base-url":"http://put.test"}]',
     })

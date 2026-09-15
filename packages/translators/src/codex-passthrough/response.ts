@@ -297,8 +297,9 @@ export function hydrateOutputItemIds(payload: string, state: FrameTransformState
     const parsed = tryParseJson(elementText)
     if (!isPlainObject(parsed)) continue
     if (parsed['id'] !== undefined) continue
-    const index = typeof parsed['output_index'] === 'number' ? (parsed['output_index'] as number) : undefined
-    const match = state.items.find((item) => item.outputIndex === index)
+    // `response.output` is index-addressed: the done events carry the
+    // matching `output_index`.
+    const match = state.items.find((item) => item.outputIndex === i)
     if (match === undefined) continue
     const matchId = itemIdOf(match.raw)
     if (matchId === undefined) continue

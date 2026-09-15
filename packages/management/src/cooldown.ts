@@ -60,11 +60,6 @@ export function sidecarName(authId: string): string {
   return `${authId.replaceAll(':', '_')}.cds`
 }
 
-/**
- * Cooldown sidecar store: merge-on-write, read-on-demand. The in-memory
- * cache mirrors the Store so a restart over the same Store restores the
- * same state lazily.
- */
 /** Builds the stored form of one record at a fixed stamp. */
 function buildSidecarRecord(input: CooldownRecordInput, stamp: number): SidecarRecord {
   return {
@@ -130,6 +125,11 @@ export interface CooldownSidecarOptions {
   readonly liveAuthIds?: () => Promise<ReadonlySet<string>>
 }
 
+/**
+ * Cooldown sidecar store: merge-on-write, read-on-demand. The in-memory
+ * cache mirrors the Store so a restart over the same Store restores the
+ * same state lazily.
+ */
 export class CooldownSidecars {
   private readonly docs = new Map<string, { records: SidecarRecord[]; provider: string }>()
 
