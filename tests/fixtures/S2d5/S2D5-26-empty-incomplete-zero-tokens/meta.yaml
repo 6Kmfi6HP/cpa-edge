@@ -28,7 +28,8 @@
   ],
   "layout": "request.http: R1..Rn blocks; downstream.md: ## R1..Rn sections; upstream.jsonl: entries in request order",
   "notes": [
-    "upstream wire entries per request: [1]"
+    "upstream wire entries per request: [1]",
+    "MATCH: pre-commit HTTP 502 application/json (no SSE headers, no chunks), body exactly {\"error\":{\"message\":\"stream error: upstream terminated with incomplete empty response (0 tokens)\",\"type\":\"server_error\",\"code\":\"internal_server_error\"}}; exactly 1 upstream wire entry."
   ],
   "files": [
     "meta.yaml",

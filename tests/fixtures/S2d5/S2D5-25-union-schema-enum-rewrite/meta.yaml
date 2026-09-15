@@ -28,7 +28,8 @@
   ],
   "layout": "request.http: R1..Rn blocks; downstream.md: ## R1..Rn sections; upstream.jsonl: entries in request order",
   "notes": [
-    "upstream wire entries per request: [1]"
+    "upstream wire entries per request: [1]",
+    "MATCH (upstream contract): pick_mode mode property arrives as {\"type\":\"string\",\"enum\":[\"alpha\",\"beta\",\"gamma\",\"delta\",\"epsilon\",\"zeta\",\"eta\",\"theta\"]} (oneOf deleted, branch order preserved, branch descriptions dropped); tools order preserved [pick_mode, cst_lookup custom, shared_name function strict:false, shared_name custom] + image_generation appended LAST; input items [user message, custom_tool_call(call_cst, cst_lookup, input \"[\\\"x\\\"]\"), function_call(call_shared, shared_name) - FUNCTION WINS on the shared name - custom_tool_call_output(call_cst), function_call_output(call_shared)]; no empty assistant item. B1+B2 confirmed."
   ],
   "files": [
     "meta.yaml",
