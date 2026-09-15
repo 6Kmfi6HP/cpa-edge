@@ -1360,7 +1360,9 @@
         "decoded frame sequence: [cand0 content 'Fact one.' role assistant] [cand1 content 'Fact two.' role assistant] [cand0 delta-nulls finish_reason 'stop' native 'stop' + usage] [cand1 delta-nulls finish_reason 'stop' native 'stop' + usage] [DONE]",
         "both final frames carry the SAME usage object {completion_tokens:6,total_tokens:15,prompt_tokens:9} (usage duplicated per candidate frame)",
         "each frame's choices[0].index matches its candidate index (0/1)"
-      ]
+      ],
+      "recorded": true,
+      "recorded_outcome": "All expectations met frame-by-frame: per-candidate fan-out in order; both final frames carry finish_reason 'stop' + native 'stop' + the SAME duplicated usage {completion_tokens:6,total_tokens:15,prompt_tokens:9}; choices[0].index mirrors candidate index; upstream body candidateCount==2."
     }
   ],
   "optional_cases": [
@@ -1495,7 +1497,9 @@
         "decoded frame sequence: [cand0 content 'Fact one.'] [cand1 content 'Fact two.'] [cand0 delta-nulls finish_reason null] [cand1 delta-nulls finish_reason null] [DONE]",
         "NO frame carries finish_reason, native_finish_reason, or usage (candidates.0.finishReason absent -> usage filter hid usageMetadata; candidate 1's finishReason alone does not produce a finish_reason because the chunk has no visible usage)"
       ],
-      "notes": "Requested variant per adversary ruling B1; record if cheap — the mock extension already supports per-model keyed streams."
+      "notes": "Requested variant per adversary ruling B1; record if cheap — the mock extension already supports per-model keyed streams.",
+      "recorded": true,
+      "recorded_outcome": "All expectations met: no frame carries finish_reason, native_finish_reason, or usage; 5 decoded frames incl. [DONE]."
     }
   ],
   "deferred": [
@@ -1513,23 +1517,25 @@
     {
       "case": "Multi-candidate STREAMING (candidateCount>1 streams; usage filter keys on candidates.0.finishReason)",
       "classification": "DEFERRED (non-credential)",
-      "reason": "Specified from source; golden C09 covers non-stream n=2 only. Record later if a consumer needs it."
+      "reason": "Specified from source; golden C09 covers non-stream n=2 only. Record later if a consumer needs it. [SUPERSEDED 2026-09-16: recorded as C22/C23 after adversary ruling B1.]",
+      "status": "RESOLVED (gate round 1, B1): stream fixtures C22/C23 recorded 2026-09-16; remove from deferral."
     }
   ],
   "recording_status": {
     "worker": "oracle-runner-2 (after reroute from oracle-runner via oracle-runner-5)",
-    "recorded": 21,
+    "recorded": 23,
     "deferred": [
       "gemini OAuth (cloudcode-pa) transport",
       "vertex-api-key wire",
       "multi-candidate streaming"
     ],
-    "fixture_root_verified": "tests/fixtures/S2d1/ (21 case dirs, RECIPES layout)",
+    "fixture_root_verified": "tests/fixtures/S2d1/ (23 case dirs, RECIPES layout)",
     "recorded_vs_predicted_deviations": [
       "C16: rate-limit cooldown surfaces at HTTP 429 + Retry-After: 1 (predicted 500); consistent with the claude/antigravity 429 model_cooldown family; only the transient 500-class family surfaces 503 auth_unavailable",
       "C07: reasoning_effort thinkingConfig is STRIPPED (generationConfig left {}), not converted to thinkingBudget 1024 — config-declared gemini-api-key models resolve with UserDefined=false/Thinking=nil (internal/modelconfig/model_info.go), contradicting the doc comment in internal/thinking/apply.go",
       "C08: model-suffix thinking intent DROPPED (no generationConfig in outbound body), not thinkingBudget 24576"
-    ]
+    ],
+    "gate_round2_addendum_status": "C22 + C23 recorded by oracle-runner-2 in a fresh happy window (2026-09-16); both verified byte-exact against expectations; B1 closed."
   },
   "gate_round2_addendum": {
     "date": "2026-09-16",

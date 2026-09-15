@@ -7,7 +7,7 @@
  * family, cooldown window + 500 shape, request-retry, Store-failure
  * isolation, pre-commit failures).
  */
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { MemoryStore } from '@cpa-edge/core'
 import {
   CUSTOM_TOOL_PARAMETERS,
@@ -894,5 +894,314 @@ describe('S2d6 upstream wire (§3.2)', () => {
     )
     expect(withStreamOptions('{}')).toBe('{"stream_options":{"include_usage":true}}')
     expect(withStreamOptions('nope')).toBe('nope')
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// R6: facade slices the goldens do not pin
+// ---------------------------------------------------------------------------
+
+function makeService(
+  overrides: Partial<Parameters<typeof createRes2OaiService>[0]> = {},
+): ReturnType<typeof createRes2OaiService> {
+  return createRes2OaiService({
+    apiKeys: ['gateway-key'],
+    credentials: [
+      {
+        apiKey: 'up-key-1',
+        baseUrl: 'http://up1.test/v1',
+        provider: 'provider-a',
+        models: [{ name: 'up-model', alias: 'alias' }],
+      },
+    ],
+    store: new MemoryStore(),
+    now: () => FROZEN,
+    requestRetry: 0,
+    transientErrorCooldownSeconds: -1,
+    ...overrides,
+  })
+}
+
+function requestOf(path: string, body: string, headers: Array<[string, string]> = []): Res2OaiRequest {
+  return {
+    method: 'POST',
+    path,
+    headers: [['Authorization', 'Bearer gateway-key'], ...headers],
+    body,
+  }
+}
+
+function reply(body: string, status = 200): Res2OaiUpstreamResponse {
+  return {
+    status,
+    headers: [['Content-Type', status === 200 ? 'text/event-stream' : 'application/json']],
+    body: new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(body))
+        controller.close()
+      },
+    }),
+  }
+}
+
+async function sendCapture(
+  responses: readonly (Res2OaiUpstreamResponse | Error)[],
+): Promise<{ send: Res2OaiUpstreamSender; calls: Res2OaiUpstreamRequest[] }> {
+  const calls: Res2OaiUpstreamRequest[] = []
+  let index = 0
+  const send: Res2OaiUpstreamSender = async (call) => {
+    calls.push(call)
+    const next = responses[index]
+    index += 1
+    if (next === undefined) throw new Error('harness: unexpected upstream call')
+    if (next instanceof Error) throw next
+    return next
+  }
+  return { send, calls }
+}
+
+async function bodyOf(response: Res2OaiResponse): Promise<string> {
+  if (typeof response.body === 'string') return response.body
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let out = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    out += decoder.decode(value, { stream: true })
+  }
+  return out + decoder.decode()
+}
+
+function headerOf(response: Res2OaiResponse, name: string): string | undefined {
+  const key = name.toLowerCase()
+  for (const [headerName, value] of response.headers) {
+    if (headerName.toLowerCase() === key) return value
+  }
+  return undefined
+}
+
+describe('S2d6 facade: gateway-local surfaces', () => {
+  it('rejects missing and invalid keys with the recorded 401 shapes', async () => {
+    const service = makeService()
+    const missing = await service.handleResponses(
+      { method: 'POST', path: '/v1/responses', headers: [], body: '{"model":"alias","input":"hi"}' },
+      (await sendCapture([])).send,
+    )
+    expect(missing.status).toBe(401)
+    expect(await bodyOf(missing)).toBe('{"error":"Missing API key"}')
+    expect(headerOf(missing, 'content-type')).toBe('application/json; charset=utf-8')
+    const invalid = await service.handleResponses(
+      { method: 'POST', path: '/v1/responses', headers: [['Authorization', 'Bearer wrong']], body: '{"model":"alias","input":"hi"}' },
+      (await sendCapture([])).send,
+    )
+    expect(await bodyOf(invalid)).toBe('{"error":"Invalid API key"}')
+  })
+
+  it('answers 404 with an empty body for unknown paths and wrong methods, 204 for OPTIONS', async () => {
+    const service = makeService()
+    const { send } = await sendCapture([])
+    const unknown = await service.handleResponses(requestOf('/v1/other', '{}'), send)
+    expect(unknown).toEqual({ status: 404, headers: [], body: '' })
+    const wrongMethod = await service.handleResponses(
+      { method: 'GET', path: '/v1/responses', headers: [['Authorization', 'Bearer gateway-key']], body: '' },
+      send,
+    )
+    expect(wrongMethod).toEqual({ status: 404, headers: [], body: '' })
+    const options = await service.handleResponses(
+      { method: 'OPTIONS', path: '/v1/responses', headers: [], body: '' },
+      send,
+    )
+    expect(options.status).toBe(204)
+    expect(headerOf(options, 'access-control-allow-origin')).toBe('*')
+  })
+
+  it('resolves the model from the body with the strict boundary in front (NE-LENIENT)', async () => {
+    const service = makeService()
+    const { send, calls } = await sendCapture([])
+    const malformed = await service.handleResponses(requestOf('/v1/responses', 'this is not json'), send)
+    expect(malformed.status).toBe(400)
+    expect(await bodyOf(malformed)).toBe(buildMalformedBodyEnvelope())
+    expect(calls.length).toBe(0)
+    const notFound = await service.handleResponses(requestOf('/v1/responses', '{"model":"nope","input":"hi"}'), send)
+    expect(await bodyOf(notFound)).toBe(buildModelNotFoundEnvelope('nope'))
+    expect(headerOf(notFound, 'content-type')).toBe('application/json')
+    const emptyModel = await service.handleResponses(requestOf('/v1/responses', '{"input":"hi"}'), send)
+    expect(await bodyOf(emptyModel)).toBe(buildModelNotFoundEnvelope(''))
+  })
+
+  it('rejects compact stream:true before any upstream call', async () => {
+    const service = makeService()
+    const { send, calls } = await sendCapture([])
+    const response = await service.handleResponses(
+      requestOf('/v1/responses/compact', '{"model":"alias","input":"hi","stream":true}'),
+      send,
+    )
+    expect(response.status).toBe(400)
+    expect(await bodyOf(response)).toBe(buildCompactStreamRejectedEnvelope())
+    expect(headerOf(response, 'content-type')).toBe('application/json; charset=utf-8')
+    expect(calls.length).toBe(0)
+  })
+
+  it('accepts the codex alias paths', async () => {
+    const service = makeService()
+    const { send, calls } = await sendCapture([reply(`data: ${chunk({ role: 'assistant' })}\n\ndata: [DONE]\n\n`)])
+    const response = await service.handleResponses(
+      requestOf('/backend-api/codex/responses', '{"model":"alias","input":"hi","stream":true}'),
+      send,
+    )
+    expect(response.status).toBe(200)
+    expect(headerOf(response, 'content-type')).toBe('text/event-stream')
+    expect(calls[0]?.url).toBe('http://up1.test/v1/chat/completions')
+  })
+})
+
+describe('S2d6 facade: cooldown + retry slices', () => {
+  it('429 cools the credential; the next request inside the window answers the 500 model_cooldown shape', async () => {
+    let nowMs = FROZEN
+    const store = new MemoryStore()
+    const service = makeService({ store, now: () => nowMs })
+    const error429 = reply('{"error": {"message": "mock rate limit"}}', 429)
+    const { send, calls } = await sendCapture([error429, error429])
+    const first = await service.handleResponses(requestOf('/v1/responses', '{"model":"alias","input":"hi"}'), send)
+    expect(first.status).toBe(429)
+    expect(await bodyOf(first)).toBe('{"error": {"message": "mock rate limit"}}')
+    nowMs = FROZEN + 100
+    const second = await service.handleResponses(requestOf('/v1/responses', '{"model":"alias","input":"hi"}'), send)
+    expect(second.status).toBe(500)
+    expect(await bodyOf(second)).toBe(
+      '{"error":{"code":"model_cooldown","last_upstream_error":"{\\"error\\": {\\"message\\": \\"mock rate limit\\"}}","message":"All credentials for model alias are cooling down via provider provider-a (last error: {\\"error\\": {\\"message\\": \\"mock rate limit\\"}})"}}',
+    )
+    expect(calls.length).toBe(1)
+    nowMs = FROZEN + 1001
+    const third = await service.handleResponses(requestOf('/v1/responses', '{"model":"alias","input":"hi"}'), send)
+    expect(third.status).toBe(429)
+    expect(calls.length).toBe(2)
+  })
+
+  it('never shortens a longer stored cooldown window (store.update race guard)', async () => {
+    let nowMs = FROZEN
+    const store = new MemoryStore()
+    const service = makeService({ store, now: () => nowMs })
+    const error429 = reply('{"e":1}', 429)
+    const { send, calls } = await sendCapture([error429, error429])
+    await service.handleResponses(requestOf('/v1/responses', '{"model":"alias","input":"hi"}'), send)
+    nowMs = FROZEN + 500
+    await service.handleResponses(requestOf('/v1/responses', '{"model":"alias","input":"hi"}'), send)
+    // The second request rode the cooldown (no new upstream call) and left the window intact.
+    expect(calls.length).toBe(1)
+    const stored = await store.get('res2oai', 'credential-cooldown:0')
+    expect((stored as { until_ms: number } | undefined)?.until_ms).toBe(FROZEN + 1000)
+  })
+
+  it('moves to the next credential on retryable failures when requestRetry > 0', async () => {
+    const service = makeService({
+      requestRetry: 1,
+      credentials: [
+        { apiKey: 'k1', baseUrl: 'http://up1.test/v1', models: [{ name: 'up-model', alias: 'alias' }] },
+        { apiKey: 'k2', baseUrl: 'http://up2.test/v1', models: [{ name: 'up-model', alias: 'alias' }] },
+      ],
+    })
+    const { send, calls } = await sendCapture([
+      reply('{"error":{"message":"limited"}}', 429),
+      reply(`data: ${chunk({ role: 'assistant' })}\n\ndata: ${chunk({}, 'stop')}\n\ndata: [DONE]\n\n`),
+    ])
+    const response = await service.handleResponses(
+      requestOf('/v1/responses', '{"model":"alias","input":"hi","stream":true}'),
+      send,
+    )
+    expect(response.status).toBe(200)
+    expect(calls.map((call) => call.url)).toEqual([
+      'http://up1.test/v1/chat/completions',
+      'http://up2.test/v1/chat/completions',
+    ])
+  })
+
+  it('keeps the rendered 429 response intact when the Store write fails, reporting the error', async () => {
+    const originalReport = globalThis.reportError
+    const seen: unknown[] = []
+    globalThis.reportError = (error: unknown) => {
+      seen.push(error)
+    }
+    try {
+      const failingStore = new MemoryStore()
+      const service = makeService({
+        store: new Proxy(failingStore, {
+          get(target, prop) {
+            if (prop === 'update') {
+              return () => {
+                throw new Error('store down')
+              }
+            }
+            return Reflect.get(target, prop) as unknown
+          },
+        }) as never,
+      })
+      const { send, calls } = await sendCapture([reply('{"error": {"m": 1}}', 429)])
+      const response = await service.handleResponses(requestOf('/v1/responses', '{"model":"alias","input":"hi"}'), send)
+      expect(response.status).toBe(429)
+      expect(await bodyOf(response)).toBe('{"error": {"m": 1}}')
+      expect(calls.length).toBe(1)
+      expect(seen.length).toBe(1)
+    } finally {
+      globalThis.reportError = originalReport
+    }
+  })
+})
+
+describe('S2d6 facade: transport + upstream failure slices', () => {
+  it('renders the pre-commit 500 unexpected-EOF envelope when the transport fails', async () => {
+    const service = makeService()
+    const { send, calls } = await sendCapture([new Error('connection reset'), new Error('connection reset')])
+    const nonStream = await service.handleResponses(requestOf('/v1/responses', '{"model":"alias","input":"hi"}'), send)
+    expect(nonStream.status).toBe(500)
+    expect(await bodyOf(nonStream)).toBe(
+      '{"error":{"message":"unexpected EOF","type":"server_error","code":"internal_server_error"}}',
+    )
+    const stream = await service.handleResponses(
+      requestOf('/v1/responses', '{"model":"alias","input":"hi","stream":true}'),
+      send,
+    )
+    expect(stream.status).toBe(500)
+    expect(await bodyOf(stream)).toBe(
+      '{"error":{"message":"unexpected EOF","type":"server_error","code":"internal_server_error"}}',
+    )
+    expect(calls.length).toBe(2)
+  })
+
+  it('answers in-band upstream error frames before the first frame with a JSON error', async () => {
+    const service = makeService()
+    const { send } = await sendCapture([reply('event: error\ndata: {"error":{"message":"boom","code":"x"}}\n\n')])
+    const response = await service.handleResponses(
+      requestOf('/v1/responses', '{"model":"alias","input":"hi","stream":true}'),
+      send,
+    )
+    expect(response.status).toBe(502)
+    expect(await bodyOf(response)).toBe('{"error":{"code":"x","message":"boom"}}')
+  })
+
+  it('passes non-2xx compact replies through like non-stream errors', async () => {
+    const service = makeService()
+    const { send } = await sendCapture([reply('{"error": {"compact": true}}', 403)])
+    const response = await service.handleResponses(requestOf('/v1/responses/compact', '{"model":"alias","input":"hi"}'), send)
+    expect(response.status).toBe(403)
+    expect(await bodyOf(response)).toBe('{"error": {"compact": true}}')
+  })
+
+  it('re-marshals invalid-JSON compact replies verbatim', async () => {
+    const service = makeService()
+    const { send } = await sendCapture([reply('not json')])
+    const response = await service.handleResponses(requestOf('/v1/responses/compact', '{"model":"alias","input":"hi"}'), send)
+    expect(await bodyOf(response)).toBe('not json')
+  })
+
+  it('synthesizes a response for an empty upstream body', async () => {
+    const service = makeService()
+    const { send } = await sendCapture([reply('')])
+    const response = await service.handleResponses(requestOf('/v1/responses', '{"model":"alias","input":"hi"}'), send)
+    expect(response.status).toBe(200)
+    expect(await bodyOf(response)).toContain('"status":"completed"')
+    expect(await bodyOf(response)).toContain('"output":[]')
   })
 })

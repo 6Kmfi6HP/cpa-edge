@@ -83,6 +83,15 @@ class DerReader {
     return this.readBytes(0x02)
   }
 
+  /** Enters one container: consumes its header, leaves the cursor at content. */
+  open(tag: number): void {
+    const actual = this.readTag()
+    if (actual !== tag) throw new ServiceAccountError('private_key pem decode failed')
+    const length = this.readLength()
+    if (this.offset + length > this.bytes.length) throw new ServiceAccountError('private_key pem decode failed')
+  }
+
+  /** Consumes one whole element (header + content). */
   skip(tag: number): void {
     const actual = this.readTag()
     if (actual !== tag) throw new ServiceAccountError('private_key pem decode failed')
@@ -124,7 +133,7 @@ export function normalizePrivateKeyPem(pem: string): { readonly der: Uint8Array;
   const der = decodeBase64(base64)
   if (label === 'PRIVATE KEY') {
     const reader = new DerReader(der)
-    reader.skip(0x30)
+    reader.open(0x30)
     const version = reader.readInt()
     if (version.length > 1 || (version[0] ?? 0) > 0) {
       throw new ServiceAccountError('private_key invalid pkcs8: unsupported version')
@@ -142,7 +151,7 @@ export function normalizePrivateKeyPem(pem: string): { readonly der: Uint8Array;
 /** Parses an `RSAPrivateKey` DER (nine INTEGERs) and re-encodes canonically. */
 function parseRsaPrivateKey(der: Uint8Array): Uint8Array {
   const reader = new DerReader(der)
-  reader.skip(0x30)
+  reader.open(0x30)
   const integers: Uint8Array[] = []
   for (let i = 0; i < 9; i += 1) {
     integers.push(reader.readInt())

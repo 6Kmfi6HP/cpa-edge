@@ -11,7 +11,8 @@
     "./oai2codex": "./src/oai2codex/index.ts",
     "./cla2gem": "./src/cla2gem/index.ts",
     "./res2oai": "./src/res2oai/index.ts",
-    "./codex-passthrough": "./src/codex-passthrough/index.ts"
+    "./codex-passthrough": "./src/codex-passthrough/index.ts",
+    "./cla2oai": "./src/cla2oai/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"

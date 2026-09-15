@@ -91,10 +91,11 @@ export function translateResponseFormat(record: Record<string, unknown>, bodyTex
   if (type === 'json_object') return { type: 'json_object' }
   if (type === 'json_schema') {
     const jsonSchema: WireObject = {}
+    const schemaObject = isPlainObject(format['json_schema']) ? (format['json_schema'] as Record<string, unknown>) : {}
     for (const field of ['name', 'description', 'strict', 'schema']) {
-      if (format[field] === undefined) continue
+      if (schemaObject[field] === undefined) continue
       const raw = rawValueAt(bodyText, ['text', 'format', 'json_schema', field])
-      jsonSchema[field] = raw !== undefined ? new RawJson(raw) : (format[field] as WireValue)
+      jsonSchema[field] = raw !== undefined ? new RawJson(raw) : (schemaObject[field] as WireValue)
     }
     return { type: 'json_schema', json_schema: jsonSchema }
   }

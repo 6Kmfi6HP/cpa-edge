@@ -138,19 +138,23 @@
  *   recorded with CRLF; files are CRLF-normalized on read and every compared surface is
  *   CR-free (verified across all 26 cases).
  *
- * • ISOLATION. Every case replays through a FRESH service + FRESH MemoryStore. The one
- *   exception is built into the fixtures, not the harness: S2D5-24 is a PAIR recording —
- *   its R1 (upstream 429) and R2 (cooldown short-circuit) run back-to-back through the
- *   SAME service + store, exactly as the oracle recorded them.
+ * • ISOLATION. 23 cases replay through a FRESH service + FRESH MemoryStore each. The
+ *   three rate-limit cases the oracle recorded inside ONE reference instance — S2D5-15
+ *   (429 #1, 17:27:39), S2D5-16 (429 #2, 17:27:40), S2D5-24 (429 #3 + the in-window
+ *   pair, 17:28:40/41) — replay together as ONE cooldown escalation session on a shared
+ *   service + store, in recording order (the s2d2 family precedent). Within S2D5-24, R1
+ *   and R2 still run back-to-back at one clock instant, exactly as recorded.
  *
- * • CLOCK. Real wall-clock time is never consulted: `now()` returns one frozen epoch-ms
- *   constant for every step of every case. This makes the S2D5-24 cooldown envelope
- *   deterministic WITHOUT masking: R2 observes the cooldown window at elapsed ≈ 0, so a
- *   spec-faithful implementation reports the full recorded window — `Retry-After: 4`,
- *   `"reset_seconds":4`, `"reset_time":"4s"` — matching the recorded R2 bytes (recorded
- *   elapsed was ~0.1s of a 4s window; the reference reports the ceiling, which is 4
- *   either way). The cooldown literals are therefore byte-pinned, per the spec §5 E2
- *   recorded shape.
+ * • CLOCK. Real wall-clock time is never consulted. Isolated cases run a frozen clock
+ *   (`now()` returns one constant). The cooldown session runs a STEPWISE clock: one
+ *   constant per step, advanced between steps per COOLDOWN_SESSION_STEPS (0 → +1500 ms
+ *   → +4000 ms → +4000 ms). The recorded S2D5-24 R2 literals are the S4 rate-limit
+ *   ladder's THIRD window: `1 s × 2^level`, one increment per consecutive 429, the
+ *   failure streak surviving window expiry until a success (S4 cooldown table). The
+ *   schedule fires each armer past the previous window — so it reaches the mock exactly
+ *   like the recording — and freezes R2 at R1's instant, so the remaining window is the
+ *   full 4 s and a spec-faithful implementation reproduces `Retry-After: 4`,
+ *   `"reset_seconds":4`, `"reset_time":"4s"` byte-exactly with NO masking.
  *
  * • MOCK UPSTREAM. Each case's mock-response.json drives every upstream call the case
  *   makes (a single `control_file`, re-read per request — exactly the recording setup).
@@ -210,7 +214,8 @@
  *       · Cache-Control (exact `no-cache` when the recorded response is SSE, absent
  *         otherwise);
  *       · Retry-After (exact when present — the ONLY recorded value is S2D5-24 R2's
- *         `4`, byte-pinned; absent when the recording has none);
+ *         `4`, byte-pinned via the escalation-session clock; absent when the recording
+ *         has none);
  *       · X-Cpa-Trace-Id — NEVER compared (family ruling: transport/S1 territory;
  *         translator facades do not emit it). The recorded trace-ABSENT surfaces
  *         (S2D5-20, S2D5-24 R2; spec §7 item 15) stay documented but unasserted.
@@ -237,7 +242,7 @@
  *   - NOT masked anywhere (all fixed by the recordings): `created` (canned script
  *     values), `usage` (incl. the cache_write_tokens → cache_write_tokens +
  *     cached_creation_tokens duplication), `reset_seconds` / `reset_time` /
- *     `Retry-After` (frozen-clock argument above), `last_upstream_error` (the verbatim
+ *     `Retry-After` (escalation-session clock argument above), `last_upstream_error` (the verbatim
  *     upstream 429 body, json.dumps spacing included).
  */
 import { readdir, readFile } from 'node:fs/promises'
@@ -341,7 +346,7 @@ const suiteTitle = adapterFactory
 
 const FIXTURE_ROOT = new URL('../fixtures/S2d5/', import.meta.url)
 
-/** One frozen epoch-ms instant for every step of every case (see header: CLOCK). */
+/** Frozen epoch-ms base for every replay (isolated cases never advance it; see header: CLOCK). */
 const FROZEN_NOW_MS = 1_789_493_254_000
 
 /** Recording-instance values, transcribed from each meta.yaml / the recording config. */
@@ -384,6 +389,30 @@ const EXPECTED_CASES = [
 ] as const
 
 type CaseId = (typeof EXPECTED_CASES)[number]
+
+/**
+ * The three cases the oracle recorded inside ONE rate-limited reference instance, in
+ * recording order (17:27:39 → 17:27:40 → 17:28:40). Each upstream 429 arms the S4
+ * rate-limit ladder window `1 s × 2^level` (level = consecutive 429s; the streak
+ * survives window expiry until a success), so the recorded S2D5-24 R2 envelope —
+ * `Retry-After: 4`, `"reset_seconds":4`, `"reset_time":"4s"` — is the THIRD consecutive
+ * 429's window (level 2). An isolated replay of the pair alone lands at level 0 (1 s)
+ * and cannot reproduce those bytes; the harness therefore replays the escalation
+ * history through one shared service + store with the stepwise clock below.
+ */
+const COOLDOWN_SESSION_ORDER: readonly CaseId[] = [
+  'S2D5-15-upstream-429-nonstream',
+  'S2D5-16-upstream-429-stream-precommit',
+  'S2D5-24-rate-limit-cooldown-pair',
+]
+
+/** Stepwise clock schedule for the cooldown session, in replay order (ms from the frozen epoch). */
+const COOLDOWN_SESSION_STEPS: ReadonlyArray<{ readonly caseId: CaseId; readonly step: number; readonly offsetMs: number }> = [
+  { caseId: 'S2D5-15-upstream-429-nonstream', step: 1, offsetMs: 0 }, // 429 #1 → level 0 → 1 s window
+  { caseId: 'S2D5-16-upstream-429-stream-precommit', step: 1, offsetMs: 1_500 }, // past the 1 s window → 429 #2 → 2 s
+  { caseId: 'S2D5-24-rate-limit-cooldown-pair', step: 1, offsetMs: 4_000 }, // past the 2 s window → 429 #3 → 4 s
+  { caseId: 'S2D5-24-rate-limit-cooldown-pair', step: 2, offsetMs: 4_000 }, // same instant → full 4 s remaining
+]
 
 const FIXTURE_FILES = ['downstream.md', 'meta.yaml', 'mock-response.json', 'request.http', 'upstream.jsonl'] as const
 
@@ -981,7 +1010,7 @@ async function assertDownstreamStep(
     expect(retryAfter, `${context}: Retry-After must be absent when the recording has none`).toBeUndefined()
   } else {
     // Never masked: the only recorded value is the S2D5-24 R2 cooldown literal "4",
-    // deterministic under the frozen clock (see header: CLOCK).
+    // deterministic under the escalation-session clock (see header: CLOCK).
     expect(retryAfter, `${context}: Retry-After`).toBe(expectedRetryAfter)
   }
 
@@ -1113,6 +1142,52 @@ function assertUpstreamClauses(caseId: CaseId, captured: CapturedUpstreamCall): 
 
 // ─── Case runner ─────────────────────────────────────────────────────────────────────
 
+/** Stepwise clock: `now()` returns a constant per step; the session advances it between steps. */
+function createStepwiseClock(baseMs: number): { readonly now: () => number; readonly setOffsetMs: (offsetMs: number) => void } {
+  let offsetMs = 0
+  return {
+    now: () => baseMs + offsetMs,
+    setOffsetMs: (value: number) => {
+      offsetMs = value
+    },
+  }
+}
+
+/** A replayed cooldown escalation session: one service + one store + the shared clock. */
+interface CooldownSession {
+  readonly service: ChatService
+  readonly clock: ReturnType<typeof createStepwiseClock>
+}
+
+function buildService(now: () => number, store: Store): ChatService {
+  if (adapterFactory === undefined) throw new Error('adapter factory missing')
+  const service = adapterFactory({
+    credentials: [
+      {
+        apiKey: UPSTREAM_API_KEY,
+        baseUrl: UPSTREAM_BASE_URL,
+        models: [{ name: UPSTREAM_MODEL, alias: MODEL_ALIAS }],
+      },
+    ],
+    store,
+    now,
+    requestRetry: 0,
+    transientErrorCooldownSeconds: -1,
+  })
+  if (typeof service.handleChatCompletions !== 'function') {
+    throw new Error(`${ADAPTER_EXPORT}() must return an object with a handleChatCompletions(request, send) method`)
+  }
+  return service
+}
+
+function cooldownStepOffsetMs(caseId: string, step: number): number {
+  const entry = COOLDOWN_SESSION_STEPS.find((candidate) => candidate.caseId === caseId && candidate.step === step)
+  if (entry === undefined) {
+    throw new Error(`S2d5[${caseId}] step ${step}: missing from the cooldown-session clock schedule`)
+  }
+  return entry.offsetMs
+}
+
 interface CaseMeta {
   readonly case: string
   readonly recorded_at: string
@@ -1127,7 +1202,7 @@ function sum(values: readonly number[]): number {
   return values.reduce((total, value) => total + value, 0)
 }
 
-async function replayCase(caseId: CaseId): Promise<void> {
+async function replayCase(caseId: CaseId, session?: CooldownSession): Promise<void> {
   if (adapterFactory === undefined) throw new Error('adapter factory missing')
   const meta = await readFixtureJson<CaseMeta>(caseId, 'meta.yaml')
   validateDynamicFields(caseId, meta.dynamic_fields)
@@ -1148,24 +1223,10 @@ async function replayCase(caseId: CaseId): Promise<void> {
     sum(meta.upstream_wire_lines_per_request),
   )
 
-  // Fresh service + fresh store per case; multi-request cases (the S2D5-24 pair) share
-  // them WITHIN the case, exactly as the oracle recorded them.
-  const service = adapterFactory({
-    credentials: [
-      {
-        apiKey: UPSTREAM_API_KEY,
-        baseUrl: UPSTREAM_BASE_URL,
-        models: [{ name: UPSTREAM_MODEL, alias: MODEL_ALIAS }],
-      },
-    ],
-    store: new MemoryStore({ now: () => FROZEN_NOW_MS }),
-    now: () => FROZEN_NOW_MS,
-    requestRetry: 0,
-    transientErrorCooldownSeconds: -1,
-  })
-  if (typeof service.handleChatCompletions !== 'function') {
-    throw new Error(`${ADAPTER_EXPORT}() must return an object with a handleChatCompletions(request, send) method`)
-  }
+  // Isolated case: fresh service + fresh store on a frozen clock. Cooldown-session
+  // case: the shared session's service + store + stepwise clock (see header: CLOCK).
+  const clock = session?.clock ?? createStepwiseClock(FROZEN_NOW_MS)
+  const service = session?.service ?? buildService(clock.now, new MemoryStore({ now: clock.now }))
 
   const captured: CapturedUpstreamCall[] = []
   let currentStep = 0
@@ -1180,6 +1241,7 @@ async function replayCase(caseId: CaseId): Promise<void> {
   for (const [index, request] of requests.entries()) {
     currentStep = index + 1
     currentRequest = request
+    clock.setOffsetMs(session === undefined ? 0 : cooldownStepOffsetMs(caseId, currentStep))
     const stepId = `R${currentStep}`
     const expected = responses[stepId]
     if (expected === undefined) throw new Error(`S2d5[${caseId}]: downstream.md is missing section ${stepId}`)
@@ -1326,10 +1388,23 @@ describe('S2d5 fixture inventory (harness self-check, adapter-independent)', () 
   })
 })
 
+const ISOLATED_CASES = EXPECTED_CASES.filter((caseId) => !COOLDOWN_SESSION_ORDER.includes(caseId))
+
 suite(suiteTitle, () => {
-  for (const caseId of EXPECTED_CASES) {
+  for (const caseId of ISOLATED_CASES) {
     it(`${caseId} — replays recorded steps: upstream wire byte-exact, downstream surface byte-exact`, async () => {
       await replayCase(caseId)
     })
   }
+
+  it('S2D5-15 + S2D5-16 + S2D5-24 — cooldown escalation session (one shared service + store, stepwise clock): the recorded 429 ladder reproduces reset 4/"4s" + Retry-After 4 byte-exact', async () => {
+    const clock = createStepwiseClock(FROZEN_NOW_MS)
+    const session: CooldownSession = {
+      service: buildService(clock.now, new MemoryStore({ now: clock.now })),
+      clock,
+    }
+    for (const caseId of COOLDOWN_SESSION_ORDER) {
+      await replayCase(caseId, session)
+    }
+  })
 })
