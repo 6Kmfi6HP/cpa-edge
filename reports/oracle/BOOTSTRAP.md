@@ -210,3 +210,19 @@ recordings are wire transcripts only.
   wrong-method behaviors exactly (client-visible compatibility) or improve them? I recorded
   reality; the spec must decide.
 - Open question: `x-goog-api-key` is accepted on `/v1` too (not only `/v1beta`). Recorded.
+
+
+---
+
+## Addendum (2026-09-16): MOCK FLEET READY
+
+Mission MOCKS complete: 8 deterministic mock upstreams (openai-compat, gemini, claude, codex,
+xai, meta, interactions, vertex) live in `_cpa_edge_ref/mock/` (shared library `mocklib.py`;
+codex/xai/meta share `responses_common.py`). Each logs reference-emitted wire requests to
+`mock/logs/<type>.jsonl` (secrets redacted) and supports 4 modes per case — happy, error
+(status+body configurable), slow (inter-event delay), disconnect (abort after N events) —
+via `mock/control/<type>.json` or `X-Mock-*` request headers. All 8 proven end-to-end
+(client -> reference -> mock -> translated response), 16 round-trip transcripts + upstream
+wire logs in `_cpa_edge_ref/probes/mocks/<type>/`; inventory, run instructions and
+wire-format facts in `_cpa_edge_ref/probes/mocks/README.md`. Fixture-ready for Phase-1
+recording requests.
