@@ -104,3 +104,25 @@ upstream provider type + desired mode. Fixtures land in `cpa-edge/tests/fixtures
 (meta.yaml / request.http / downstream.md / upstream.jsonl / mock-response.json). I only record
 into fixture dirs a mission assigns to me; if a mode/behavior can't be reproduced I say so
 instead of approximating.
+
+
+## 8. Recording missions delivered (2026-09-16, after BOOT-2)
+
+All executed on the isolated run2 stack (reference 127.0.0.1:8387; mocks 19999/20001-20008;
+ports masked as dynamic fields per each section's whitelist). Stack torn down after every
+mission; sandbox drivers + configs under `_cpa_edge_ref/run2/{s3,s6,s2d10,s2d3}/` and
+`run2/tools/`.
+
+| Mission | Fixtures | Notes |
+|---|---|---|
+| S3 auth flows (spec-s3-auth) | `tests/fixtures/S3/` — 38 cases | all 38 accepted; surprises A-F folded into S3 section §6 |
+| S6 state/storage (spec-s6-state) | `tests/fixtures/S6/` — 17 cases (16 + follow-up S6-18) | AUTH $17 off-by-one, counted-pop *0, state-dependent QUIT, 503 auth_unavailable transient-cooldown + .cds restart persistence, upload re-serialization — folded into S6 section |
+| S2d10 antigravity (spec-s2d10-antigravity) | `tests/fixtures/S2d10/` — 18 cases (13 + port-busy + 3 executor + gemini extra) | forwarder port-busy RECORDED via in-container perl listener; synthetic antigravity credential routes to my mock (20008); always-SSE upstream for claude-family, generateContent for gemini-family |
+| S2d3 oai→claude (spec-s2d3-oai2cla) | `tests/fixtures/S2d3/` — 18 cases | user_id sha256 anchor byte-exact; case-14 cooldown envelope surfaces at 429 (predicted 500) |
+| S5 management API | NOT recorded | reassigned to oracle-runner-4 per orchestrator; dropped before any S5 work started |
+
+New reusable assets in my sandbox: `mock_antigravity.py` (v1internal wire, 20008) and
+`mock_claude.py` extended with scripts (tool_use/thinking/stop_variant/error_event) +
+`mocklib` raw_body support — all in the run2 COPY only; worker-1's shared mock dir untouched.
+
+Standing by for further recording requests per the RECIPES contract (BOOTSTRAP.md §7).

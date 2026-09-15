@@ -776,7 +776,7 @@
     },
     {
       "id": "S2d10-executor-request-shape-gemini",
-      "classification": "PENDING (requested from @oracle-runner-2; cheap extra pass with the existing antigravity mock)",
+      "classification": "RECORDED (synthetic credential; golden at tests/fixtures/S2d10/S2d10-executor-request-shape-gemini/)",
       "purpose": "Record the OTHER model-family branch: with a GEMINI-family antigravity catalog model, a non-stream client call goes upstream to POST {base}/v1internal:generateContent (no query string), with NO request.toolConfig.functionCallingConfig VALIDATED injection, and with request.generationConfig.maxOutputTokens REMOVED (non-Claude deletion rule, section 3.3 item 8).",
       "setup": "Same synthetic credential + antigravity mock as S2d10-executor-request-shape (already recorded; mock exists at _cpa_edge_ref/run2/mock/mock_antigravity.py).",
       "requests": [
@@ -792,7 +792,7 @@
           "note": "max_tokens set so the upstream body shows the generationConfig.maxOutputTokens DELETION for non-Claude models; expect upstream path /v1internal:generateContent with NO ?alt query"
         }
       ],
-      "record": "upstream.jsonl (method, exact path with no query, headers sans Authorization, full body) + downstream.md + mock-response.json.",
+      "record": "RECORDED OUTCOME (2026-09-15): upstream POST /v1internal:generateContent with NO query string (family split confirmed); envelope {project, request:{contents, generationConfig:{}, sessionId:'-6930635648078873014'}, model:'gemini-3.6-flash-high', userAgent:'antigravity', requestType:'agent', requestId:'agent-<uuid>'}; generationConfig present but EMPTY (max_tokens:128 deleted per non-Claude rule); NO request.toolConfig/VALIDATED; :fetchAvailableModels probe (body {}) fired here too; downstream 200 chat.completion. sessionId identical to the claude-family pass across boots -> stable-hash derivation deterministic per first-user-text (mask as semi-dynamic).",
       "mock_upstream_mode": "happy",
       "dynamic_fields": [
         "Date",
@@ -808,7 +808,7 @@
     }
   ],
   "outcome_summary": {
-    "recorded": 17,
+    "recorded": 18,
     "recorded_case_ids": [
       "S2d10-auth-url-json",
       "S2d10-auth-url-auth-failures",
@@ -826,11 +826,10 @@
       "S2d10-forwarder-port-busy",
       "S2d10-executor-request-shape",
       "S2d10-executor-stream-usage",
-      "S2d10-executor-429-cooldown"
-    ],
-    "pending": [
+      "S2d10-executor-429-cooldown",
       "S2d10-executor-request-shape-gemini"
     ],
+    "pending": [],
     "fixture_deferred": [
       "S2d10-live-oauth-success",
       "S2d10-live-executor-responses",
