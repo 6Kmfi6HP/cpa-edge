@@ -624,7 +624,14 @@ export function createNodeGateway(options: NodeGatewayOptions): NodeGateway {
     transientErrorCooldownSeconds: config.transientErrorCooldownSeconds,
     apiKeys: config.apiKeys,
     gatewayVersion: GATEWAY_VERSION,
-    disableImageGeneration: config.imageGenerationMode,
+    // The facade consumes a normalized mode; the config four-state maps
+    // onto it (false -> off, the bool true -> the all-disabled 'true').
+    disableImageGeneration:
+      config.imageGenerationMode === false
+        ? 'off'
+        : config.imageGenerationMode === true
+          ? 'true'
+          : config.imageGenerationMode,
     disableCodexCloaking: config.disableCodexCloaking,
   })
 
