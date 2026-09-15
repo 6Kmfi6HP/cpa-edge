@@ -14,7 +14,7 @@
 | ORACLE | reference env at _cpa_edge_ref (outside repo) | — | — | merged | 0 | v7.3.4 anchor; image digest recorded; 17 probes; recordable/credentialed table; harness proven |
 | S1 | spec: endpoint inventory | 1 | spec-s1-endpoints | merged | 2 | ADMITTED round 2. 25 goldens (283 files). Feeds T1 routing + all handler contracts. 4 residual nits -> writer cleanup, no re-gate per reviewer. |
 | S2d1 | spec: OpenAI client → Gemini upstream | 1 | spec-s2d1-oai2gem | spec | 0 |  |
-| S2d2 | spec: Gemini client → OpenAI upstream | 1 | spec-s2d2-gem2oai | spec-adv-r2 | 1 | fixes + 26 goldens; round-2 running on adv-spec-4; R-ORDER registered in SPEC |
+| S2d2 | spec: Gemini client → OpenAI upstream | 1 | spec-s2d2-gem2oai | merged | 2 | ADMITTED round 2. 26 goldens; countTokens formula independently reproduced by reviewer. Unlocks I-tr-S2d2. |
 | S2d3 | spec: OpenAI client → Claude upstream | 1 | spec-s2d3-oai2cla | merged | 2 | ADMITTED round 2. 26 goldens. Unlocks I-tr-S2d3. |
 | S2d4 | spec: Claude client → OpenAI upstream | 1 | spec-s2d4-cla2oai | spec | 0 |  |
 | S2d5 | spec: OpenAI client → Codex/Responses upstream | 1 | spec-s2d5-oai2codex | spec-fix | 1 | R1: adv-spec-5 FAIL (B1 union->enum MUST + golden; B2 type-selection rules); N1-N12 dispatched; E6 golden authorized |
@@ -57,4 +57,4 @@
 
 ## Verdict / escalation log
 (appended by orchestrator)
-- 2026-09-16 02:3x I-tr-S2d3 MERGED (impl gate round 2 PASS). oai2cla direction complete: spec(27 goldens)+contract(28)+impl(141 unit). Residual hardening (Store get() throws pre-attempt) noted for T2.
+- 2026-09-16 03:1x S2d2 GATE: PASS (round 2). gem2oai admitted: two-mode alt contract, 5 auth transports, thinking clamps, reproducible countTokens formula. Mass-stall recovery producing results.
