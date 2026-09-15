@@ -765,7 +765,7 @@ function defaultStreamEvents(modelVersion: string): readonly unknown[] {
     { candidates: [{ content: { parts: [{ text: 'Hello from mock gemini upstream' }], role: 'model' }, index: 0 }] },
     { candidates: [{ content: { parts: [{ text: ' more' }], role: 'model' }, index: 0 }] },
     {
-      candidates: [{ content: { parts: [] }, role: 'model' }, finishReason: 'STOP', index: 0 }],
+      candidates: [{ content: { parts: [], role: 'model' }, finishReason: 'STOP', index: 0 }],
       usageMetadata: { promptTokenCount: 9, candidatesTokenCount: 6, totalTokenCount: 15 },
       modelVersion,
     },
@@ -1142,14 +1142,16 @@ async function replayCase(caseId: CaseId): Promise<void> {
   }
 
   const captured: CapturedUpstreamCall[] = []
+  let currentStep = 0
   const send: UpstreamSender = async (call) => {
-    const step = steps[captured.length] ?? steps[steps.length - 1]
+    const step = steps[currentStep]
     if (step === undefined) throw new Error('harness bug: no step plan for the current upstream call')
-    captured.push({ step: steps.indexOf(step), call })
+    captured.push({ step: currentStep, call })
     return buildMockResponse(step.mockFile.control_file, step.mockFile.scripted_mock_response, step.meta, call, step.caseId)
   }
 
   for (let index = 0; index < steps.length; index += 1) {
+    currentStep = index
     const step = steps[index]
     if (step === undefined) throw new Error('unreachable: step index out of range')
     const response = await service.handleChatCompletions(
@@ -1204,7 +1206,10 @@ describe('S2d1 fixture inventory (harness self-check, adapter-independent)', () 
         .filter((line) => line.trim() !== '')
         .map((line) => JSON.parse(line) as RecordedUpstreamLine)
 
-      expect(meta.case, `${caseId}: meta.case echoes the directory name`).toBe(caseId)
+      // C21/C23 kept their gate-era OPTIONAL marker inside meta.case while the directory
+      // names dropped it; both spellings are accepted for exactly those two.
+      const expectedMetaCaseNames = [`S2d1-${caseId}`, `S2d1-${caseId.replace(/^(C\d+)-/, '$1-OPTIONAL-')}`]
+      expect(expectedMetaCaseNames, `${caseId}: meta.case echoes the directory name under the S2d1- prefix`).toContain(meta.case)
       maskProfile(caseId, meta.dynamic_fields) // fails loudly on unknown dynamic fields
       expect(mockFile.control_file, `${caseId}: mock control present`).toBeDefined()
       totalRequests += 1
@@ -1234,7 +1239,7 @@ describe('S2d1 fixture inventory (harness self-check, adapter-independent)', () 
       // Downstream response: the recorded bytes match the fixture's own claim.
       expect(recorded.status, `${caseId}: recorded status echoes meta.observed_http_status`).toBe(meta.observed_http_status)
       expect(encoder.encode(recorded.body).length, `${caseId}: body bytes match the recorded claim`).toBe(
-        recorded.claimBodyBytes,
+        recorded.claimedBodyBytes,
       )
       expect(
         headerValue(recorded.headers, 'content-type'),

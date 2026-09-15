@@ -1,7 +1,7 @@
 /**
  * S2d8 golden contract — Claude (Anthropic Messages) client → Gemini upstream.
  *
- * Spec source of truth: spec/sections/S2d8-cla2gem.md (admitted). Goldens: the 20 recorded
+ * Spec source of truth: spec/sections/S2d8-cla2gem.md (admitted). Goldens: the 21 recorded
  * fixture cases under tests/fixtures/S2d8/ — oracle wire transcripts of CLIProxyAPI v7.3.4
  * (commit 8335eac…) against the deterministic gemini mock (RECORDABLE-LOCALLY per R-FIXTURE;
  * transcripts only, no upstream source text). Rulings applied: R-SSE (downstream stream bodies
@@ -128,7 +128,9 @@
  * stripping, the terminal error event with the pinned `unexpected EOF`), error semantics
  * (§4: status passthrough + Claude envelope with numeric-code-skipping message extraction,
  * pre-commit plain-JSON errors, no Retry-After), and count_tokens end-to-end (§3.6: a REAL
- * upstream `:countTokens` call with the stripped body).
+ * upstream `:countTokens` call with the stripped body — tools/generationConfig/safetySettings
+ * deleted, toolConfig RETAINED when the request carries tool_choice, golden-pinned by
+ * S2d8-21).
  * OUT of scope here (owned by S1/the runtime, asserted by no fixture in this suite): gateway
  * API-key auth, the CORS block, `Date`, `X-Cpa-Trace-Id`, `Connection`, `Transfer-Encoding`,
  * downstream `Content-Length`, R-404 routing, and SSE keep-alive heartbeats (default OFF;
@@ -164,6 +166,12 @@
  *   `expected_upstream` / `expected_downstream_body` fields, which this suite never reads:
  *   gate round-1 finding B1 (S2d8-07/10) showed those meta fields can carry pre-strip
  *   expectations while the recorded wire pins the capability-stripped shape.
+ * • Two oracle workers recorded this fixture set and their downstream.md layouts differ:
+ *   worker-1's house style (one "## Status + headers" fence + one payload fence) and
+ *   worker-2's split style ("## Status line" / "## Response headers…" / "## Body…" fences,
+ *   S2d8-21). The parser accepts both; byte truth is enforced by the recorded Content-Length
+ *   (JSON bodies) and the SSE framing decoder (stream bodies). Worker-2's wire log also
+ *   omits the optional response_status field, so that cross-check runs only when present.
  *
  * ─────────────────────────────────────────────────────────────────────────────────────
  * COMPARISON RULES
@@ -300,7 +308,7 @@ async function loadAdapter(): Promise<AdapterLoadResult> {
     }
     return {
       skipReason: `\`${ADAPTER_MODULE}\` does not export \`${ADAPTER_EXPORT}(options)\` yet. ` +
-        'All 18 S2d8 golden cases SKIP until the cla2gem adapter ships; the required interface is documented in the header of this file.',
+        'All 21 S2d8 golden cases SKIP until the cla2gem adapter ships; the required interface is documented in the header of this file.',
     }
   } catch (error) {
     return { skipReason: `import of \`${ADAPTER_MODULE}\` failed: ${String(error)}` }
@@ -355,6 +363,7 @@ const EXPECTED_CASES = [
   'S2d8-18-stream-error-before-first-chunk',
   'S2d8-19-alias-rejection',
   'S2d8-20-strict-json-400',
+  'S2d8-21-count-tokens-toolchoice',
 ] as const
 
 type CaseId = (typeof EXPECTED_CASES)[number]
@@ -451,15 +460,29 @@ interface RecordedResponse {
 }
 
 function parseDownstreamMarkdown(text: string, caseId: string): RecordedResponse {
-  const head = fencedSection(text, '## Status + headers', caseId)
-  const bodyMarker = text.includes('## full SSE byte stream') ? '## full SSE byte stream' : '## body'
-  const body = fencedSection(text, bodyMarker, caseId)
-  const headLines = head.split('\n')
-  const statusLine = headLines[0] ?? ''
-  if (!statusLine.startsWith('HTTP/1.1 ')) throw new Error(`S2d8[${caseId}]: downstream.md has no status line`)
-  const status = Number(statusLine.split(' ')[1])
+  let statusLineText: string
+  let headerLines: readonly string[]
+  let body: string
+  if (text.includes('## Status + headers')) {
+    // worker-1 house style: one fenced status+headers block, then one fenced payload block.
+    const head = fencedSection(text, '## Status + headers', caseId)
+    const headLines = head.split('\n')
+    statusLineText = headLines[0] ?? ''
+    headerLines = headLines.slice(1)
+    const bodyMarker = text.includes('## full SSE byte stream') ? '## full SSE byte stream' : '## body'
+    body = fencedSection(text, bodyMarker, caseId)
+  } else {
+    // worker-2 style: separate fenced blocks per status line, header list, and payload.
+    statusLineText = fencedSection(text, '## Status line', caseId)
+    headerLines = fencedSection(text, '## Response headers', caseId).split('\n')
+    body = fencedSection(text, '## Body', caseId)
+  }
+  if (!statusLineText.startsWith('HTTP/1.1 ')) {
+    throw new Error(`S2d8[${caseId}]: downstream.md has no status line`)
+  }
+  const status = Number(statusLineText.split(' ')[1])
   const headers: Array<[string, string]> = []
-  for (const line of headLines.slice(1)) {
+  for (const line of headerLines) {
     if (line.trim() === '') continue
     const separator = line.indexOf(': ')
     if (separator <= 0) continue
@@ -889,7 +912,7 @@ async function replayCase(caseId: CaseId): Promise<void> {
 // ─── Suites ──────────────────────────────────────────────────────────────────────────
 
 describe('S2d8 fixture inventory (harness self-check, adapter-independent)', () => {
-  it('exposes exactly the 20 admitted golden cases, each internally consistent', async () => {
+  it('exposes exactly the 21 admitted golden cases, each internally consistent', async () => {
     expect([...fixtureCaseDirs]).toEqual([...EXPECTED_CASES].sort())
     for (const caseId of EXPECTED_CASES) {
       const meta = await readFixtureJson<CaseMeta>(caseId, 'meta.yaml')
@@ -979,11 +1002,13 @@ describe('S2d8 fixture inventory (harness self-check, adapter-independent)', () 
           ).toBe(true)
           orderCursor += 1
         }
-        const expectedMockStatus = control !== undefined && control.mode === 'error' ? control.status : 200
-        expect(
-          recorded.response_status,
-          `${caseId}: recorded mock reply status agrees with the mock control`,
-        ).toBe(expectedMockStatus)
+        if (recorded.response_status !== undefined) {
+          const expectedMockStatus = control !== undefined && control.mode === 'error' ? control.status : 200
+          expect(
+            recorded.response_status,
+            `${caseId}: recorded mock reply status agrees with the mock control`,
+          ).toBe(expectedMockStatus)
+        }
       }
 
       // Mock control shape vs the request: streams need a canned chunk script (slow and

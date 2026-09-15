@@ -639,24 +639,6 @@ function parseWireLines(text: string): readonly WireLine[] {
     })
 }
 
-interface MockWrite {
-  readonly bytes?: string
-  readonly sleep_after_ms?: number
-}
-
-interface MockFile {
-  readonly mode?: string
-  readonly upstream_call_count?: string
-  readonly case_file?: string
-  readonly note?: string
-  readonly sse_script_exact_bytes?: string
-  readonly http_error?: { readonly status?: unknown; readonly content_type?: unknown; readonly body?: unknown }
-  readonly writes?: { readonly writes?: readonly unknown[] }
-  readonly compact_reply_exact_bytes?: string
-  readonly control_file?: string
-  readonly mock_script?: string
-}
-
 interface CaseMeta {
   readonly case: string
   readonly purpose: string
@@ -732,7 +714,7 @@ function parseJsonRecord(text: string, context: string): Record<string, unknown>
 const RECOGNIZED_DYNAMIC_FIELDS: ReadonlySet<string> = new Set([
   'Date response header',
   'Date',
-  'X-Cpa-Trace-Id and other X-Cpa-* and X-Server-* response headers',
+  'X-Cpa-Trace-Id and other X-Cpa-*/X-Server-* response headers',
   'X-Cpa-* response headers',
   'upstream body prompt_cache_key (uuid) and header Session-Id when the client sent no prompt_cache_key',
   'nothing else is dynamic: mock ids (resp_mock_*), created_at 1742812800, ports, and key strings are fixed',
@@ -1042,10 +1024,6 @@ async function readResponseBody(body: PassthroughResponse['body']): Promise<stri
     return out + decoder.decode()
   }
   throw new Error('adapter response body must be a string or a web ReadableStream (see adapter interface in the header)')
-}
-
-function truncate(text: string): string {
-  return text.length > 200 ? `${text.slice(0, 200)}…` : text
 }
 
 
@@ -1887,7 +1865,7 @@ describe('S2d9 fixture inventory (harness self-check, adapter-independent)', () 
         expect(line.headers['Session-Id'], `${wireContext}: Session-Id == body prompt_cache_key (§3.2)`).toBe(
           asString(wireBody.prompt_cache_key),
         )
-        const expectedOrder = [...WIRE_HEADER_ORDER]
+        const expectedOrder: string[] = [...WIRE_HEADER_ORDER]
         if (line.headers[LITE_HEADER_WIRE_NAME] !== undefined) {
           expectedOrder.splice(expectedOrder.indexOf('Accept-Encoding'), 0, LITE_HEADER_WIRE_NAME)
         }
@@ -1898,7 +1876,6 @@ describe('S2d9 fixture inventory (harness self-check, adapter-independent)', () 
         (await readFixtureJsonIfExists<unknown>(caseId, 'mock-response.json')) ?? {},
         `${context} mock-response.json`,
       )
-      const mockMode = asString(mockFile.mode) ?? ''
       if (asRecord(mockFile.http_error) !== undefined) {
         const httpError = asRecordOrThrow(mockFile.http_error, `${context} http_error`)
         expect(Number.isInteger(asNumber(httpError.status)), `${context}: http_error status is an integer`).toBe(true)
@@ -1998,10 +1975,10 @@ describe('S2d9 fixture inventory (harness self-check, adapter-independent)', () 
       Math.abs(Date.parse(meta11.recorded_at) - Date.parse(meta12.recorded_at)) < 1_000,
       'S2d9-12 recorded < 1s after S2d9-11 (inside the rate-limit window)',
     ).toBe(true)
+    const mock11 = asRecordOrThrow(await readFixtureJson<unknown>('S2d9-11', 'mock-response.json'), 'S2d9-11 mock')
     const error11 = asRecordOrThrow(
       parseJsonRecord(
-        asString(asRecordOrThrow(await readFixtureJson<unknown>('S2d9-11', 'mock-response.json'), 'S2d9-11 mock').http_error)
-          ?? '',
+        asString(asRecordOrThrow(mock11.http_error, 'S2d9-11 http_error').body) ?? '',
         'S2d9-11 mock error body',
       ).error,
       'S2d9-11 mock error object',
@@ -2019,10 +1996,10 @@ describe('S2d9 fixture inventory (harness self-check, adapter-independent)', () 
 
     // The 404 pair (S2d9-10 -> S2d9-18): the observation's 503 body embeds the trigger's
     // "<error.code>: <error.message>" and records ZERO upstream lines.
+    const mock10 = asRecordOrThrow(await readFixtureJson<unknown>('S2d9-10', 'mock-response.json'), 'S2d9-10 mock')
     const error10 = asRecordOrThrow(
       parseJsonRecord(
-        asString(asRecordOrThrow(await readFixtureJson<unknown>('S2d9-10', 'mock-response.json'), 'S2d9-10 mock').http_error)
-          ?? '',
+        asString(asRecordOrThrow(mock10.http_error, 'S2d9-10 http_error').body) ?? '',
         'S2d9-10 mock error body',
       ).error,
       'S2d9-10 mock error object',
@@ -2073,7 +2050,10 @@ describe('S2d9 fixture inventory (harness self-check, adapter-independent)', () 
     // (no reference stall policy); the recorded sleeps stay meta-only.
     const meta17 = await readFixtureJson<CaseMeta>('S2d9-17', 'meta.yaml')
     const results17 = meta17.investigation?.results
-    expect(Object.keys(results17 ?? {}).length, 'S2d9-17: the investigation table carries the three variants').toBe(3)
+    const variants17 = Object.keys(results17 ?? {})
+    for (const variant of ['a-as-specified', 'b-halved-sleeps', 'c-single-pause-clean-frames']) {
+      expect(variants17, `S2d9-17: the investigation table carries the ${variant} variant`).toContain(variant)
+    }
     for (const [variant, result] of Object.entries(results17 ?? {})) {
       expect(result?.http_status, `S2d9-17: variant ${variant} recorded HTTP 200 (no stall policy)`).toBe(200)
     }
