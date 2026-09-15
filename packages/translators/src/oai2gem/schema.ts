@@ -94,17 +94,34 @@ function enumValuesOf(key: string, value: unknown): readonly string[] | undefine
   return undefined
 }
 
+/** The enum-bearing key of a record (`enum`, or a string `const`). */
+function enumKeyOf(record: Record<string, unknown>): 'enum' | 'const' | undefined {
+  if (enumValuesOf('enum', record['enum']) !== undefined) return 'enum'
+  if (enumValuesOf('const', record['const']) !== undefined) return 'const'
+  return undefined
+}
+
 /** One edit the object rebuild applies to a member. */
 type MemberEdit =
   | { readonly kind: 'drop' }
-  | { readonly kind: 'replace'; readonly replacement: string }
-  | { readonly kind: 'inline'; readonly members: string }
+  /** `member` covers the value only (enum) or the whole member (const). */
+  | { readonly kind: 'replace'; readonly replacement: string; readonly wholeMember: boolean }
+  | { readonly kind: 'inline' }
   | { readonly kind: 'recurse' }
+
+/** One member appended to a cleaned object. */
+interface ObjectAppend {
+  readonly key: string
+  /** Serialized member value. */
+  readonly value: string
+  /** Un-serialized hint text; present for description folds only. */
+  readonly hint?: string
+}
 
 /** Edits of one schema object, plus the members appended to it. */
 interface ObjectPlan {
   readonly edits: ReadonlyMap<string, MemberEdit>
-  readonly appends: ReadonlyArray<{ readonly key: string; readonly value: string }>
+  readonly appends: ReadonlyArray<ObjectAppend>
   readonly changed: boolean
 }
 
@@ -115,10 +132,9 @@ interface ObjectPlan {
  */
 function planObject(record: Record<string, unknown>): ObjectPlan {
   const edits = new Map<string, MemberEdit>()
-  const appends: Array<{ key: string; value: string }> = []
+  const appends: ObjectAppend[] = []
   let changed = false
 
-  let enumKey: string | undefined
   for (const key of Object.keys(record)) {
     if (DROPPED_MEMBERS.has(key)) {
       edits.set(key, { kind: 'drop' })
@@ -127,35 +143,44 @@ function planObject(record: Record<string, unknown>): ObjectPlan {
     }
     if (UNSUPPORTED_CONSTRAINTS.has(key)) {
       edits.set(key, { kind: 'drop' })
-      appends.push({ key: 'description', value: `${key}: ${serializeOrdered(record[key] as WireValue)}` })
+      const hint = `${key}: ${serializeOrdered(record[key] as WireValue)}`
+      appends.push({ key: 'description', value: serializeOrdered(hint), hint })
       changed = true
       continue
     }
     const values = enumValuesOf(key, record[key])
     if (values !== undefined) {
-      enumKey = key
       const hint = serializeOrdered('description') + ':' + serializeOrdered(allowedHint(values))
-      edits.set(key, { kind: 'replace', replacement: serializeOrdered(values) + ',' + hint })
+      if (key === 'enum') {
+        edits.set(key, { kind: 'replace', replacement: serializeOrdered(values) + ',' + hint, wholeMember: false })
+      } else {
+        // A string const converts to a compact enum member plus the hint.
+        edits.set(key, {
+          kind: 'replace',
+          replacement: serializeOrdered('enum') + ':' + serializeOrdered(values) + ',' + hint,
+          wholeMember: true,
+        })
+      }
       changed = true
       continue
     }
     if (key === 'anyOf' || key === 'oneOf') {
       const value = record[key]
       if (Array.isArray(value) && value.length === 1 && isPlainObject(value[0])) {
-        edits.set(key, { kind: 'inline', members: compactMemberList(value[0]) })
+        edits.set(key, { kind: 'inline' })
         changed = true
-        continue
       }
     }
   }
 
+  const enumKey = enumKeyOf(record)
   if (enumKey !== undefined) {
     const type = record['type']
     if (type === undefined) {
       appends.push({ key: 'type', value: serializeOrdered('string') })
       changed = true
     } else if (typeof type !== 'string' || type !== 'string') {
-      edits.set('type', { kind: 'replace', replacement: serializeOrdered('string') })
+      edits.set('type', { kind: 'replace', replacement: serializeOrdered('string'), wholeMember: false })
       changed = true
     }
   }
@@ -172,12 +197,37 @@ function compactMemberList(record: Record<string, unknown>): string {
   const scan = scanRawObject(text, 0)
   if (scan === undefined) return ''
   const parts: string[] = []
-  for (let i = 0; i < scan.members.length; i++) {
-    const member = scan.members[i]
-    if (member === undefined) continue
+  for (const member of scan.members) {
     parts.push(text.slice(member.keyStart, member.valueEnd))
   }
   return parts.join(',')
+}
+
+/**
+ * Raw member list of the single object element inside an anyOf/oneOf
+ * value: the element keeps its original bytes, so the inlined members
+ * preserve their spacing.
+ */
+function inlineMemberList(rawText: string, member: { readonly valueStart: number; readonly valueEnd: number }): string {
+  const arrayText = rawText.slice(member.valueStart, member.valueEnd)
+  const open = skipWsIndex(arrayText, arrayText.indexOf('[') + 1)
+  const elementText = arrayText.slice(open, scanValueEnd(arrayText, open))
+  const scan = scanRawObject(elementText, 0)
+  if (scan !== undefined) {
+    const parts: string[] = []
+    for (const element of scan.members) {
+      parts.push(elementText.slice(element.keyStart, element.valueEnd))
+    }
+    return parts.join(',')
+  }
+  // Compact fallback when the element does not scan as a raw object.
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(elementText)
+  } catch {
+    return elementText
+  }
+  return isPlainObject(parsed) ? compactMemberList(parsed) : elementText
 }
 
 /**
@@ -311,11 +361,12 @@ function cleanObjectNode(rawText: string, record: Record<string, unknown>, root:
     const edit = plan.edits.get(member.key)
     const value = record[member.key]
     if (edit !== undefined && edit.kind === 'drop') continue
-    const separator = separatorTo(rawText, previousEnd, member, scan, kept === 0)
+    const separator = separatorTo(rawText, previousEnd, member, scan)
     if (edit !== undefined && edit.kind === 'replace') {
-      pieces.push(separator, rawText.slice(member.keyStart, member.valueStart), edit.replacement)
+      const keyPart = edit.wholeMember ? '' : rawText.slice(member.keyStart, member.valueStart)
+      pieces.push(separator, keyPart, edit.replacement)
     } else if (edit !== undefined && edit.kind === 'inline') {
-      pieces.push(separator, edit.members)
+      pieces.push(separator, inlineMemberList(rawText, member))
     } else if (value !== null && typeof value === 'object') {
       const cleaned = cleanNode(rawText.slice(member.valueStart, member.valueEnd), value, root)
       pieces.push(separator, rawText.slice(member.keyStart, member.valueStart), cleaned)
@@ -326,14 +377,21 @@ function cleanObjectNode(rawText: string, record: Record<string, unknown>, root:
     kept += 1
   }
   let out = '{' + pieces.join('')
+  const folds: string[] = []
   for (const append of plan.appends) {
     if (append.key === 'description' && record['description'] !== undefined) {
-      out = replaceDescriptionMember(out, foldHint(record['description'], append.value))
+      // The fold rewrites the existing description member once the
+      // object text is closed (the scanner needs its closing brace).
+      folds.push(foldHint(record['description'], append.hint ?? ''))
       continue
     }
     out += (kept > 0 ? ',' : '') + serializeOrdered(append.key) + ':' + append.value
   }
-  return out + '}'
+  out += '}'
+  for (const fold of folds) {
+    out = replaceDescriptionMember(out, fold)
+  }
+  return out
 }
 
 /** Separator between the previous kept member and the member at hand. */
@@ -342,7 +400,6 @@ function separatorTo(
   previousEnd: number | undefined,
   member: { readonly keyStart: number },
   scan: RawObjectScan,
-  isFirstKept: boolean,
 ): string {
   if (previousEnd === undefined) {
     const prefix = rawText.slice(scan.start + 1, member.keyStart)

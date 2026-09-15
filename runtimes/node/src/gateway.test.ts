@@ -1098,3 +1098,239 @@ describe('merged facade wiring', () => {
     expect(parsed.promptTokensDetails[0]?.tokenCount).toBe(parsed.totalTokens)
   })
 })
+
+
+// ---------------------------------------------------------------------------
+// Direction flips wired at merge (Phase B)
+// ---------------------------------------------------------------------------
+
+/** Canned codex upstream SSE (the s2d5 mock "happy" script, transcribed). */
+const CODEX_EVENTS: ReadonlyArray<readonly [string, unknown]> = [
+  [
+    'response.created',
+    {
+      type: 'response.created',
+      response: {
+        id: 'resp_mock_01',
+        object: 'response',
+        created_at: 1770000000,
+        status: 'in_progress',
+        model: 'gpt-mock-codex',
+        output: [],
+        usage: { input_tokens: 9, output_tokens: 6, total_tokens: 15 },
+        parallel: false,
+        tool_choice: 'auto',
+        tools: [],
+      },
+    },
+  ],
+  [
+    'response.output_item.added',
+    {
+      type: 'response.output_item.added',
+      output_index: 0,
+      item: { type: 'message', id: 'msg_mock_01', role: 'assistant', status: 'in_progress', content: [] },
+    },
+  ],
+  [
+    'response.content_part.added',
+    {
+      type: 'response.content_part.added',
+      item_id: 'msg_mock_01',
+      output_index: 0,
+      content_index: 0,
+      part: { type: 'output_text', text: '', annotations: [] },
+    },
+  ],
+  [
+    'response.output_text.delta',
+    {
+      type: 'response.output_text.delta',
+      item_id: 'msg_mock_01',
+      output_index: 0,
+      content_index: 0,
+      delta: 'Hello from mock codex upstream',
+    },
+  ],
+  [
+    'response.output_text.delta',
+    {
+      type: 'response.output_text.delta',
+      item_id: 'msg_mock_01',
+      output_index: 0,
+      content_index: 0,
+      delta: ' more',
+    },
+  ],
+  [
+    'response.output_text.done',
+    {
+      type: 'response.output_text.done',
+      item_id: 'msg_mock_01',
+      output_index: 0,
+      content_index: 0,
+      text: 'Hello from mock codex upstream more',
+    },
+  ],
+  [
+    'response.content_part.done',
+    {
+      type: 'response.content_part.done',
+      item_id: 'msg_mock_01',
+      output_index: 0,
+      content_index: 0,
+      part: { type: 'output_text', text: 'Hello from mock codex upstream more', annotations: [] },
+    },
+  ],
+  [
+    'response.output_item.done',
+    {
+      type: 'response.output_item.done',
+      output_index: 0,
+      item: {
+        type: 'message',
+        id: 'msg_mock_01',
+        role: 'assistant',
+        status: 'completed',
+        content: [{ type: 'output_text', text: 'Hello from mock codex upstream more', annotations: [] }],
+      },
+    },
+  ],
+  [
+    'response.completed',
+    {
+      type: 'response.completed',
+      response: {
+        id: 'resp_mock_01',
+        object: 'response',
+        created_at: 1770000000,
+        status: 'completed',
+        model: 'gpt-mock-codex',
+        output: [
+          {
+            type: 'message',
+            id: 'msg_mock_01',
+            role: 'assistant',
+            status: 'completed',
+            content: [{ type: 'output_text', text: 'Hello from mock codex upstream more', annotations: [] }],
+          },
+        ],
+        usage: { input_tokens: 9, output_tokens: 6, total_tokens: 15 },
+        parallel: false,
+        tool_choice: 'auto',
+        tools: [],
+      },
+    },
+  ],
+]
+
+const CODEX_SSE = CODEX_EVENTS.map(([name, payload]) => `event: ${name}\ndata: ${JSON.stringify(payload)}\n\n`).join(
+  '',
+)
+
+describe('direction flips wired at merge (Phase B)', () => {
+  it('chat:codex-api-key dispatches through oai2codex with trace', async () => {
+    const transport = scriptedFetch(() => ({
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+      body: CODEX_SSE,
+    }))
+    const gateway = createNodeGateway({
+      config: {
+        ...BASE_CONFIG,
+        'codex-api-key': [
+          {
+            'api-key': 'codex-upstream-key',
+            'base-url': 'http://127.0.0.1:21003',
+            models: [{ name: 'gpt-mock-codex', alias: 'codex-mock-model' }],
+          },
+        ],
+      },
+      fetch: transport.fetch,
+    })
+    const response = await gateway.handle(
+      request(
+        'POST',
+        '/v1/chat/completions',
+        bearer(API_KEY),
+        '{"model": "codex-mock-model", "messages": [{"role": "user", "content": "hi"}]}',
+      ),
+    )
+    expect(response.status).toBe(200)
+    expect(transport.calls[0]?.url).toBe('http://127.0.0.1:21003/responses')
+    expect(header(response, 'X-Cpa-Trace-Id')).toMatch(/^\d{14}-\d+-[0-9a-f]{8}$/)
+    const body = JSON.parse(await text(response)) as { choices: Array<{ message: { content: string } }> }
+    expect(body.choices[0]?.message.content).toBe('Hello from mock codex upstream more')
+  })
+
+  it('responses:openai-compatibility dispatches through res2oai', async () => {
+    const transport = scriptedFetch(() => ({
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+      body: OPENAI_CHAT_JSON,
+    }))
+    const gateway = createNodeGateway({ config: BASE_CONFIG, fetch: transport.fetch })
+    const response = await gateway.handle(
+      request('POST', '/v1/responses', bearer(API_KEY), '{"model": "mock-model", "input": "Say hello"}'),
+    )
+    expect(response.status).toBe(200)
+    expect(transport.calls[0]?.url).toBe('http://127.0.0.1:18999/v1/chat/completions')
+    expect(header(response, 'X-Cpa-Trace-Id')).toMatch(/^\d{14}-\d+-[0-9a-f]{8}$/)
+    const body = JSON.parse(await text(response)) as { object: string; status: string }
+    expect(body.object).toBe('response')
+    expect(body.status).toBe('completed')
+  })
+
+  it('messages:gemini-api-key dispatches through cla2gem (count_tokens upstream)', async () => {
+    const transport = scriptedFetch(() => ({
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+      body: '{"totalTokens": 9}',
+    }))
+    const gateway = createNodeGateway({
+      config: {
+        ...BASE_CONFIG,
+        'gemini-api-key': [
+          {
+            'api-key': 'gemini-upstream-key',
+            'base-url': 'http://127.0.0.1:22000',
+            models: [{ name: 'gemini-mock-model' }],
+          },
+        ],
+      },
+      fetch: transport.fetch,
+    })
+    const response = await gateway.handle(
+      request(
+        'POST',
+        '/v1/messages/count_tokens',
+        bearer(API_KEY),
+        '{"model": "gemini-mock-model", "messages": [{"role": "user", "content": "hi"}]}',
+      ),
+    )
+    expect(response.status).toBe(200)
+    expect(transport.calls[0]?.url).toBe('http://127.0.0.1:22000/v1beta/models/gemini-mock-model:countTokens')
+    const body = JSON.parse(await text(response)) as { input_tokens: number }
+    expect(body.input_tokens).toBe(9)
+  })
+
+  it('composes the merged management API over configYaml', async () => {
+    const gateway = createNodeGateway({
+      config: BASE_CONFIG,
+      configYaml: [
+        'port: 18317',
+        'api-keys:',
+        '  - oracle-local-key-1',
+        'remote-management:',
+        '  allow-remote: true',
+        '  secret-key: oracle-mgmt-key-1',
+        '',
+      ].join('\n'),
+    })
+    const response = await gateway.handle(request('GET', '/v0/management/config', bearer(MGMT_KEY)))
+    expect(response.status).toBe(200)
+    expect(header(response, 'X-Cpa-Version')).toBe('v7.3.4')
+    expect(header(response, 'X-Cpa-Commit')).toBe('8335eac')
+    CORS_BLOCK_PRESENT(response)
+  })
+})

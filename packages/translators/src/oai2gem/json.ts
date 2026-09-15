@@ -480,7 +480,7 @@ export function deleteRawMember(text: string, key: string): string {
   }
   const next = skipWs(text, member.valueEnd)
   if (text[next] === ',') {
-    return text.slice(0, member.keyStart) + text.slice(next + 1)
+    return text.slice(0, member.keyStart) + text.slice(skipWs(text, next + 1))
   }
   return text.slice(0, member.keyStart) + text.slice(member.valueEnd)
 }

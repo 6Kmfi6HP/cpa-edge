@@ -88,7 +88,7 @@ describe('sanitizeFunctionName', () => {
     expect(sanitizeFunctionName('1get')).toBe('_1get')
     expect(sanitizeFunctionName('get-weather.v1:beta')).toBe('get-weather.v1:beta')
     expect(sanitizeFunctionName('x'.repeat(80))).toHaveLength(64)
-    expect(sanitizeFunctionName('-lead')).toBe('_lead')
+    expect(sanitizeFunctionName('-lead')).toBe('_-lead')
   })
 })
 
@@ -114,7 +114,7 @@ describe('cleanGeminiSchema', () => {
   })
 
   it('converts a string const into an enum with the hint', () => {
-    expect(cleanGeminiSchema('{"const": "yes"}')).toBe('{"enum": ["yes"],"description":"Allowed: yes","type":"string"}')
+    expect(cleanGeminiSchema('{"const": "yes"}')).toBe('{"enum":["yes"],"description":"Allowed: yes","type":"string"}')
   })
 
   it('inlines single-element anyOf/oneOf schemas', () => {
@@ -132,10 +132,7 @@ describe('cleanGeminiSchema', () => {
       '{"type": "string","description":"additionalProperties: false"}',
     )
     expect(cleanGeminiSchema('{"description": "Base", "exclusiveMinimum": 0}')).toBe(
-      '{"description": "Base additionalProperties-free Base exclusiveMinimum: 0"}'.replace(
-        'Base additionalProperties-free ',
-        '',
-      ),
+      '{"description": "Base exclusiveMinimum: 0"}',
     )
   })
 
@@ -179,9 +176,11 @@ describe('buildGeminiTools', () => {
 
   it('drops strict, defaults the schema, and sanitizes into the name value', () => {
     const tools = buildGeminiTools(parsedBody.tools, rawBody) ?? []
-    const declarations = (nodes => (nodes[0] as { functionDeclarations: unknown[] }).functionDeclarations)(tools as unknown[])
-    expect(declarations).toHaveLength(2)
-    expect(declarations[1]).toBe(`{"name":"no-params","parametersJsonSchema":${DEFAULT_PARAMETERS_JSON_SCHEMA}}`)
+    const first = tools[0] as { functionDeclarations: unknown[] }
+    expect(first.functionDeclarations).toHaveLength(2)
+    expect(serializeOrdered(first.functionDeclarations[1] as never)).toBe(
+      `{"name":"no-params","parametersJsonSchema":${DEFAULT_PARAMETERS_JSON_SCHEMA}}`,
+    )
   })
 })
 
@@ -325,10 +324,16 @@ describe('message mapping', () => {
   it('emits assistant reasoning as a thought part with the sentinel', () => {
     const value = parsed(
       translate({
-        messages: [{ role: 'assistant', reasoning_content: 'thinking...', content: 'answer' }],
+        messages: [
+          { role: 'assistant', reasoning_content: 'thinking...', content: 'answer' },
+          { role: 'user', content: 'next' },
+        ],
       }),
     )
+    // The conversation opens with a model content, so the executor's
+    // empty user turn is prepended (spec 3.2 step 8).
     expect(value['contents']).toEqual([
+      { role: 'user', parts: [{ text: '' }] },
       {
         role: 'model',
         parts: [
@@ -336,7 +341,11 @@ describe('message mapping', () => {
           { text: 'answer' },
         ],
       },
+      { role: 'user', parts: [{ text: 'next' }] },
     ])
+    // An assistant-only conversation drops to empty contents (mirrored).
+    const solo = parsed(translate({ messages: [{ role: 'assistant', reasoning_content: 'r', content: 'a' }] }))
+    expect(solo['contents']).toEqual([])
   })
 
   it('emits functionResponse parts only for tool_calls with id and name', () => {
@@ -354,12 +363,14 @@ describe('message mapping', () => {
     })
     const value = parsed(translate(raw))
     const contents = value['contents'] as Array<{ role: string; parts: Array<Record<string, unknown>> }>
-    expect(contents).toHaveLength(1)
-    const parts = contents[0]?.parts ?? []
-    expect(parts).toHaveLength(3)
+    // Prepend + model content + synthetic user turn (call `a` has an id).
+    expect(contents).toHaveLength(3)
+    expect(contents[0]).toEqual({ role: 'user', parts: [{ text: '' }] })
+    const parts = contents[1]?.parts ?? []
+    expect(parts).toHaveLength(2)
     expect(parts[0]).toHaveProperty('functionCall')
     expect(parts[1]).toHaveProperty('functionCall')
-    expect(parts[2]).toHaveProperty('functionCall')
+    expect((contents[2]?.parts ?? []).map((part) => (part['functionResponse'] as Record<string, unknown>)['name'])).toEqual(['one'])
   })
 
   it('defaults a missing tool message to result {} and drops unmatched tool messages', () => {
@@ -378,8 +389,9 @@ describe('message mapping', () => {
     })
     const value = parsed(translate(raw))
     const contents = value['contents'] as Array<{ role: string; parts: Array<Record<string, unknown>> }>
-    expect(contents).toHaveLength(2)
-    const responses = contents[1]?.parts ?? []
+    expect(contents).toHaveLength(3)
+    expect(contents[0]).toEqual({ role: 'user', parts: [{ text: '' }] })
+    const responses = contents[2]?.parts ?? []
     expect(responses).toEqual([
       { functionResponse: { name: 'tool-a', response: { result: '"plain result"' } } },
       { functionResponse: { name: 'tool-b', response: { result: {} } } },
@@ -406,9 +418,9 @@ describe('message mapping', () => {
     })
     const value = parsed(translate(raw))
     const contents = value['contents'] as Array<{ role: string; parts: Array<Record<string, unknown>> }>
-    const modelParts = contents[0]?.parts ?? []
+    const modelParts = contents[1]?.parts ?? []
     expect(modelParts.map((part) => part['thoughtSignature'])).toEqual(['sig-a', 'sig-b', 'sig-c'])
-    expect(serializeOrdered(contents[1]?.parts[0] ?? {})).toContain('{"spaced":true}')
+    expect(serializeOrdered((contents[2]?.parts[0] ?? {}) as never)).toContain('{"spaced":true}')
   })
 })
 
@@ -425,7 +437,7 @@ describe('generationConfig overlay', () => {
         n: 2,
       }),
     )
-    expect(value['generationConfig']).toBe('{"temperature":0.5,"topP":0.9,"topK":3,"maxOutputTokens":64,"candidateCount":2}')
+    expect(JSON.stringify(value['generationConfig'])).toBe('{"temperature":0.5,"topP":0.9,"topK":3,"maxOutputTokens":64,"candidateCount":2}')
   })
 
   it('omits candidateCount for n <= 1 and non-number sampling knobs', () => {
@@ -438,13 +450,16 @@ describe('generationConfig overlay', () => {
         max_completion_tokens: 7,
       }),
     )
-    expect(value['generationConfig']).toBe('{"maxOutputTokens":7}')
+    expect(JSON.stringify(value['generationConfig'])).toBe('{"maxOutputTokens":7}')
   })
 
   it('copies a client generationConfig verbatim and overwrites in place', () => {
     const raw = '{"messages":[{"role":"user","content":"hi"}], "generationConfig": {"topP": 0.1, "temperature": 0.2}, "temperature": 0.9}'
-    const value = parsed(translate(raw))
-    expect(value['generationConfig']).toBe('{"topP": 0.1, "temperature":0.9}')
+    const body = translate(raw)
+    // The client object's raw bytes survive; the mapped temperature
+    // overwrites its value in place (the raw `": "` spacing stays, the
+    // gateway-written value is compact).
+    expect(body).toContain('"generationConfig":{"topP": 0.1, "temperature": 0.9}')
   })
 
   it('maps response_format, modalities and image_config', () => {
@@ -456,26 +471,26 @@ describe('generationConfig overlay', () => {
         image_config: { aspect_ratio: '16:9', image_size: '1024x1024' },
       }),
     )
-    expect(value['generationConfig']).toBe(
+    expect(JSON.stringify(value['generationConfig'])).toBe(
       '{"responseMimeType":"application/json","responseJsonSchema":{"type":"object","x":1},"responseModalities":["TEXT","IMAGE"],"imageConfig":{"aspectRatio":"16:9","imageSize":"1024x1024"}}',
     )
   })
 
   it('strips reasoning_effort thinkingConfigs for thinking-less models (C07)', () => {
     const low = parsed(translate({ messages: [{ role: 'user', content: 'hi' }], reasoning_effort: 'low' }))
-    expect(low['generationConfig']).toBe('{}')
+    expect(JSON.stringify(low['generationConfig'])).toBe('{}')
     const auto = parsed(translate({ messages: [{ role: 'user', content: 'hi' }], reasoning_effort: 'auto' }))
-    expect(auto['generationConfig']).toBe('{}')
+    expect(JSON.stringify(auto['generationConfig'])).toBe('{}')
   })
 
   it('keeps the thinkingConfig for levels-configured models and maps the suffix level', () => {
     const ctx: ChatToGeminiContext = { upstreamModel: 'm', thinking: { levels: ['low', 'high'] } }
     const effort = parsed(translate({ messages: [{ role: 'user', content: 'hi' }], reasoning_effort: 'Low ' }, ctx))
-    expect(effort['generationConfig']).toBe('{"thinkingConfig":{"thinkingLevel":"low"}}')
+    expect(JSON.stringify(effort['generationConfig'])).toBe('{"thinkingConfig":{"thinkingLevel":"low"}}')
     const auto = parsed(translate({ messages: [{ role: 'user', content: 'hi' }], reasoning_effort: 'auto' }, ctx))
-    expect(auto['generationConfig']).toBe('{"thinkingConfig":{"thinkingBudget":-1}}')
+    expect(JSON.stringify(auto['generationConfig'])).toBe('{"thinkingConfig":{"thinkingBudget":-1}}')
     const suffixed = parsed(translate({ messages: [{ role: 'user', content: 'hi' }] }, { ...ctx, suffixLevel: 'high' }))
-    expect(suffixed['generationConfig']).toBe('{"thinkingConfig":{"thinkingLevel":"high"}}')
+    expect(JSON.stringify(suffixed['generationConfig'])).toBe('{"thinkingConfig":{"thinkingLevel":"high"}}')
   })
 
   it('always ends the body with the injected safetySettings', () => {
@@ -564,8 +579,15 @@ describe('translateGeminiResponseToChatCompletion', () => {
     const choice = (value['choices'] as Array<Record<string, unknown>>)[0]
     expect(choice?.['finish_reason']).toBe('tool_calls')
     expect(choice?.['native_finish_reason']).toBe('tool_calls')
-    expect(serializeOrdered(choice?.['message'] ?? {})).toContain('"arguments":"{\\"city\\": \\"Paris\\"}"')
-    expect(serializeOrdered(choice?.['message'] ?? {})).not.toContain('"index"')
+    // The arguments string carries the upstream's RAW bytes (compact here
+    // because this upstream was JSON.stringify-ed).
+    expect(serializeOrdered(choice?.['message'] as never)).toContain('"arguments":"{\\"city\\":\\"Paris\\"}"')
+    expect(serializeOrdered(choice?.['message'] as never)).not.toContain('"index"')
+    // A spaced upstream keeps its spacing verbatim (recorded behavior).
+    const spaced = '{"candidates":[{"content":{"parts":[{"functionCall":{"name":"f","args":{"city": "Paris"}}}],"role":"model"},"finishReason":"STOP"}]}'
+    const spacedValue = parsed(translateGeminiResponseToChatCompletion(spaced, RESPONSE_CTX))
+    const spacedChoice = (spacedValue['choices'] as Array<Record<string, unknown>>)[0]
+    expect(serializeOrdered(spacedChoice?.['message'] as never)).toContain('"arguments":"{\\"city\\": \\"Paris\\"}"')
   })
 
   it('maps thoughts/cached usage details and inlineData images', () => {
@@ -736,10 +758,12 @@ describe('GeminiChunkTranslator', () => {
       },
     ])
     const terminal = parsed(bodies[2] ?? '')
-    const choice = (terminal['choices'] as Array<Record<string, unknown>>)[0]
-    expect(choice?.['finish_reason']).toBe('tool_calls')
-    expect(choice?.['native_finish_reason']).toBe('stop')
-    const delta = choice?.['delta'] as Record<string, unknown>
+    const terminalChoice = (terminal['choices'] as Array<Record<string, unknown>>)[0]
+    expect(terminalChoice?.['finish_reason']).toBe('tool_calls')
+    expect(terminalChoice?.['native_finish_reason']).toBe('stop')
+    const callFrame = parsed(bodies[1] ?? '')
+    const callChoice = (callFrame['choices'] as Array<Record<string, unknown>>)[0]
+    const delta = callChoice?.['delta'] as Record<string, unknown>
     const call = (delta['tool_calls'] as Array<Record<string, unknown>>)[0]
     expect(call).toEqual({
       id: expect.stringMatching(/^get_weather-\d+-\d+$/),
@@ -798,6 +822,10 @@ describe('filterUpstreamUsage', () => {
 })
 
 describe('decodeUpstreamDataLines', () => {
+  async function* asSource(chunks: readonly (string | Uint8Array)[]): AsyncIterable<string | Uint8Array> {
+    for (const chunk of chunks) yield chunk
+  }
+
   async function collect(source: AsyncIterable<string | Uint8Array>): Promise<string[]> {
     const out: string[] = []
     for await (const line of decodeUpstreamDataLines(source)) out.push(line.data)
@@ -815,22 +843,23 @@ describe('decodeUpstreamDataLines', () => {
       'stray line',
       '',
     ].join('\n')
-    expect(await collect([text])).toEqual(['{"a":1}', '{"b":2}'])
+    expect(await collect(asSource([text]))).toEqual(['{"a":1}', '{"b":2}'])
   })
 
   it('handles payloads split across reads and a missing trailing newline', async () => {
-    expect(await collect(['data: {"a"', ':1}\ndata: {"b', ':2}'])).toEqual(['{"a":1}', '{"b":2}'])
-    expect(await collect(['data: {"x":9}'])).toEqual(['{"x":9}'])
+    expect(await collect(asSource(['data: {"a"', ':1}\ndata: {"b', '":2}\n']))).toEqual(['{"a":1}', '{"b":2}'])
+    expect(await collect(asSource(['data: {"x":9}']))).toEqual(['{"x":9}'])
   })
 })
 
 describe('translateGeminiStreamToChatChunks', () => {
   it('yields one chunk per payload and ends on a clean EOF', async () => {
     const events: string[] = []
-    for await (const event of translateGeminiStreamToChatChunks(
-      [ 'data: {"candidates":[{"content":{"parts":[{"text":"hi"}],"role":"model"},"index":0}]}\n\n', 'data: not-json\n\n' ],
-      STREAM_CTX,
-    )) {
+    const source = (async function* (): AsyncGenerator<string> {
+      yield 'data: {"candidates":[{"content":{"parts":[{"text":"hi"}],"role":"model"},"index":0}]}\n\n'
+      yield 'data: not-json\n\n'
+    })()
+    for await (const event of translateGeminiStreamToChatChunks(source, STREAM_CTX)) {
       expect(event.kind).toBe('chunk')
       if (event.kind === 'chunk') events.push(event.body)
     }
@@ -919,8 +948,8 @@ describe('buildGeminiUpstreamHeaders', () => {
       ['Content-Length', '5'],
       ['X-Goog-Api-Key', 'key'],
       ['Accept-Encoding', 'gzip'],
-      ['content-type', 'text/plain'],
       ['X-Custom', 'v'],
+      ['content-type', 'text/plain'],
     ])
   })
 })
@@ -984,6 +1013,26 @@ const SERVICE_OPTIONS_BASE = {
   transientErrorCooldownSeconds: -1,
 }
 
+/** Both credentials serve `shared`; rotation tests need two candidates. */
+const SHARED_CREDENTIALS = [
+  {
+    apiKey: 'k1',
+    baseUrl: 'http://upstream-one.test',
+    models: [
+      { name: 'up-one', alias: 'alias-one' },
+      { name: 'up-shared-1', alias: 'shared' },
+    ],
+  },
+  {
+    apiKey: 'k2',
+    baseUrl: 'http://upstream-two.test',
+    models: [
+      { name: 'up-two', alias: 'alias-two' },
+      { name: 'up-shared-2', alias: 'shared' },
+    ],
+  },
+]
+
 describe('createOai2GemService', () => {
   it('gates the Bearer credential with the S1 shapes', async () => {
     const service = createOai2GemService({ ...SERVICE_OPTIONS_BASE, store: new MemoryStore() })
@@ -1021,13 +1070,13 @@ describe('createOai2GemService', () => {
       throw new Error('unreachable')
     })
     expect(malformed.status).toBe(400)
-    expect(JSON.parse(malformed.body)).toEqual({ error: { message: expect.stringContaining('Invalid request:'), type: 'invalid_request_error' } })
+    expect(JSON.parse(String(malformed.body))).toEqual({ error: { message: expect.stringContaining('Invalid request:'), type: 'invalid_request_error' } })
     expect(headerOf(malformed.headers, 'x-cpa-trace-id')).toBeUndefined()
 
     const unknown = await service.handleChatCompletions(chatRequest({ model: 'nope', messages: [] }), async () => {
       throw new Error('unreachable')
     })
-    expect(JSON.parse(unknown.body)).toEqual({
+    expect(JSON.parse(String(unknown.body))).toEqual({
       error: { message: 'unknown provider for model nope', type: 'invalid_request_error', code: 'model_not_found', param: 'model' },
     })
   })
@@ -1091,58 +1140,96 @@ describe('createOai2GemService', () => {
     })
   })
 
-  it('renders a pre-commit transport failure as a plain 500 and retries across credentials', async () => {
-    const service = createOai2GemService({ ...SERVICE_OPTIONS_BASE, store: new MemoryStore(), requestRetry: 1 })
-    let calls = 0
-    const response = await service.handleChatCompletions(chatRequest({ model: 'alias-one', messages: [{ role: 'user', content: 'x' }] }), async () => {
-      calls += 1
-      if (calls === 1) throw new Error('unexpected EOF')
+  it('retries a pre-commit transport failure on the next credential', async () => {
+    const service = createOai2GemService({
+      ...SERVICE_OPTIONS_BASE,
+      credentials: SHARED_CREDENTIALS,
+      store: new MemoryStore(),
+      requestRetry: 1,
+    })
+    const seen: string[] = []
+    const response = await service.handleChatCompletions(chatRequest({ model: 'shared', messages: [{ role: 'user', content: 'x' }] }), async (request) => {
+      seen.push(request.url)
+      if (seen.length === 1) throw new Error('unexpected EOF')
       return { status: 200, headers: [], body: jsonStream(JSON.stringify({ candidates: [] })) }
     })
-    expect(calls).toBe(1)
+    expect(seen).toHaveLength(2)
+    expect(seen[0]).toContain('upstream-one.test')
+    expect(seen[1]).toContain('upstream-two.test')
     expect(response.status).toBe(200)
   })
 
-  it('serves from the second credential when the first is cooling', async () => {
-    const store = new MemoryStore({ now: () => 1_789_507_015_000 })
-    const service = createOai2GemService({ ...SERVICE_OPTIONS_BASE, store, requestRetry: 1 })
-    let calls = 0
-    const send: Oai2GemUpstreamSender = async () => {
-      calls += 1
-      if (calls === 1) {
-        return { status: 429, headers: [], body: jsonStream('{"error":"limited"}') }
-      }
-      return { status: 200, headers: [], body: jsonStream(JSON.stringify({ candidates: [] })) }
-    }
-    const first = await service.handleChatCompletions(chatRequest({ model: 'alias-one', messages: [{ role: 'user', content: 'x' }] }), send)
-    expect(first.status).toBe(429)
-    expect(first.body).toBe('{"error":"limited"}')
-    // The rotated second credential serves the retry.
-    const second = await service.handleChatCompletions(chatRequest({ model: 'alias-one', messages: [{ role: 'user', content: 'x' }] }), send)
-    expect(second.status).toBe(200)
-    // A fresh alias pair on the cooling credential surfaces the envelope.
-    const third = await service.handleChatCompletions(chatRequest({ model: 'alias-one', messages: [{ role: 'user', content: 'x' }] }), async () => {
-      throw new Error('unreachable')
+  it('falls back to the 500 envelope when attempts are exhausted', async () => {
+    const service = createOai2GemService({
+      ...SERVICE_OPTIONS_BASE,
+      credentials: SHARED_CREDENTIALS,
+      store: new MemoryStore(),
+      requestRetry: 1,
     })
+    const response = await service.handleChatCompletions(chatRequest({ model: 'shared', messages: [{ role: 'user', content: 'x' }] }), async () => {
+      throw new Error('unexpected EOF')
+    })
+    // The LAST attempt's outcome wins once the attempt budget is spent.
+    expect(response.status).toBe(500)
+    expect(JSON.parse(String(response.body))).toEqual({
+      error: { message: 'unexpected EOF', type: 'server_error', code: 'internal_server_error' },
+    })
+  })
+
+  it('serves from the second credential when the first is cooling, then surfaces the envelope', async () => {
+    const store = new MemoryStore({ now: () => 1_789_507_015_000 })
+    const service = createOai2GemService({
+      ...SERVICE_OPTIONS_BASE,
+      credentials: SHARED_CREDENTIALS,
+      store,
+      requestRetry: 0,
+    })
+    const seen: string[] = []
+    const send: Oai2GemUpstreamSender = async (request) => {
+      seen.push(request.url)
+      if (seen.length <= 1) {
+        return { status: 429, headers: [], body: jsonStream('{"error":"limited-one"}') }
+      }
+      if (seen.length === 2) {
+        return { status: 200, headers: [], body: jsonStream(JSON.stringify({ candidates: [] })) }
+      }
+      return { status: 429, headers: [], body: jsonStream('{"error":"limited-two"}') }
+    }
+    const first = await service.handleChatCompletions(chatRequest({ model: 'shared', messages: [{ role: 'user', content: 'x' }] }), send)
+    expect(first.status).toBe(429)
+    expect(first.body).toBe('{"error":"limited-one"}')
+    // The second credential still serves the same alias.
+    const second = await service.handleChatCompletions(chatRequest({ model: 'shared', messages: [{ role: 'user', content: 'x' }] }), send)
+    expect(second.status).toBe(200)
+    expect(seen[1]).toContain('upstream-two.test')
+    // Its own 429 cools it too (still the verbatim pass-through)...
+    const third = await service.handleChatCompletions(chatRequest({ model: 'shared', messages: [{ role: 'user', content: 'x' }] }), send)
     expect(third.status).toBe(429)
-    expect(headerOf(third.headers, 'retry-after')).toBe('1')
-    expect(headerOf(third.headers, 'x-cpa-trace-id')).toBeUndefined()
-    expect(JSON.parse(String(third.body))).toEqual({
+    expect(third.body).toBe('{"error":"limited-two"}')
+    // ...and every credential now blocks the alias with the envelope.
+    const fourth = await service.handleChatCompletions(chatRequest({ model: 'shared', messages: [{ role: 'user', content: 'x' }] }), send)
+    expect(fourth.status).toBe(429)
+    expect(headerOf(fourth.headers, 'retry-after')).toBe('1')
+    expect(headerOf(fourth.headers, 'x-cpa-trace-id')).toBeUndefined()
+    expect(JSON.parse(String(fourth.body))).toEqual({
       error: {
         code: 'model_cooldown',
-        last_upstream_error: '{"error":"limited"}',
-        message: 'All credentials for model alias-one are cooling down via provider gemini (last error: {"error":"limited"})',
-        model: 'alias-one',
+        last_upstream_error: '{"error":"limited-two"}',
+        message: 'All credentials for model shared are cooling down via provider gemini (last error: {"error":"limited-two"})',
+        model: 'shared',
         provider: 'gemini',
         reset_seconds: 1,
         reset_time: '1s',
       },
     })
+    // No upstream call happens while every credential cools.
+    expect(seen).toHaveLength(3)
   })
 
   it('clears the window after a successful exchange', async () => {
-    const store = new MemoryStore({ now: () => 1_789_507_015_000 })
-    const service = createOai2GemService({ ...SERVICE_OPTIONS_BASE, store })
+    let nowMs = 1_789_507_015_000
+    const store = new MemoryStore({ now: () => nowMs })
+    const service = createOai2GemService({ ...SERVICE_OPTIONS_BASE, store, now: () => nowMs })
     let status = 429
     const send: Oai2GemUpstreamSender = async () => ({
       status,
@@ -1151,6 +1238,12 @@ describe('createOai2GemService', () => {
     })
     await service.handleChatCompletions(chatRequest({ model: 'alias-one', messages: [{ role: 'user', content: 'x' }] }), send)
     status = 200
+    // Inside the window the request still surfaces the cooldown envelope.
+    const blocked = await service.handleChatCompletions(chatRequest({ model: 'alias-one', messages: [{ role: 'user', content: 'x' }] }), send)
+    expect(blocked.status).toBe(429)
+    expect(String(blocked.body)).toContain('model_cooldown')
+    // After the window melts, a success clears the recorded state.
+    nowMs += 2_000
     await service.handleChatCompletions(chatRequest({ model: 'alias-one', messages: [{ role: 'user', content: 'x' }] }), send)
     const after = await service.handleChatCompletions(chatRequest({ model: 'alias-one', messages: [{ role: 'user', content: 'x' }] }), send)
     expect(after.status).toBe(200)
@@ -1244,9 +1337,14 @@ describe('createOai2GemService', () => {
 
   it('appends the terminal error frame and no [DONE] on a mid-stream disconnect', async () => {
     const service = createOai2GemService({ ...SERVICE_OPTIONS_BASE, store: new MemoryStore() })
+    let served = false
     const stream = new ReadableStream<Uint8Array>({
       pull(controller) {
-        controller.enqueue(encoder.encode('data: {"candidates":[{"content":{"parts":[{"text":"one"}],"role":"model"},"index":0}]}\n\n'))
+        if (!served) {
+          served = true
+          controller.enqueue(encoder.encode('data: {"candidates":[{"content":{"parts":[{"text":"one"}],"role":"model"},"index":0}]}\n\n'))
+          return
+        }
         controller.error(new Error('unexpected EOF'))
       },
     })
