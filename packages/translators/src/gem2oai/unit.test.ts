@@ -1524,16 +1524,23 @@ describe('facade — alt framing modes downstream', () => {
     const service = facade()
     const response = await service.handleV1Beta(
       request('/v1beta/models/mock-model:streamGenerateContent?alt=sse', '{"contents":[]}'),
-      async () => ({
-        status: 200,
-        headers: [],
-        body: new ReadableStream<Uint8Array>({
-          pull(controller) {
-            controller.enqueue(encoder.encode(frames[0] ?? ''))
-            controller.error(new Error('unexpected EOF'))
-          },
-        }),
-      }),
+      async () => {
+        let served = false
+        return {
+          status: 200,
+          headers: [],
+          body: new ReadableStream<Uint8Array>({
+            pull(controller) {
+              if (!served) {
+                served = true
+                controller.enqueue(encoder.encode(frames[0] ?? ''))
+                return
+              }
+              controller.error(new Error('unexpected EOF'))
+            },
+          }),
+        }
+      },
     )
     expect(response.status).toBe(200)
     const body = await readBody(response.body)

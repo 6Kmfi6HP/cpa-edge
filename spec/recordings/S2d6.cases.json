@@ -1179,9 +1179,9 @@
       },
       "record": "downstream status+headers+body; upstream.jsonl",
       "expect_hints": {
-        "downstream_status": "502 Bad Gateway",
-        "downstream_body": "{\"error\":{\"message\":\"upstream stream closed before first payload\",\"type\":\"server_error\",\"code\":\"internal_server_error\"}}",
-        "note": "non-JSON message is wrapped by the error builder (struct order message,type,code) after the sanitizer passes it through; contrast S2d6-error-stream-429 where a JSON message passes verbatim with sorted keys."
+        "downstream_status": "500 Internal Server Error (RECORDED — source derivation said 502; fixture wins)",
+        "downstream_body": "{\"error\":{\"message\":\"empty_stream: upstream stream closed before first payload\",\"type\":\"server_error\",\"code\":\"internal_server_error\"}}",
+        "note": "RECORDED 2026-09-16 (round-1 follow-up): the auth conductor classifies a stream that closes with zero buffered chunks as coreauth Error{Code:'empty_stream', Message:'upstream stream closed before first payload'} (conductor_stream.go executeStreamMixedOnce); Error() renders 'code: message' and HTTPStatus is unset -> 500. The handler's own 502 'before first payload' construction is preempted by the conductor error. Body order is struct order (message,type,code)."
       },
       "dynamic_fields": [
         "Date",
@@ -1330,5 +1330,5 @@
       ]
     }
   ],
-  "recording_status": "23/23 recorded 2026-09-16 (round 1). Round-1 review (reports/adversary/S2d6.md) authorized a 4-case follow-up batch: S2d6-stream-empty200, S2d6-stream-closeterminal, S2d6-badbody-notfound, S2d6-compact-streamfalse (batch field 'round-1 follow-up'). Mock additions needed: variants 'done-only-stream' (200 SSE with ONLY data: [DONE]) and 'reasoning-only-stream' (role chunk + reasoning chunk + [DONE], no content/finish)."
+  "recording_status": "ALL 27 cases recorded 2026-09-16 by @oracle-runner (23 in round 1 + 4 round-1 follow-up goldens authorized by reports/adversary/S2d6.md N1). Fixture wins over source-derived hints on S2d6-stream-empty200: HTTP 500 (not 502) and message prefix 'empty_stream: ' (conductor bootstrap-empty classification). All other recorded bytes matched the hints. 429 cases ran last with a ~2.5s gap (rate-limit cooldown). Mock 429 error body: {\"error\": {\"message\": \"mock rate limit\", \"type\": \"rate_limit_exceeded\", \"code\": 429, \"status\": \"RESOURCE_EXHAUSTED\"}}."
 }

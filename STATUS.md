@@ -29,14 +29,14 @@
 | S6 | spec: state & storage schemas | 1 | spec-s6-state | merged | 2 | ADMITTED round 2. 17 goldens; 3 catalogs; per-path re-serialization; vertex type; RESP node-contract. Residual editorial: N2 schema omitempty marks, N7 store-auth shape, citation tag split |
 | S7 | spec: platform degradation matrix | 1 | spec-s7-platform | merged | 3 | ADMITTED after 3 rounds. NE registry feeds SPEC §5. RuntimeCapabilities -> I-core; T2/T3/D1 bindings recorded. |
 | I-core | packages/core: scheduling algorithms | 2 | impl-i-core | impl | 0 |  |
-| I-auth | packages/auth: OAuth/device/refresh | 2 | impl-i-auth | impl | 0 |  |
+| I-auth | packages/auth: OAuth/device/refresh | 2 | impl-i-auth | impl-adv | 0 | delivered: 153 unit + S3 contract 44/44; impl-review running on adv-impl-2 |
 | I-tr-S2d1 | packages/translators: OpenAI→Gemini | 2 | — | pending | 0 |  |
 | I-tr-S2d2 | packages/translators: Gemini→OpenAI | 2 | impl-i-tr-s2d2 | impl | 0 |  |
 | I-tr-S2d3 | packages/translators: OpenAI→Claude | 2 | — | merged | 2 | MERGED: oai2cla complete (spec 2 rounds, impl-review 2 rounds). 141 unit + 28 contract green. Residual: Store-get-throw hardening -> T2; N6 UA default blessed; N9 js-tiktoken kept (R-TOK) |
 | I-tr-S2d4 | packages/translators: Claude→OpenAI | 2 | — | pending | 0 |  |
 | I-tr-S2d5 | packages/translators: OpenAI→Codex/Responses | 2 | impl-i-tr-s2d5 | impl | 0 |  |
 | I-tr-S2d6 | packages/translators: Responses→OpenAI chat | 2 | — | pending | 0 |  |
-| I-tr-S2d7 | packages/translators: Gemini→Claude | 2 | impl-i-tr-s2d7 | impl | 0 |  |
+| I-tr-S2d7 | packages/translators: Gemini→Claude | 2 | impl-i-tr-s2d7 | impl-adv | 0 | delivered: 101 unit + S2d7 contract 32/32; impl-review running on adv-impl-1 |
 | I-tr-S2d8 | packages/translators: Claude→Gemini | 2 | — | pending | 0 |  |
 | I-tr-S2d9 | packages/translators: Codex passthrough | 2 | — | pending | 0 |  |
 | I-tr-S2d10 | packages/translators: Antigravity redirect | 2 | — | pending | 0 |  |
@@ -47,7 +47,7 @@
 | I-exec-grok | packages/executors: grok executor | 2 | — | pending | 0 |  |
 | I-exec-antigravity | packages/executors: antigravity executor | 2 | — | pending | 0 |  |
 | I-exec-custom-openai | packages/executors: custom-openai executor | 2 | — | pending | 0 |  |
-| I-mgmt | packages/management: /v0/management | 2 | — | pending | 0 |  |
+| I-mgmt | packages/management: /v0/management | 2 | impl-i-mgmt | impl | 0 |  |
 | T1 | runtimes/node integration + full contract tests | 3 | — | pending | 0 |  |
 | T2 | runtimes/cloudflare (DO store, alarms, WS hibernation) | 3 | — | pending | 0 |  |
 | T3 | runtimes/vercel (degraded per S7) | 3 | — | pending | 0 |  |
