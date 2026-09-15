@@ -1,0 +1,50 @@
+{
+  "control_file": {
+    "mode": "happy",
+    "script": "s2d5-empty-incomplete"
+  },
+  "script": "s2d5-empty-incomplete",
+  "script_events": [
+    {
+      "event": "response.created",
+      "data": {
+        "type": "response.created",
+        "response": {
+          "id": "resp_mock_einc_01",
+          "object": "response",
+          "created_at": 1770000800,
+          "status": "in_progress",
+          "model": "gpt-mock-codex",
+          "output": [],
+          "usage": {
+            "input_tokens": 3,
+            "output_tokens": 0,
+            "total_tokens": 3
+          }
+        }
+      }
+    },
+    {
+      "event": "response.incomplete",
+      "data": {
+        "type": "response.incomplete",
+        "response": {
+          "id": "resp_mock_einc_01",
+          "object": "response",
+          "created_at": 1770000800,
+          "status": "incomplete",
+          "model": "gpt-mock-codex",
+          "output": [],
+          "usage": {
+            "input_tokens": 3,
+            "output_tokens": 0,
+            "total_tokens": 3
+          },
+          "incomplete_details": {
+            "reason": "max_output_tokens"
+          }
+        }
+      }
+    }
+  ]
+}

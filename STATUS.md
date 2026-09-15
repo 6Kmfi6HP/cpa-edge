@@ -22,7 +22,7 @@
 | S2d7 | spec: Gemini client → Claude upstream | 1 | spec-s2d7-gem2cla | merged | 2 | ADMITTED round 2. 31 goldens; validator families byte-pinned; empty-stream conductor gate recorded-deviation integrated. Unlocks I-tr-S2d7. |
 | S2d8 | spec: Claude client → Gemini upstream | 1 | spec-s2d8-cla2gem | spec | 0 | section+18 cases done; rulings sent; recording queued w5 |
 | S2d9 | spec: Codex/Responses passthrough semantics | 1 | spec-s2d9-codex | spec | 0 |  |
-| S2d10 | spec: Antigravity redirect rules | 1 | spec-s2d10-antigravity | spec-adv-r2 | 1 | micro-fix applied; narrow round-2 running on adv-spec-2; optional golden in flight at w2 |
+| S2d10 | spec: Antigravity redirect rules | 1 | spec-s2d10-antigravity | merged | 2 | ADMITTED round 2. 18 goldens; R-SYNCREDS precedent; feeds I-exec-antigravity + I-auth antigravity flow. |
 | S3 | spec: auth flows | 1 | spec-s3-auth | merged | 3 | ADMITTED after 3 rounds. Goldens: 44 dirs. Unlocked I-auth + S3 contract tests. |
 | S4 | spec: scheduling | 1 | spec-s4-scheduling | spec-fix | 1 | R1: adv-spec-1 FAIL (B1 per-family ID parts; B2 auth_index seeds; B3 WS preference MIRROR ruling; B4 route overrides); 3-golden batch authorized |
 | S5 | spec: management API | 1 | spec-s5-mgmt | merged | 2 | ADMITTED round 2. 22 goldens / 168 steps. Unlocks I-mgmt (after I-auth interfaces land) + S5 contract tests. |
@@ -36,7 +36,7 @@
 | I-tr-S2d4 | packages/translators: Claude→OpenAI | 2 | — | pending | 0 |  |
 | I-tr-S2d5 | packages/translators: OpenAI→Codex/Responses | 2 | — | pending | 0 |  |
 | I-tr-S2d6 | packages/translators: Responses→OpenAI chat | 2 | — | pending | 0 |  |
-| I-tr-S2d7 | packages/translators: Gemini→Claude | 2 | — | pending | 0 |  |
+| I-tr-S2d7 | packages/translators: Gemini→Claude | 2 | impl-i-tr-s2d7 | impl | 0 |  |
 | I-tr-S2d8 | packages/translators: Claude→Gemini | 2 | — | pending | 0 |  |
 | I-tr-S2d9 | packages/translators: Codex passthrough | 2 | — | pending | 0 |  |
 | I-tr-S2d10 | packages/translators: Antigravity redirect | 2 | — | pending | 0 |  |
@@ -57,4 +57,4 @@
 
 ## Verdict / escalation log
 (appended by orchestrator)
-- 2026-09-16 03:4x S2d7 GATE: PASS (round 2). gem2cla admitted: 31 goldens. 8/16 spec steps admitted.
+- 2026-09-16 03:4x S2d10 GATE: PASS (round 2). Antigravity redirect rules admitted. 9/16 spec steps admitted.

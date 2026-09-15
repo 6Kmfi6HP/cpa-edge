@@ -596,7 +596,7 @@
     },
     {
       "id": "S2d10-forwarder-port-busy",
-      "classification": "RECORDED (optional get-auth-status extension requested in round 2; golden at tests/fixtures/S2d10/S2d10-forwarder-port-busy/)",
+      "classification": "RECORDED (500 exchange golden at tests/fixtures/S2d10/S2d10-forwarder-port-busy/; round-2 get-auth-status extension UNRECORDABLE — state not exposed, evidence in fixture meta round2_extension_probe)",
       "purpose": "Forwarder bind failure: with 51121 already bound inside the container, is_webui=1 auth-url returns 500 {\"error\":\"failed to start callback server\"}.",
       "requests": [
         {
@@ -625,7 +625,7 @@
             "Authorization": "Bearer <mgmt-key>"
           },
           "body": null,
-          "note": "OPTIONAL EXTENSION (round-2 review): pins the wait-forever behavior after bind failure — expect 200 {\"status\":\"wait\"} because no waiter was started; requested from oracle-runner-2"
+          "note": "OPTIONAL EXTENSION — VERDICT: UNRECORDABLE (state not exposed). The 500 body carries no 32-hex state token (negative regex scan) and the container logs on the bind-failure path emit no state either; get-auth-status?state=<state2> cannot be pinned. Evidence in fixture meta key round2_extension_probe. B1 wait-forever behavior stands source-specified (section 2.3)."
         }
       ],
       "record": "500 exchange (+ optional extension: get-auth-status after the 500 → {\"status\":\"wait\"} — no waiter started).",
@@ -839,15 +839,16 @@
       "S2d10-executor-429-cooldown",
       "S2d10-executor-request-shape-gemini"
     ],
-    "pending": [
-      "S2d10-forwarder-port-busy get-auth-status extension (optional, pins B1)"
-    ],
+    "pending": [],
     "fixture_deferred": [
       "S2d10-live-oauth-success",
       "S2d10-live-executor-responses",
       "S2d10-cli-loopback-server"
     ],
     "recorded_at": "2026-09-15",
-    "oracle": "oracle-runner-2 (isolated stack: reference port 8387 masked as dynamic; loopback 51121 literal; antigravity mock port 20008)"
+    "oracle": "oracle-runner-2 (isolated stack: reference port 8387 masked as dynamic; loopback 51121 literal; antigravity mock port 20008)",
+    "extensions": [
+      "S2d10-forwarder-port-busy get-auth-status extension: UNRECORDABLE (state not exposed); negative evidence recorded in fixture meta round2_extension_probe"
+    ]
   }
 }
