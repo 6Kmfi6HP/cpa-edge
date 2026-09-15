@@ -15,7 +15,7 @@ import { ensureTopLevelFlag, setTopLevelStringIfDifferent } from './json'
 import { buildUpstreamHeaders, orderUpstreamHeaders } from './headers'
 import { translateChatPassthrough } from './request'
 import { reframeUpstreamSse } from './stream'
-import { dataFrame, DONE_TERMINATOR } from './sse'
+import { DONE_TERMINATOR } from './sse'
 import { createOai2OaiService } from './service'
 import type {
   Oai2OaiCredential,
@@ -41,7 +41,11 @@ const CREDENTIALS: readonly Oai2OaiCredential[] = [
 
 const FROZEN = 1_789_490_000_000
 
-function facade(overrides: Partial<Parameters<typeof createOai2OaiService>[0]> = {}): ReturnType<typeof createOai2OaiService> {
+/** A facade over a stepwise clock: tests advance it deterministically. */
+function facade(overrides: Partial<Parameters<typeof createOai2OaiService>[0]> = {}): {
+  readonly service: ReturnType<typeof createOai2OaiService>
+  readonly advanceClock: (ms: number) => void
+} {
   let clock = FROZEN
   const options = {
     apiKeys: ['oracle-local-key-1'] as readonly string[],
@@ -52,17 +56,11 @@ function facade(overrides: Partial<Parameters<typeof createOai2OaiService>[0]> =
     transientErrorCooldownSeconds: -1,
     ...overrides,
   }
-  const service = createOai2OaiService(options)
   return {
-    service,
+    service: createOai2OaiService(options),
     advanceClock: (ms: number) => {
       clock += ms
     },
-    get clock(): number {
-      return clock
-    },
-  } as unknown as ReturnType<typeof createOai2OaiService> & {
-    advanceClock: (ms: number) => void
   }
 }
 
@@ -174,7 +172,7 @@ describe('R1 - alias rewrite on raw client bytes', () => {
 
   it('resolves escaped model values and rewrites the raw span with the plain serialization', () => {
     const client = '{"model": "mock\u002dmodel", "messages": []}'
-    expect(JSON.parse(client)['model']).toBe(ALIAS)
+    expect((JSON.parse(client) as Record<string, unknown>)['model']).toBe(ALIAS)
     const { body } = translateChatPassthrough(client, { upstreamModel: UPSTREAM_MODEL, stream: false })
     expect(body).toBe('{"model": "mock-gpt-model", "messages": []}')
     expect(JSON.parse(body)['model']).toBe(UPSTREAM_MODEL)
@@ -314,9 +312,9 @@ describe('R2 - upstream wire', () => {
   })
 
   it('forwards no client headers to the upstream', async () => {
-    const service = facade()
+    const { service: handle } = facade()
     const { send, calls } = senderWith(() => upstreamJson('{"ok":true}'))
-    await service.handleChatCompletions(
+    await handle.handleChatCompletions(
       request('{"model":"mock-model","messages":[]}', [
         ['User-Agent', 'curl/8.7.1'],
         ['Accept', '*/*'],
@@ -334,14 +332,14 @@ describe('R2 - upstream wire', () => {
 
   it('composes the URL from the credential base-url with one trailing slash tolerated', async () => {
     let clock = FROZEN
-    const service = createOai2OaiService({
+    const handle = createOai2OaiService({
       apiKeys: [],
       credentials: [{ name: 'p', apiKey: 'k', baseUrl: 'http://u.example/v1//', models: [{ name: 'm' }] }],
       store: new MemoryStore({ now: () => clock }),
       now: () => clock,
     })
     const { send, calls } = senderWith(() => upstreamJson('{}'))
-    await service.handleChatCompletions(request('{"model":"m"}'), send)
+    await handle.handleChatCompletions(request('{"model":"m"}'), send)
     expect(calls[0]?.url).toBe('http://u.example/v1/chat/completions')
   })
 })
@@ -352,10 +350,10 @@ describe('R2 - upstream wire', () => {
 
 describe('R3 - non-stream pass-through', () => {
   it('forwards the upstream reply byte-exact, spacing included (the S1-14 pin)', async () => {
-    const service = facade()
+    const { service: handle } = facade()
     const reply = '{"id": "chatcmpl-mock-0001", "object": "chat.completion",  "created" : 1770000000}'
     const { send } = senderWith(() => upstreamJson(reply))
-    const response = await service.handleChatCompletions(request('{"model":"mock-model","messages":[]}'), send)
+    const response = await handle.handleChatCompletions(request('{"model":"mock-model","messages":[]}'), send)
     expect(response.status).toBe(200)
     expect(headerOf(response.headers, 'content-type')).toBe('application/json')
     expect(await readBody(response.body)).toBe(reply)
@@ -363,7 +361,7 @@ describe('R3 - non-stream pass-through', () => {
 
   it('rewrites the response model back to the alias under force-mapping', async () => {
     let clock = FROZEN
-    const service = createOai2OaiService({
+    const handle = createOai2OaiService({
       apiKeys: [],
       credentials: [{ name: 'p', apiKey: 'k', baseUrl: 'http://u.example/v1', models: [{ name: UPSTREAM_MODEL, alias: ALIAS, forceMapping: true }] }],
       store: new MemoryStore({ now: () => clock }),
@@ -371,13 +369,13 @@ describe('R3 - non-stream pass-through', () => {
     })
     const reply = '{"id": "x", "model": "mock-gpt-model", "choices": []}'
     const { send } = senderWith(() => upstreamJson(reply))
-    const response = await service.handleChatCompletions(request('{"model":"mock-model"}'), send)
+    const response = await handle.handleChatCompletions(request('{"model":"mock-model"}'), send)
     expect(await readBody(response.body)).toBe('{"id": "x", "model": "mock-model", "choices": []}')
   })
 
   it('keeps a force-mapping reply untouched when the model already matches', async () => {
     let clock = FROZEN
-    const service = createOai2OaiService({
+    const handle = createOai2OaiService({
       apiKeys: [],
       credentials: [{ name: 'p', apiKey: 'k', baseUrl: 'http://u.example/v1', models: [{ name: 'm', alias: 'a', forceMapping: true }] }],
       store: new MemoryStore({ now: () => clock }),
@@ -385,7 +383,7 @@ describe('R3 - non-stream pass-through', () => {
     })
     const reply = '{"model": "a", "choices": []}'
     const { send } = senderWith(() => upstreamJson(reply))
-    const response = await service.handleChatCompletions(request('{"model":"a"}'), send)
+    const response = await handle.handleChatCompletions(request('{"model":"a"}'), send)
     expect(await readBody(response.body)).toBe(reply)
   })
 })
@@ -405,9 +403,9 @@ describe('R3 - stream re-framing', () => {
       'data: [DONE]',
       'data: {"never": "forwarded"}',
     ]
-    const service = facade()
+    const { service: handle } = facade()
     const { send, calls } = senderWith(() => upstreamSse(frames))
-    const response = await service.handleChatCompletions(request(streamRequest), send)
+    const response = await handle.handleChatCompletions(request(streamRequest), send)
     expect(response.status).toBe(200)
     expect(headerOf(response.headers, 'content-type')).toBe('text/event-stream')
     expect(headerOf(response.headers, 'cache-control')).toBe('no-cache')
@@ -421,9 +419,9 @@ describe('R3 - stream re-framing', () => {
   })
 
   it('strips exactly the trailing garbage the upstream appends after the JSON value (the family pin)', async () => {
-    const service = facade()
+    const { service: handle } = facade()
     const { send } = senderWith(() => upstreamSse(cannedSseFrames))
-    const response = await service.handleChatCompletions(request(streamRequest), send)
+    const response = await handle.handleChatCompletions(request(streamRequest), send)
     const body = await readBody(response.body)
     const frames = body.split('\n\n')
     expect(frames[0]).toBe(
@@ -433,33 +431,33 @@ describe('R3 - stream re-framing', () => {
   })
 
   it('synthesizes the terminator on a clean close that never sent [DONE]', async () => {
-    const service = facade()
+    const { service: handle } = facade()
     const { send } = senderWith(() => upstreamSse(['data: {"delta": {}}']))
-    const response = await service.handleChatCompletions(request(streamRequest), send)
+    const response = await handle.handleChatCompletions(request(streamRequest), send)
     expect(await readBody(response.body)).toBe('data: {"delta": {}}\n\ndata: [DONE]')
   })
 
   it('commits headers and the terminator alone when the upstream stream is empty', async () => {
-    const service = facade()
+    const { service: handle } = facade()
     const { send } = senderWith(() => upstreamSse([]))
-    const response = await service.handleChatCompletions(request(streamRequest), send)
+    const response = await handle.handleChatCompletions(request(streamRequest), send)
     expect(response.status).toBe(200)
     expect(headerOf(response.headers, 'content-type')).toBe('text/event-stream')
     expect(await readBody(response.body)).toBe(DONE_TERMINATOR)
   })
 
   it('ends the stream with one terminal data frame and no [DONE] when a frame carries an error object', async () => {
-    const service = facade()
+    const { service: handle } = facade()
     const errorFrame = 'data: {"error": {"message": "boom", "code": 500}}'
     const { send } = senderWith(() => upstreamSse(['data: {"delta": {}}', errorFrame, 'data: [DONE]']))
-    const response = await service.handleChatCompletions(request(streamRequest), send)
+    const response = await handle.handleChatCompletions(request(streamRequest), send)
     expect(await readBody(response.body)).toBe('data: {"delta": {}}\n\ndata: {"error": {"message": "boom", "code": 500}}\n\n')
   })
 
   it('wraps a payload without a leading JSON value into the 502 envelope', async () => {
-    const service = facade()
+    const { service: handle } = facade()
     const { send } = senderWith(() => upstreamSse(['data: {"delta": {}}', 'data: not-json']))
-    const response = await service.handleChatCompletions(request(streamRequest), send)
+    const response = await handle.handleChatCompletions(request(streamRequest), send)
     expect(await readBody(response.body)).toBe(
       'data: {"delta": {}}\n\ndata: {"error":{"message":"not-json","type":"server_error","code":"internal_server_error"}}\n\n',
     )
@@ -495,7 +493,7 @@ describe('R3 - stream re-framing', () => {
 
   it('rewrites chunk models under force-mapping, splicing only the model span', async () => {
     let clock = FROZEN
-    const service = createOai2OaiService({
+    const handle = createOai2OaiService({
       apiKeys: [],
       credentials: [{ name: 'p', apiKey: 'k', baseUrl: 'http://u.example/v1', models: [{ name: UPSTREAM_MODEL, alias: ALIAS, forceMapping: true }] }],
       store: new MemoryStore({ now: () => clock }),
@@ -506,45 +504,47 @@ describe('R3 - stream re-framing', () => {
       'data: [DONE]',
     ]
     const { send } = senderWith(() => upstreamSse(frames))
-    const response = await service.handleChatCompletions(request(streamRequest), send)
+    const response = await handle.handleChatCompletions(request(streamRequest), send)
     expect(await readBody(response.body)).toBe('data: {"model": "mock-model", "choices": []}\n\ndata: [DONE]')
   })
 
   it('answers an upstream error before the first frame with a plain HTTP error, never SSE (the C18 pin)', async () => {
-    const service = facade()
+    const { service: handle } = facade()
     const { send } = senderWith(() => upstreamJson(RATE_LIMIT_BODY, 429))
-    const response = await service.handleChatCompletions(request(streamRequest), send)
+    const response = await handle.handleChatCompletions(request(streamRequest), send)
     expect(response.status).toBe(429)
     expect(headerOf(response.headers, 'content-type')).toBe('application/json')
     expect(await readBody(response.body)).toBe(RATE_LIMIT_BODY)
   })
 
   it('keeps flushed frames and appends one terminal frame on a post-commit transport failure', async () => {
-    const service = facade()
-    let served = 0
-    const send: Oai2OaiUpstreamSender = async () => {
-      served += 1
-      if (served === 1) {
-        return {
-          status: 200,
-          headers: [['Content-Type', 'text/event-stream']],
-          body: textStream(['data: {"delta": {"a"}}\n\n', 'data: {"delta"']),
-        }
-      }
-      throw new Error('must not be called twice')
-    }
-    const response = await service.handleChatCompletions(request(streamRequest), send)
+    const { service: handle } = facade()
+    // The upstream serves one frame, then the transport hard-closes
+    // mid-line: the committed frame survives and the failure renders as
+    // the single terminal frame (the same-surface disconnect pin).
+    const upstreamBody = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(encoder.encode('data: {"delta": {"a"}}\n\ndata: {"delta"'))
+        controller.error(new Error('unexpected EOF'))
+      },
+    })
+    const send: Oai2OaiUpstreamSender = async () => ({
+      status: 200,
+      headers: [['Content-Type', 'text/event-stream']],
+      body: upstreamBody,
+    })
+    const response = await handle.handleChatCompletions(request(streamRequest), send)
     expect(await readBody(response.body)).toBe(
       'data: {"delta": {"a"}}\n\ndata: {"error":{"message":"unexpected EOF","type":"server_error","code":"internal_server_error"}}\n\n',
     )
   })
 
   it('renders a pre-commit transport failure as the wrapped 500 envelope', async () => {
-    const service = facade()
+    const { service: handle } = facade()
     const send: Oai2OaiUpstreamSender = async () => {
       throw new Error('connection reset')
     }
-    const response = await service.handleChatCompletions(request('{"model":"mock-model","messages":[]}'), send)
+    const response = await handle.handleChatCompletions(request('{"model":"mock-model","messages":[]}'), send)
     expect(response.status).toBe(500)
     expect(await readBody(response.body)).toBe(
       '{"error":{"message":"connection reset","type":"server_error","code":"internal_server_error"}}',
@@ -558,9 +558,9 @@ describe('R3 - stream re-framing', () => {
 
 describe('R4 - facade: gate, boundary, resolution', () => {
   it('rejects a missing gateway key with the plain 401 body', async () => {
-    const service = facade()
+    const { service: handle } = facade()
     const { send } = senderWith(() => upstreamJson('{}'))
-    const response = await service.handleChatCompletions(
+    const response = await handle.handleChatCompletions(
       { method: 'POST', path: '/v1/chat/completions', headers: [], body: '{"model":"mock-model"}' },
       send,
     )
@@ -570,9 +570,9 @@ describe('R4 - facade: gate, boundary, resolution', () => {
   })
 
   it('rejects a wrong gateway key with the plain 401 body', async () => {
-    const service = facade()
+    const { service: handle } = facade()
     const { send } = senderWith(() => upstreamJson('{}'))
-    const response = await service.handleChatCompletions(
+    const response = await handle.handleChatCompletions(
       {
         method: 'POST',
         path: '/v1/chat/completions',
@@ -586,9 +586,9 @@ describe('R4 - facade: gate, boundary, resolution', () => {
   })
 
   it('stays open when no gateway keys are configured (open mode)', async () => {
-    const service = facade({ apiKeys: [] })
+    const { service: handle } = facade({ apiKeys: [] })
     const { send, calls } = senderWith(() => upstreamJson('{"ok":true}'))
-    const response = await service.handleChatCompletions(
+    const response = await handle.handleChatCompletions(
       { method: 'POST', path: '/v1/chat/completions', headers: [], body: '{"model":"mock-model"}' },
       send,
     )
@@ -597,9 +597,9 @@ describe('R4 - facade: gate, boundary, resolution', () => {
   })
 
   it('rejects malformed bodies with the 400 envelope before resolution (NE-LENIENT)', async () => {
-    const service = facade()
+    const { service: handle } = facade()
     const { send, calls } = senderWith(() => upstreamJson('{}'))
-    const response = await service.handleChatCompletions(request('{"model": "mock-model"'), send)
+    const response = await handle.handleChatCompletions(request('{"model": "mock-model"'), send)
     expect(response.status).toBe(400)
     expect(headerOf(response.headers, 'content-type')).toBe('application/json')
     expect(await readBody(response.body)).toBe(
@@ -609,9 +609,9 @@ describe('R4 - facade: gate, boundary, resolution', () => {
   })
 
   it('rejects a top-level non-object body with the same 400 envelope', async () => {
-    const service = facade()
+    const { service: handle } = facade()
     const { send } = senderWith(() => upstreamJson('{}'))
-    const response = await service.handleChatCompletions(request('[1,2,3]'), send)
+    const response = await handle.handleChatCompletions(request('[1,2,3]'), send)
     expect(response.status).toBe(400)
     expect(await readBody(response.body)).toBe(
       '{"error":{"message":"Invalid request: malformed JSON body","type":"invalid_request_error"}}',
@@ -619,9 +619,9 @@ describe('R4 - facade: gate, boundary, resolution', () => {
   })
 
   it('renders the model_not_found 400 for unknown models, with no upstream call', async () => {
-    const service = facade()
+    const { service: handle } = facade()
     const { send, calls } = senderWith(() => upstreamJson('{}'))
-    const response = await service.handleChatCompletions(request('{"model":"nope"}'), send)
+    const response = await handle.handleChatCompletions(request('{"model":"nope"}'), send)
     expect(response.status).toBe(400)
     expect(await readBody(response.body)).toBe(
       '{"error":{"message":"unknown provider for model nope","type":"invalid_request_error","code":"model_not_found","param":"model"}}',
@@ -631,23 +631,23 @@ describe('R4 - facade: gate, boundary, resolution', () => {
 
   it('routes a model without an alias by its name', async () => {
     let clock = FROZEN
-    const service = createOai2OaiService({
+    const handle = createOai2OaiService({
       apiKeys: [],
       credentials: [{ name: 'p', apiKey: 'k', baseUrl: 'http://u.example/v1', models: [{ name: 'm' }] }],
       store: new MemoryStore({ now: () => clock }),
       now: () => clock,
     })
     const { send, calls } = senderWith(() => upstreamJson('{"ok":true}'))
-    const response = await service.handleChatCompletions(request('{"model":"m"}'), send)
+    const response = await handle.handleChatCompletions(request('{"model":"m"}'), send)
     expect(response.status).toBe(200)
     expect(calls[0]?.body).toBe('{"model":"m"}')
   })
 
   it('treats only a JSON-true stream flag as streaming', async () => {
-    const service = facade()
+    const { service: handle } = facade()
     for (const streamValue of ['"true"', 'null', '1']) {
       const { send, calls } = senderWith(() => upstreamJson('{"ok":true}'))
-      const response = await service.handleChatCompletions(
+      const response = await handle.handleChatCompletions(
         request(`{"model":"mock-model","stream":${streamValue}}`),
         send,
       )
@@ -658,27 +658,27 @@ describe('R4 - facade: gate, boundary, resolution', () => {
   })
 
   it('never emits a trace id of its own (R-TRACE)', async () => {
-    const service = facade()
+    const { service: handle } = facade()
     const ok = senderWith(() => upstreamJson('{"ok":true}'))
-    const response = await service.handleChatCompletions(request('{"model":"mock-model"}'), ok.send)
+    const response = await handle.handleChatCompletions(request('{"model":"mock-model"}'), ok.send)
     expect(headerOf(response.headers, 'x-cpa-trace-id')).toBeUndefined()
-    const notFound = await service.handleChatCompletions(request('{"model":"zzz"}'), ok.send)
+    const notFound = await handle.handleChatCompletions(request('{"model":"zzz"}'), ok.send)
     expect(headerOf(notFound.headers, 'x-cpa-trace-id')).toBeUndefined()
   })
 })
 
 describe('R4 - facade: upstream errors and the 429 cooldown', () => {
   it('passes a valid-JSON upstream error through VERBATIM and opens the 1s window', async () => {
-    const service = facade()
+    const { service: handle } = facade()
     const error = senderWith(() => upstreamJson(RATE_LIMIT_BODY, 429))
-    const first = await service.handleChatCompletions(request('{"model":"mock-model"}'), error.send)
+    const first = await handle.handleChatCompletions(request('{"model":"mock-model"}'), error.send)
     expect(first.status).toBe(429)
     expect(await readBody(first.body)).toBe(RATE_LIMIT_BODY)
 
     const second = senderWith(() => {
       throw new Error('must not be called - the model is cooling down')
     })
-    const inWindow = await service.handleChatCompletions(request('{"model":"mock-model"}'), second.send)
+    const inWindow = await handle.handleChatCompletions(request('{"model":"mock-model"}'), second.send)
     expect(inWindow.status).toBe(429)
     expect(headerOf(inWindow.headers, 'retry-after')).toBe('1')
     expect(await readBody(inWindow.body)).toBe(
@@ -688,9 +688,9 @@ describe('R4 - facade: upstream errors and the 429 cooldown', () => {
   })
 
   it('wraps a non-JSON upstream error with the status-mapped envelope', async () => {
-    const service = facade()
+    const { service: handle } = facade()
     const { send } = senderWith(() => upstreamJson('<html>oops</html>', 503))
-    const response = await service.handleChatCompletions(request('{"model":"mock-model"}'), send)
+    const response = await handle.handleChatCompletions(request('{"model":"mock-model"}'), send)
     expect(response.status).toBe(503)
     expect(await readBody(response.body)).toBe(
       '{"error":{"message":"<html>oops</html>","type":"server_error","code":"internal_server_error"}}',
@@ -698,54 +698,54 @@ describe('R4 - facade: upstream errors and the 429 cooldown', () => {
   })
 
   it('escalates the window per consecutive failure and resets after a success', async () => {
-    const service = facade()
+    const { service: handle, advanceClock } = facade()
     const error = senderWith(() => upstreamJson(RATE_LIMIT_BODY, 429))
-    await service.handleChatCompletions(request('{"model":"mock-model"}'), error.send)
-    service.advanceClock(2_000) // past the 1s window
-    await service.handleChatCompletions(request('{"model":"mock-model"}'), error.send)
+    await handle.handleChatCompletions(request('{"model":"mock-model"}'), error.send)
+    advanceClock(2_000) // past the 1s window
+    await handle.handleChatCompletions(request('{"model":"mock-model"}'), error.send)
     const afterSecond = senderWith(() => {
       throw new Error('must not be called')
     })
-    const inWindow = await service.handleChatCompletions(request('{"model":"mock-model"}'), afterSecond.send)
+    const inWindow = await handle.handleChatCompletions(request('{"model":"mock-model"}'), afterSecond.send)
     expect(headerOf(inWindow.headers, 'retry-after')).toBe('2') // 2^(2-1)
-    service.advanceClock(3_000) // past the 2s window
+    advanceClock(3_000) // past the 2s window
     const ok = senderWith(() => upstreamJson('{"ok":true}'))
-    const success = await service.handleChatCompletions(request('{"model":"mock-model"}'), ok.send)
+    const success = await handle.handleChatCompletions(request('{"model":"mock-model"}'), ok.send)
     expect(success.status).toBe(200)
     const afterReset = senderWith(() => upstreamJson('{"ok":true}'))
-    const again = await service.handleChatCompletions(request('{"model":"mock-model"}'), afterReset.send)
+    const again = await handle.handleChatCompletions(request('{"model":"mock-model"}'), afterReset.send)
     expect(again.status).toBe(200)
   })
 
   it('honors an upstream Retry-After hint over the ladder and opens 60s on TPM bodies', async () => {
-    const service = facade()
+    const { service: handle, advanceClock } = facade()
     const hinted = senderWith(() => ({
       status: 429,
       headers: [['Retry-After', '30']],
       body: textStream([RATE_LIMIT_BODY]),
     }))
-    await service.handleChatCompletions(request('{"model":"mock-model"}'), hinted.send)
+    await handle.handleChatCompletions(request('{"model":"mock-model"}'), hinted.send)
     const next = senderWith(() => {
       throw new Error('must not be called')
     })
-    const inWindow = await service.handleChatCompletions(request('{"model":"mock-model"}'), next.send)
+    const inWindow = await handle.handleChatCompletions(request('{"model":"mock-model"}'), next.send)
     expect(headerOf(inWindow.headers, 'retry-after')).toBe('30')
 
-    service.advanceClock(31_000)
+    advanceClock(31_000)
     const tpmBody = '{"error":{"code":"TPMRateLimitExceeded","message":"You exceeded your tokens per minute limit"}}'
     const tpm = senderWith(() => upstreamJson(tpmBody, 429))
-    await service.handleChatCompletions(request('{"model":"mock-model"}'), tpm.send)
+    await handle.handleChatCompletions(request('{"model":"mock-model"}'), tpm.send)
     const tpmNext = senderWith(() => {
       throw new Error('must not be called')
     })
-    const tpmWindow = await service.handleChatCompletions(request('{"model":"mock-model"}'), tpmNext.send)
+    const tpmWindow = await handle.handleChatCompletions(request('{"model":"mock-model"}'), tpmNext.send)
     expect(headerOf(tpmWindow.headers, 'retry-after')).toBe('60')
   })
 
   it('keeps the cooldown document in the Store under the model key', async () => {
     let clock = FROZEN
     const store = new MemoryStore({ now: () => clock })
-    const service = createOai2OaiService({
+    const handle = createOai2OaiService({
       apiKeys: ['oracle-local-key-1'],
       credentials: CREDENTIALS,
       store,
@@ -753,7 +753,7 @@ describe('R4 - facade: upstream errors and the 429 cooldown', () => {
       requestRetry: 0,
     })
     const error = senderWith(() => upstreamJson(RATE_LIMIT_BODY, 429))
-    await service.handleChatCompletions(request('{"model":"mock-model"}'), error.send)
+    await handle.handleChatCompletions(request('{"model":"mock-model"}'), error.send)
     const document = await store.get('oai2oai', 'model-cooldown:mock-model')
     expect(document).toMatchObject({
       reset_seconds: 1,
@@ -786,9 +786,9 @@ describe('R4 - facade: upstream errors and the 429 cooldown', () => {
       reported.push(error)
     }
     try {
-      const service = facade({ store: failingStore })
+      const { service: handle } = facade({ store: failingStore })
       const error = senderWith(() => upstreamJson(RATE_LIMIT_BODY, 429))
-      const response = await service.handleChatCompletions(request('{"model":"mock-model"}'), error.send)
+      const response = await handle.handleChatCompletions(request('{"model":"mock-model"}'), error.send)
       expect(response.status).toBe(429)
       expect(await readBody(response.body)).toBe(RATE_LIMIT_BODY)
       expect(reported.length).toBeGreaterThan(0)
@@ -804,7 +804,7 @@ describe('R4 - facade: upstream errors and the 429 cooldown', () => {
       { name: 'a', apiKey: 'ka', baseUrl: 'http://a.example/v1', models: [{ name: UPSTREAM_MODEL, alias: ALIAS }] },
       { name: 'b', apiKey: 'kb', baseUrl: 'http://b.example/v1', models: [{ name: 'alt-upstream', alias: ALIAS }] },
     ]
-    const service = createOai2OaiService({
+    const handle = createOai2OaiService({
       apiKeys: ['oracle-local-key-1'],
       credentials,
       store: new MemoryStore({ now: () => clock }),
@@ -818,11 +818,11 @@ describe('R4 - facade: upstream errors and the 429 cooldown', () => {
       if (url.startsWith('http://a.example')) return first.send(call)
       return second.send(call)
     }
-    const response = await service.handleChatCompletions(request('{"model":"mock-model"}'), send)
+    const response = await handle.handleChatCompletions(request('{"model":"mock-model"}'), send)
     expect(response.status).toBe(200)
     expect(first.calls.length).toBe(1)
     expect(second.calls.length).toBe(1)
-    expect(second.calls[0]?.body).toContain('"mock-gpt-model"') // first candidate rewritten with its own upstream name
+    expect(second.calls[0]?.body).toContain('"alt-upstream"') // each candidate rewrites with its own upstream name
     expect(second.calls[0]?.headers.some(([name, value]) => name === 'Authorization' && value === 'Bearer kb')).toBe(true)
   })
 })

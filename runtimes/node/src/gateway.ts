@@ -27,13 +27,14 @@ import {
   type FetchLike,
 } from '@cpa-edge/auth'
 import { createManagementApi, type BuildInfo, type ManagementApi } from '@cpa-edge/management'
-import { cla2gem, cla2oai, codexPassthrough, gem2cla, gem2oai, oai2cla, oai2codex, res2oai } from '@cpa-edge/translators'
+import { cla2gem, cla2oai, codexPassthrough, gem2cla, gem2oai, oai2cla, oai2codex, oai2gem, res2oai } from '@cpa-edge/translators'
 import { decompress as fzstdDecompress } from 'fzstd'
 import {
   claudeCredentialsForChat,
   claudeCredentialsForGemini,
   codexCredentialsForChat,
   codexCredentialsForPassthrough,
+  geminiCredentialsForChat,
   geminiCredentialsForMessages,
   normalizeRuntimeConfig,
   openAiCompatCredentials,
@@ -183,7 +184,7 @@ export const DIRECTIONS: Readonly<Record<string, DirectionSeam>> = {
   'chat:gemini-api-key': {
     id: 'oai2gem',
     importPath: '@cpa-edge/translators/oai2gem',
-    merged: false,
+    merged: true,
   },
   'chat:codex-api-key': {
     id: 'oai2codex',
@@ -584,6 +585,14 @@ export function createNodeGateway(options: NodeGatewayOptions): NodeGateway {
         })
       : undefined)
 
+  const oai2GemService = oai2gem.createOai2GemService({
+    apiKeys: config.apiKeys,
+    credentials: geminiCredentialsForChat(config),
+    store,
+    now,
+    requestRetry: config.requestRetry,
+    transientErrorCooldownSeconds: config.transientErrorCooldownSeconds,
+  })
   const codexChatService = oai2codex.createOai2CodexService({
     credentials: codexCredentialsForChat(config),
     gatewayVersion: GATEWAY_VERSION,
@@ -708,6 +717,16 @@ export function createNodeGateway(options: NodeGatewayOptions): NodeGateway {
       // oai2codex (S2d5, merged): the Codex/Responses upstream.
       try {
         const response = await codexChatService.handleChatCompletions(facadeRequest, send)
+        return { response, trace: resolved.familyIndex }
+      } catch (error) {
+        if (error instanceof RangeError) return { response: plainJson(400, depthFailureBody()) }
+        throw error
+      }
+    }
+    if (resolved.family === 'gemini-api-key') {
+      // oai2gem (S2d1, merged): the gemini-api-key upstream.
+      try {
+        const response = await oai2GemService.handleChatCompletions(facadeRequest, send)
         return { response, trace: resolved.familyIndex }
       } catch (error) {
         if (error instanceof RangeError) return { response: plainJson(400, depthFailureBody()) }

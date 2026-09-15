@@ -553,10 +553,6 @@ function uniqueProviders(
   return providers
 }
 
-function providerOf(candidate: SchedulingCandidate, byId: Map<string, ScheduledCredential>): string {
-  return byId.get(candidate.id)?.provider ?? ''
-}
-
 function credentials0(
   view: readonly SchedulingCandidate[],
   byId: Map<string, ScheduledCredential>,

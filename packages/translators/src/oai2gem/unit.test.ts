@@ -1102,6 +1102,39 @@ describe('createOai2GemService', () => {
     ])
   })
 
+  it('honors ?$alt as an alias of ?alt, plain alt winning (GetAlt semantics)', async () => {
+    const service = createOai2GemService({ ...SERVICE_OPTIONS_BASE, store: new MemoryStore() })
+    const seen: string[] = []
+    const send: Oai2GemUpstreamSender = async (request) => {
+      seen.push(request.url)
+      return { status: 200, headers: [], body: jsonStream(JSON.stringify({ candidates: [] })) }
+    }
+    // alt=sse wins over $alt=json: the default sse handling applies.
+    await service.handleChatCompletions(
+      chatRequest({ model: 'alias-one', messages: [{ role: 'user', content: 'x' }] }, '/v1/chat/completions?alt=sse&$alt=json'),
+      send,
+    )
+    await service.handleChatCompletions(
+      chatRequest({ model: 'alias-one', messages: [{ role: 'user', content: 'x' }], stream: true }, '/v1/chat/completions?alt=sse&$alt=json'),
+      send,
+    )
+    // $alt alone carries the non-sse value through as ?$alt=json.
+    await service.handleChatCompletions(
+      chatRequest({ model: 'alias-one', messages: [{ role: 'user', content: 'x' }] }, '/v1/chat/completions?$alt=json'),
+      send,
+    )
+    await service.handleChatCompletions(
+      chatRequest({ model: 'alias-one', messages: [{ role: 'user', content: 'x' }], stream: true }, '/v1/chat/completions?$alt=json'),
+      send,
+    )
+    expect(seen).toEqual([
+      'http://upstream-one.test/v1beta/models/up-one:generateContent',
+      'http://upstream-one.test/v1beta/models/up-one:streamGenerateContent?alt=sse',
+      'http://upstream-one.test/v1beta/models/up-one:generateContent?$alt=json',
+      'http://upstream-one.test/v1beta/models/up-one:streamGenerateContent?$alt=json',
+    ])
+  })
+
   it('treats the string "true" as non-streaming (literal-true detection)', async () => {
     const service = createOai2GemService({ ...SERVICE_OPTIONS_BASE, store: new MemoryStore() })
     const seen: string[] = []

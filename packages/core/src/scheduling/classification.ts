@@ -7,7 +7,6 @@
  * The classifier is a pure decision function. It never talks to the Store
  * and never reads the clock; the cooldown tracker consumes its output.
  */
-import type { JsonValue } from '../store'
 
 /** Route context that changes how failures are classified. */
 export type RouteKind = 'default' | 'count-tokens' | 'responses-compact'

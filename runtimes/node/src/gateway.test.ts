@@ -983,6 +983,51 @@ describe('dispatch seams for unmerged directions', () => {
     expect(body.status).toBe('completed')
   })
 
+  it('chat:gemini-api-key dispatches through oai2gem', async () => {
+    const GEMINI_JSON = JSON.stringify({
+      candidates: [
+        {
+          content: { parts: [{ text: 'Hello from mock gemini upstream' }], role: 'model' },
+          index: 0,
+          finishReason: 'STOP',
+        },
+      ],
+      modelVersion: 'gemini-mock-model',
+      usageMetadata: { promptTokenCount: 9, candidatesTokenCount: 6, totalTokenCount: 15 },
+    })
+    const transport = scriptedFetch(() => ({
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+      body: GEMINI_JSON,
+    }))
+    const gateway = createNodeGateway({
+      config: {
+        ...BASE_CONFIG,
+        'gemini-api-key': [
+          {
+            'api-key': 'gemini-upstream-key',
+            'base-url': 'http://127.0.0.1:23000',
+            models: [{ name: 'gemini-mock-model' }],
+          },
+        ],
+      },
+      fetch: transport.fetch,
+    })
+    const response = await gateway.handle(
+      request(
+        'POST',
+        '/v1/chat/completions',
+        bearer(API_KEY),
+        '{"model": "gemini-mock-model", "messages": [{"role": "user", "content": "Say hello"}]}',
+      ),
+    )
+    expect(response.status).toBe(200)
+    expect(transport.calls[0]?.url).toContain('/v1beta/models/gemini-mock-model:')
+    expect(header(response, 'X-Cpa-Trace-Id')).toMatch(/^\d{14}-\d+-[0-9a-f]{8}$/)
+    const body = JSON.parse(await text(response)) as { choices: Array<{ message: { content: string } }> }
+    expect(body.choices[0]?.message.content).toBe('Hello from mock gemini upstream')
+  })
+
   it('messages:openai-compatibility dispatches through cla2oai', async () => {
     const transport = scriptedFetch(() => ({
       status: 200,

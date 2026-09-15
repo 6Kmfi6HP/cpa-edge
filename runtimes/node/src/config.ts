@@ -8,7 +8,7 @@
  * normalized result only.
  */
 import { asPlainObject, readNumber, readObject, readString } from '@cpa-edge/auth'
-import { cla2gem, cla2oai, codexPassthrough, gem2cla, gem2oai, oai2cla, oai2codex, res2oai } from '@cpa-edge/translators'
+import { cla2gem, cla2oai, codexPassthrough, gem2cla, gem2oai, oai2cla, oai2codex, oai2gem, res2oai } from '@cpa-edge/translators'
 
 /** Provider families the registry and dispatch table know about. */
 export type ProviderFamily =
@@ -339,6 +339,23 @@ export function codexCredentialsForPassthrough(config: NormalizedConfig): readon
         ...(model.alias !== model.name ? { alias: model.alias } : {}),
         ...(model.forceMapping ? { forceMapping: true } : {}),
         ...(model.thinking === undefined ? {} : { thinking: true }),
+      })),
+    }))
+}
+
+/** Maps gemini-api-key entries onto the oai2gem facade shape. */
+export function geminiCredentialsForChat(config: NormalizedConfig): readonly oai2gem.Oai2GemCredential[] {
+  return config.providers
+    .filter((provider): provider is ProviderEntry => provider.family === 'gemini-api-key')
+    .map((provider) => ({
+      apiKey: provider.apiKey,
+      baseUrl: provider.baseUrl.length > 0 ? provider.baseUrl : oai2gem.DEFAULT_GEMINI_BASE_URL,
+      ...(Object.keys(provider.headers).length === 0 ? {} : { headers: provider.headers }),
+      models: provider.models.map((model) => ({
+        name: model.name,
+        ...(model.alias !== model.name ? { alias: model.alias } : {}),
+        ...(model.forceMapping ? { forceMapping: true } : {}),
+        ...(model.thinking?.levels !== undefined ? { thinking: { levels: model.thinking.levels } } : {}),
       })),
     }))
 }

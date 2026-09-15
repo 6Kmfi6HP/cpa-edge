@@ -135,7 +135,7 @@ describe('cooldown tracker', () => {
     const clock = { now: T0 }
     const t = tracker(clock)
     await mark(t, clock, { httpStatus: 429, bodyText: '{"error": "slow down"}' })
-    let blocked = await t.availability('auth-1', 'mock-model')
+    const blocked = await t.availability('auth-1', 'mock-model')
     expect(blocked?.blockedAs).toBe('cooldown')
     expect(blocked?.reason).toBe('quota')
     expect(blocked?.remainingMs).toBe(1_000)

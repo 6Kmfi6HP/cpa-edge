@@ -67,13 +67,13 @@ function pythonJson(value: unknown): string {
   throw new Error(`mock upstream cannot serialize value of type ${typeof value}`)
 }
 
-/** Demand-driven byte stream; each scripted frame lands as one chunk. */
-function scriptedSseStream(frames: readonly string[]): ReadableStream<Uint8Array> {
-  const chunks = frames.map((frame) => encoder.encode(`${frame}\n\n`))
+/** Demand-driven byte stream; each scripted chunk lands as one read. */
+function byteStream(chunks: readonly string[]): ReadableStream<Uint8Array> {
+  const encoded = chunks.map((chunk) => encoder.encode(chunk))
   let served = 0
   return new ReadableStream<Uint8Array>({
     pull(controller) {
-      const chunk = chunks[served]
+      const chunk = encoded[served]
       served += 1
       if (chunk === undefined) {
         controller.close()
@@ -84,8 +84,9 @@ function scriptedSseStream(frames: readonly string[]): ReadableStream<Uint8Array
   })
 }
 
-function scriptedJsonStream(body: string): ReadableStream<Uint8Array> {
-  return scriptedSseStream([body])
+/** SSE reply: each canned frame lands as one chunk with its terminator. */
+function scriptedSseStream(frames: readonly string[]): ReadableStream<Uint8Array> {
+  return byteStream(frames.map((frame) => `${frame}\n\n`))
 }
 
 /** Builds the mock upstream reply for one recorded case (stream flag from the wire headers). */
@@ -103,7 +104,9 @@ function buildMockResponse(caseId: string, isStream: boolean): Oai2OaiUpstreamRe
   return {
     status: 200,
     headers: [['Content-Type', 'application/json']],
-    body: scriptedJsonStream(pythonJson(mock.nonStreamReply)),
+    // The recorder's mock serialized the canned object with Python
+    // json.dumps defaults; the body crosses with no trailing newline.
+    body: byteStream([pythonJson(mock.nonStreamReply)]),
   }
 }
 
@@ -297,9 +300,9 @@ describe('S1 golden replay - chat seam over the openai-compat executor', () => {
       // stream drops exactly that garbage and nothing else.
       for (const frame of mock.sseFrames.slice(0, 3)) {
         expect(frame.endsWith('}]}'), `${caseId}: canned chunk frame shape`).toBe(true)
-        expect(frame.split('{').length, `${caseId}: canned chunk frame brace count`).toBe(
-          frame.split('}').length + 1,
-        )
+        const opens = (frame.match(/{/g) ?? []).length
+        const closes = (frame.match(/}/g) ?? []).length
+        expect(closes, `${caseId}: canned chunk carries exactly one stray closing brace`).toBe(opens + 1)
       }
       expect(mock.sseFrames[mock.sseFrames.length - 1], `${caseId}: canned terminator`).toBe('data: [DONE]')
     }

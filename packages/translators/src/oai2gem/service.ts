@@ -468,22 +468,30 @@ export function createOai2GemService(options: Oai2GemServiceOptions): Oai2GemCha
   // Upstream URL (spec 2.3, GetAlt normalization)
   // -------------------------------------------------------------------------
 
-  /** The client `?alt=` value of the request path, if present. */
+  /**
+   * The client `?alt=` value of the request path, if present. A client
+   * `?$alt=` is an alias the reference's GetAlt also honors; the plain
+   * `alt` param wins when both ride along.
+   */
   function queryAlt(path: string): string | undefined {
     const question = path.indexOf('?')
     if (question < 0) return undefined
+    let aliasValue: string | undefined
     for (const pair of path.slice(question + 1).split('&')) {
       const equals = pair.indexOf('=')
       const key = equals >= 0 ? pair.slice(0, equals) : pair
-      if (key === 'alt') return equals >= 0 ? pair.slice(equals + 1) : ''
+      const value = equals >= 0 ? pair.slice(equals + 1) : ''
+      if (key === 'alt') return value
+      if (key === '$alt' && aliasValue === undefined) aliasValue = value
     }
-    return undefined
+    return aliasValue
   }
 
   /**
    * Absolute upstream URL: `<base>/v1beta/models/<model>:generateContent`
    * (non-stream) or `:streamGenerateContent?alt=sse` (stream). A client
-   * `?alt=sse` changes nothing; any other `?alt=X` becomes `?$alt=X`.
+   * `?alt=sse` (or its `?$alt` alias) changes nothing; any other alt
+   * value becomes `?$alt=X` on the upstream query.
    */
   function buildUpstreamUrl(baseUrl: string, upstreamModel: string, stream: boolean, alt: string | undefined): string {
     const base = baseUrl.length > 0 ? baseUrl.replace(/\/+$/, '') : DEFAULT_GEMINI_BASE_URL
