@@ -1,0 +1,6 @@
+### S5-auth-missing-key STEP 1 — GET /v0/management/config
+GET /v0/management/config HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+

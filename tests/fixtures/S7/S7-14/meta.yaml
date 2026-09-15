@@ -37,7 +37,8 @@
     "Demonstrate the file-watcher feature vercel/cloudflare lose: an EXTERNAL edit of config.yaml (never via the API) is picked up live without restart. Add a second API key, observe it in the management echo, then remove it and observe removal.",
     "config sha256 initial: a33508ee63d2551bee3de9cb0922a0f7869cf312cd74ab24d8b8595657adace5",
     "config sha256 after add: 35ff7d728852bca2a5c4691c4d8a1fd012c2e13458ad8f07b705fc3ad6039e8f",
-    "config sha256 after revert: a33508ee63d2551bee3de9cb0922a0f7869cf312cd74ab24d8b8595657adace5"
+    "config sha256 after revert: a33508ee63d2551bee3de9cb0922a0f7869cf312cd74ab24d8b8595657adace5",
+    "DEVIATION from case expectation: GET /v1/models with the hot-added key returns 200 with the wired mock providers' models (mm, cx, gm, cm, im, vm, mock-model...) — NOT {\"data\":[]}. The current run/config.yaml template wires all 8 mock providers, so the model list is non-empty. The case's hot-reload semantics (new key accepted -> 200; after removal -> 401 Invalid API key) are unaffected; treat model-list contents + created epochs as dynamic fields."
   ],
   "sequence": "fresh container; the two external edits are the only mutations"
 }

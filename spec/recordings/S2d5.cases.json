@@ -2047,7 +2047,7 @@
         "upstream: expect exactly TWO upstream requests (both 429)",
         "ordering: request-b MUST be sent within ~1s after request-a completes (replay back-to-back); if request-b does not show model_cooldown, wait for cooldown reset and re-run the pair"
       ],
-      "expected_downstream": "request-a: HTTP 429 verbatim body. request-b: HTTP 500 {\"error\":{\"code\":\"model_cooldown\",\"last_upstream_error\":\"<verbatim 429 body>\",\"message\":\"All credentials for model cx are cooling down via provider codex (last error: …)\",\"model\":\"cx\",\"reset_time\":…}} — reset_time/timing text is dynamic, mask it."
+      "expected_downstream": "request-a: HTTP 429 verbatim body. request-b: HTTP 500 with body {\"error\":{...}} marshaled with ALPHABETICAL keys: code=\"model_cooldown\", last_upstream_error=\"rate_limit_exceeded: mock rate limit\" (summary derived from the 429 body), message=\"All credentials for model cx are cooling down via provider codex (last error: rate_limit_exceeded: mock rate limit)\" (model string expected to be the requested alias 'cx' — gemini analog recorded 'gm'; if the recording shows the resolved model name instead, keep the recorded bytes), model, provider=\"codex\", reset_seconds (dynamic ~1), reset_time (dynamic \"1s\"). Mask reset_seconds/reset_time/X-Cpa-Trace-Id/Date in meta.yaml dynamic_fields."
     }
   ]
 }

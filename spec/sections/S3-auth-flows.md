@@ -311,7 +311,23 @@ Case groups:
 - Status/cancel edges (3): empty status, invalid state, missing state.
 FIXTURE-DEFERRED (10): claude/codex/antigravity/devin live exchanges, claude/codex refresh flows, kimi/xai/meta live device flows, device-auth-url endpoints (live vendor call), refresh-on-401 — all CREDENTIALED-ONLY per R-FIXTURE; documented in S3 §2.3/§2.6/§2.7 and the cases file.
 
-(Paths and counts below are finalized after oracle delivery.)
+**Delivered (oracle-runner-2, recorded 2026-09-15 against the anchored image on an isolated stack; instance port and `Host`/`redirect_uri` port occurrences are masked dynamic fields):** all 38 recordable cases exist under `tests/fixtures/S3/<case-id>/` — 38 case directories, 57 recorded response transcripts (47 request files). Layout per RECIPES with the multi-step extension: single-request cases = `meta.yaml` + `request.http` + `downstream.md`; multi-request cases = `request.http`/`request-N.http` and `downstream.md`/`downstream-<step>.md`; repeated steps = `downstream-<step>r<i>.md`. `meta.yaml` carries the full request/response file map with `(step, repeat, status)` per response, `$S` substitution values, the instance config fragment, and `dynamic_fields`.
+
+Per-group fixture counts:
+- api-key matrix (10): `s3-apikey-{missing,invalid-bearer,valid-bearer,raw-authorization,x-goog,x-api-key,query-key,query-auth-token}` + `s3-apikey-open-when-unconfigured` + `s3-safemode-example-key` (2 responses incl. the `GET /` warning HTML, served `200`, not 403).
+- realtime shapes (2): `s3-realtime-{unauth,invalid-key}`.
+- management authz (8): `s3-mgmt-{missing-key,invalid-key,valid-x-management-key,valid-bearer,remote-disabled,unconfigured-404,ban-reset-on-success,ban-after-5-invalid}`.
+- plain callback routes (4): `s3-oauth-callback-{anthropic,codex}-unknown-state`, `s3-oauth-callback-devin-{missing,unknown}`.
+- management oauth-callback ladder (5): `s3-mgmt-oauth-callback-{invalid-body,missing-state,invalid-state,missing-code,unknown-state}`.
+- login-URL endpoints (4): `s3-auth-url-{anthropic,codex,antigravity,devin}`.
+- session lifecycle (2): `s3-oauth-session-lifecycle` (5 steps), `s3-mgmt-oauth-callback-provider-mismatch` (2 steps).
+- status/cancel edges (3): `s3-get-auth-status-{empty,invalid-state}`, `s3-cancel-session-missing-state`.
+
+Recorded confirmations folded into §2: alphabetical JSON key order everywhere (incl. nested realtime object), `\u0026` escaping inside URL values, `X-Cpa-*` build headers on every management response (incl. 401/403) and their absence on `/v1` auth rejections, no `X-Cpa-Trace-Id` on auth/management surfaces, ban countdown format `30m0s` on the first banned request, safemode root page `200`, and the `config_fragment` in lifecycle fixtures showing the already-bcrypted `secret-key` (startup mutation evidence).
+
+**Replay caveat (ban pair):** the per-IP failure counter is cumulative for the server instance lifetime. The goldens were recorded with the reset case immediately followed by the ban case in ONE fresh instance, so the 4 counted failures of the reset case's step 3 carry over: `s3-mgmt-ban-after-5-invalid` records `[401, 403, 403, 403, 403, 403]` — its first request is cumulative failure #5 (that request is still answered 401; the ban applies to subsequent requests). Replay both fixtures in this order and this instance discipline, or a standalone replay of the ban case on a fresh counter would yield `[401×5, 403]`. `s3-mgmt-ban-reset-on-success` records `[401×4, 200, 401×4]` (9 responses) and never bans in-case.
+
+FIXTURE-DEFERRED (10, see `spec/recordings/S3.cases.json` for reasons): `s3-def-{claude-token-exchange, claude-refresh, codex-token-exchange, antigravity-exchange, kimi-device-flow, xai-device-flow, meta-device-flow, devin-exchange, device-auth-url-endpoints, refresh-on-401}`.
 
 ## 7. Open questions and intentional non-equivalences
 - O-1: Inbound API-key comparison is a plain map lookup (not constant-time). Mirror for behavioral equality, or register a security non-equivalence? Default: mirror; timing is not observable in wire goldens.

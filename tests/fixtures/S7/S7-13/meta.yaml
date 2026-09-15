@@ -23,7 +23,8 @@
     "state (32 hex)",
     "PKCE code_challenge embedded in url",
     "302 Location port (reference server port as the binary reports it)",
-    "forwarder bind/bind-stop log lines"
+    "forwarder bind/bind-stop log lines",
+    "302 Location host:port (reference server port)"
   ],
   "files": [
     "downstream-1.md",
@@ -36,7 +37,8 @@
   ],
   "notes": [
     "Demonstrate the localhost callback forwarder — the exact serverless-impossible feature: GET anthropic-auth-url?is_webui=1 returns 200 with a URL whose redirect is localhost:54545, binds 0.0.0.0:54545, and that listener answers 302 -> http://127.0.0.1:18317/anthropic/callback forwarding query params. Deterministic: the redirect is NOT followed, so no code is delivered and no external call happens.",
-    "redirect_uri in the returned url is http://localhost:54545/callback (container-internal); the probe reaches it via host publish 24545"
+    "redirect_uri in the returned url is http://localhost:54545/callback (container-internal); the probe reaches it via host publish 24545",
+    "OBSERVED: the forwarder's 302 Location is built from the server's configured port: http://127.0.0.1:8397/anthropic/callback?... on this stack (worker-1's 18317 run shows 18317). The redirect port is a dynamic field tied to the reference config port."
   ],
   "sequence": "4 steps in order; 302 never followed (offline-safe)"
 }

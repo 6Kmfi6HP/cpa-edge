@@ -1,17 +1,15 @@
 {
- "id": "S5-usage-telemetry",
- "purpose": "usage/telemetry read endpoints on the untouched fleet state: api-key-usage grouped map, usage-queue destructive pop + count validation",
+ "id": "S5-unknown-route",
+ "purpose": "Unknown management sub-route with a valid key -> 404 with EMPTY body (ruling R-404)",
  "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image eceasy/cli-proxy-api:v7.3.4, digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
- "recorded_at": "2026-09-16T00:00:45",
- "record_kind": "management multi-step",
+ "recorded_at": "2026-09-16T00:01:01",
+ "record_kind": "management response",
  "config": "S5 baseline: fleet template (_cpa_edge_ref/run/config.yaml) with base-urls re-pointed to the worker-4 mock ports (openai 21999, gemini 22001, claude 22002, codex 22003, xai 22004, meta 22005, interactions 22006, vertex 22007) and server port 8407; api-keys [oracle-local-key-1]; secret-key stored bcrypt-hashed (plaintext oracle-mgmt-key-1 accepted); request-retry 0; transient-error-cooldown-seconds -1; usage-statistics-enabled false; logging-to-file absent (false); empty auth dir; fresh container per case",
  "mock_upstream_mode": null,
  "dynamic_fields": [
   "Date response header",
   "port numbers anywhere (8407 / 21999 / 22001-22007; masked for contract replay)",
   "Date",
-  "recent_requests bucket timestamps",
-  "observed_at-like fields",
   "port numbers in URLs/paths"
  ],
  "port_substitution": "cases file drafted for the oracle-runner-2 stack (8387/19999/20001-20007); recorded on the worker-4 stack with the mechanical map 8387->8407, 19999->21999, 2000N->2200N applied to request bodies/paths; everything else verbatim",
@@ -19,55 +17,22 @@
  "steps": [
   {
    "seq": 1,
-   "label": "STEP 1 \u2014 GET /v0/management/api-key-usage",
+   "label": "STEP 1 \u2014 GET /v0/management/definitely-not-a-route",
    "method": "GET",
-   "path": "/v0/management/api-key-usage",
+   "path": "/v0/management/definitely-not-a-route",
    "note": null,
    "aux": false,
-   "http_status": 200,
-   "expect_status": null
-  },
-  {
-   "seq": 2,
-   "label": "STEP 2 \u2014 GET /v0/management/usage-queue",
-   "method": "GET",
-   "path": "/v0/management/usage-queue",
-   "note": null,
-   "aux": false,
-   "http_status": 200,
-   "expect_status": null
-  },
-  {
-   "seq": 3,
-   "label": "STEP 3 \u2014 GET /v0/management/usage-queue?count=abc",
-   "method": "GET",
-   "path": "/v0/management/usage-queue?count=abc",
-   "note": null,
-   "aux": false,
-   "http_status": 400,
-   "expect_status": null
-  },
-  {
-   "seq": 4,
-   "label": "STEP 4 \u2014 GET /v0/management/usage-queue?count=0",
-   "method": "GET",
-   "path": "/v0/management/usage-queue?count=0",
-   "note": null,
-   "aux": false,
-   "http_status": 400,
-   "expect_status": null
-  },
-  {
-   "seq": 5,
-   "label": "STEP 5 \u2014 GET /v0/management/usage-queue?count=3",
-   "method": "GET",
-   "path": "/v0/management/usage-queue?count=3",
-   "note": null,
-   "aux": false,
-   "http_status": 200,
+   "http_status": 404,
    "expect_status": null
   }
  ],
- "mismatches": [],
+ "mismatches": [
+  {
+   "step": 1,
+   "field": "status",
+   "expected": "<none in cases file>",
+   "actual": 404
+  }
+ ],
  "upstream_file": null
 }

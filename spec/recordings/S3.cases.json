@@ -478,7 +478,7 @@
           "repeat": 4
         }
       ],
-      "record": "status + headers + body for every request (12 responses)",
+      "record": "status + headers + body for every request (9 responses: 4+1+4)",
       "dynamic_fields": [
         "Date",
         "X-CPA-* build headers"
@@ -517,7 +517,7 @@
         "ban countdown duration in body (mask; format is Go duration string like 29m59s)"
       ],
       "mock_upstream_mode": "none",
-      "notes": "Run LAST in the fresh-ban instance (after the reset case). The final 403 body's countdown is dynamic — mask the duration token, keep the surrounding text exact."
+      "notes": "Run LAST in the fresh-ban instance, immediately after the reset case. RECORDED RESULT (carry-over): the reset case's step 3 leaves 4 counted failures on the shared per-IP counter, so this case's first request is cumulative failure #5 and is answered 401; its repeats 2-5 and step 2 are 403 banned responses => recorded sequence [401, 403, 403, 403, 403, 403]. A standalone replay on a fresh counter would yield [401x5, 403]. Mask the countdown duration token; keep surrounding text exact. Recorded countdown observed: 30m0s."
     },
     {
       "id": "s3-oauth-callback-anthropic-unknown-state",
@@ -1026,5 +1026,21 @@
       "behavior": "Refresh-on-401 during request execution (synchronous refresh, credential quarantine on refresh-401)",
       "reason": "CREDENTIALED-ONLY: needs a live upstream 401 from an OAuth provider. Unit-testable in cpa-edge with local mocks; no oracle golden per R-FIXTURE."
     }
-  ]
+  ],
+  "recording_outcome": {
+    "status": "delivered",
+    "delivered_by": "oracle-runner-2",
+    "recorded": "2026-09-15",
+    "fixture_dir": "tests/fixtures/S3/",
+    "recorded_cases": 38,
+    "recorded_response_transcripts": 57,
+    "deferred_cases": 10,
+    "corrections_after_recording": [
+      "reset case records 9 responses (not 12)",
+      "ban case records [401,403,403,403,403,403] due to counter carry-over from the reset case in the same instance; standalone replay would be [401x5,403]",
+      "all mgmt JSON bodies serialize keys alphabetically (Go map marshaling), nested included",
+      "'&' inside url JSON values emitted as \\u0026 (Go json HTML escaping)"
+    ],
+    "recorded_request_files": 47
+  }
 }

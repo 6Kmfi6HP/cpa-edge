@@ -24,7 +24,8 @@
     "latest-timestamp (epoch)",
     "next-cursor (string)",
     "line-count value",
-    "main.log existence next to config.yaml (container path /CLIProxyAPI/logs/main.log)"
+    "main.log existence next to config.yaml (container path /CLIProxyAPI/logs/main.log)",
+    "error-*.log file names (timestamp + 8-hex suffix)"
   ],
   "files": [
     "downstream-1.md",
@@ -38,6 +39,7 @@
     "mock-response.json"
   ],
   "notes": [
-    "Demonstrate file logging enabled: the toggle persists, GET /v0/management/logs returns the rotating-file log content shape (lines/line-count/latest-timestamp/next-cursor), DELETE clears rotated files with a JSON success body."
+    "Demonstrate file logging enabled: the toggle persists, GET /v0/management/logs returns the rotating-file log content shape (lines/line-count/latest-timestamp/next-cursor), DELETE clears rotated files with a JSON success body.",
+    "DEVIATION from case note 'a logs/main.log file appears next to config.yaml': on this build the log files materialize under the AUTH DIR (/root/.cli-proxy-api/logs/ -> host run3/run/auths/logs/), not /CLIProxyAPI/logs (docker exec on a later container shows no logs dir next to config.yaml). Artifacts preserved at _cpa_edge_ref/run3/probes/S7/aux-logs/: main.log (gin access lines, written only while logging-to-file=true), error-v1-ws-*.log + error-anthropic-callback-*.log (per-request error dumps for the two wrong-method 404s of S7-03/S7-11 — written even while logging-to-file was false, so error logging is a separate feature gated by error-logs-max-files)."
   ]
 }

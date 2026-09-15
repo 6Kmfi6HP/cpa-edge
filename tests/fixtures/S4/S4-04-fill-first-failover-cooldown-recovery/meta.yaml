@@ -2,7 +2,7 @@
  "id": "S4-04-fill-first-failover-cooldown-recovery",
  "purpose": "Same-request failover + transient cooldown + recovery under fill-first: (1) a 500 from the first credential fails over within the same request; (2) next requests skip the cooling credential; (3) after the 2 s transient cooldown the first credential is picked again (fill-first returns to head).",
  "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image eceasy/cli-proxy-api:v7.3.4 (digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266)",
- "recorded_at": "2026-09-15T23:58:43",
+ "recorded_at": "2026-09-16T00:00:56",
  "config_yaml": "host: \"\"\nport: 18317\nremote-management:\n  allow-remote: true\n  secret-key: \"oracle-mgmt-key-1\"\n  disable-control-panel: true\nauth-dir: \"/root/.cli-proxy-api\"\napi-keys:\n  - \"oracle-local-key-1\"\ndebug: false\nrequest-retry: 0\nmax-retry-credentials: 0\nmax-retry-interval: 10\ntransient-error-cooldown-seconds: 2\nusage-statistics-enabled: false\nrouting:\n  strategy: \"fill-first\"\n  session-affinity: false\nopenai-compatibility:\n  - name: \"mock-openai\"\n    base-url: \"http://host.docker.internal:18999/v1\"\n    api-key-entries:\n      - api-key: \"s4-oai-key-1\"\n      - api-key: \"s4-oai-key-2\"\n      - api-key: \"s4-oai-key-3\"\n    models:\n      - name: \"mock-gpt-model\"\n        alias: \"mock-model\"\n      - name: \"mock-pool-1\"\n        alias: \"pool-model\"\n      - name: \"mock-pool-2\"\n        alias: \"pool-model\"\n      - name: \"mock-iso-1\"\n        alias: \"iso-model-1\"\n      - name: \"mock-iso-2\"\n        alias: \"iso-model-2\"\ngemini-api-key:\n  - api-key: \"mock-gem-key\"\n    base-url: \"http://host.docker.internal:19001\"\n    models:\n      - name: \"gemini-mock-model\"\n        alias: \"gm\"\n",
  "control_events": [
   [
@@ -16,6 +16,11 @@
      }
     }
    }
+  ],
+  [
+   6,
+   "openai",
+   null
   ]
  ],
  "sleeps_applied": [
@@ -71,11 +76,6 @@
   [
    6,
    "s4-oai-key-1",
-   500
-  ],
-  [
-   6,
-   "s4-oai-key-3",
    200
   ]
  ],

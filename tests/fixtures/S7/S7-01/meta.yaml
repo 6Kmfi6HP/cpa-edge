@@ -20,7 +20,8 @@
     "Date response header",
     "X-Cpa-Trace-Id response header",
     "port numbers (worker-3: reference 8397, openai mock 20999, forwarder host publish 24545)",
-    "none beyond base"
+    "none beyond base",
+    "expected-vs-actual: case note 'ws-auth unset => false, no API key required' is WRONG for v7.3.4"
   ],
   "files": [
     "downstream.md",
@@ -30,6 +31,7 @@
   ],
   "notes": [
     "Demonstrate that upstream registers GET /v1/ws and rejects a plain GET with gorilla's 400 (the inbound WebSocket feature surface that vercel degrades).",
-    "expected: gorilla 400 Bad Request (plain text) + Sec-Websocket-Version: 13 + CORS block"
+    "expected: gorilla 400 Bad Request (plain text) + Sec-Websocket-Version: 13 + CORS block",
+    "DEVIATION from case expectation: with ws-auth UNSET (pristine config) a plain GET /v1/ws returns 401 {\"error\":\"Missing API key\"} — auth IS required by default on this build. The gorilla 400 'Bad Request' appears only after ws-auth is explicitly set to false (see S7-02 steps 4 and 6) or when a valid API key is presented with ws-auth=true."
   ]
 }

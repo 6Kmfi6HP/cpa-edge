@@ -33,8 +33,7 @@
   "volatility_whitelist": [
     "Date, X-Cpa-Trace-Id, Content-Length headers",
     "reference/mock port numbers in upstream.jsonl Host fields",
-    "message_start.usage.input_tokens (o200k_base estimate; deterministic but implementation-defined)",
-    "content_block.id digits in stream tool_use events (process counter)",
+    "content_block.id digits in stream tool_use events (process counter; orchestrator ruling S2d8-2 accepts masking)",
     "terminal transport-error text if it differs from 'unexpected EOF' (record what the reference emits)"
   ],
   "cases": [
@@ -1388,7 +1387,7 @@
         ]
       ],
       "notes": [
-        "message_start.usage.input_tokens is the deterministic o200k_base estimate of THIS request; record actual value in the fixture and list it in meta.yaml dynamic_fields",
+        "message_start.usage.input_tokens is the deterministic o200k_base estimate of THIS request; record the actual emitted value (asserted byte-exactly by contract tests per ruling S2d8-1; do NOT mask)",
         "framing: 'event: <name>\\ndata: <json>\\n\\n\\n' for every event",
         "upstream headers must NOT include Accept: text/event-stream"
       ]
@@ -1796,7 +1795,7 @@
         ]
       ],
       "notes": [
-        "<N> = process-lifetime counter, first call in a fresh process = 1; mask digits in contract tests",
+        "<N> = process-lifetime counter, first call in a fresh process = 1; digits masked in contract tests per ruling S2d8-2",
         "partial_json must equal the raw args bytes from the mock data line (compact JSON, no spaces)"
       ]
     },
@@ -2307,5 +2306,8 @@
         "response Content-Type must be application/json (NOT text/event-stream)"
       ]
     }
+  ],
+  "byte_exact_fields": [
+    "message_start.usage.input_tokens (o200k_base estimate): NOT masked; asserted byte-exactly per orchestrator ruling S2d8-1 — record the actual value in the fixture; do NOT list it as a masked dynamic field"
   ]
 }
