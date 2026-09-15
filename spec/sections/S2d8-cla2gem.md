@@ -44,7 +44,10 @@ NE-LENIENT acknowledgment: SPEC §5's compatibility-ruling registry (R-404, R-FI
 - Auth: gateway API key via `Authorization: Bearer <key>` or `X-Api-Key: <key>` (evidence: `internal/access/config_access/provider.go`). Failure shapes are S1's: 401 `{"error":"Missing API key"}` / `{"error":"Invalid API key"}` (recorded bootstrap probes).
 - Non-stream success: `Content-Type: application/json`, status 200, body = §3.4 message JSON.
 - Stream success: SSE headers set only when the first translated chunk is available (never on error-before-first-chunk): `Content-Type: text/event-stream`, `Cache-Control: no-cache`, `Connection: keep-alive`, `Access-Control-Allow-Origin: *` (evidence: `handleStreamingResponse`).
-- Unreadable request body → 400 `{"error":{"message":"Invalid request: <err>","type":"invalid_request_error"}}` (note: this is the base shape; the Claude handler writes it via the generic error writer).
+- Unroutable model → 400, ZERO upstream dispatch, Claude envelope `{"type":"error","error":{"type":"invalid_request_error","message":"unknown provider for model <model>"}}` with the requested client model string in the message (golden S2d8-19; §3.1 routing note).
+- Non-JSON body → 400, ZERO upstream dispatch: no model can be parsed, so the same routing error fires with an EMPTY model name: `{"type":"error","error":{"type":"invalid_request_error","message":"unknown provider for model"}}` (golden S2d8-20). The Claude envelope TRIMS the message text (no trailing space, no model name) — the Responses surface relays the untrimmed variant with a trailing space in the empty-model case (S2d6 badbody golden); the trim comes from the Claude handler's `strings.TrimSpace` on the error text (evidence: `claudeErrorDetailFromText`).
+- Routing-stage 400s carry NO `X-Cpa-Trace-Id` response header (recorded S2d8-19/20; execution-stage responses do carry it).
+- A transport-level body-read failure (before any parsing) → 400 `{"error":{"message":"Invalid request: <err>","type":"invalid_request_error"}}` — the base `{"error":{...}}` shape, NOT the Claude envelope (evidence: `ClaudeMessages` `c.GetRawData` branch). Source-derived, unreachable over normal HTTP, not golden-pinned.
 - Upstream response headers are NOT forwarded downstream (passthrough disabled by default; evidence: `sdk/api/handlers/handlers_interceptors.go` `downstreamHeadersFromExecutor`). Every response carries the S1 CORS block and `X-Cpa-Trace-Id`.
 
 ### 2.2 Upstream HTTP contract (gateway → Gemini mock)
@@ -84,7 +87,7 @@ Keys that do not apply are absent (not `null`). `safetySettings` is always prese
 
 | Claude field | Mapped to Gemini | Rule |
 |---|---|---|
-| `model` | top-level `model` | Set to the credential-resolved upstream model (executor `SetStringIfDifferent`). The client string itself is not forwarded. Routing note (recorded S2d8, routing algorithm owned by S4): when a model entry defines an alias, the ALIAS is the only client-addressable id — requesting the upstream NAME client-side is rejected with `400 {"type":"error","error":{"type":"invalid_request_error","message":"unknown provider for model <name>"}}` and NO upstream dispatch (evidence: `_cpa_edge_ref/probes/S2d8-as-written/`). All golden requests therefore use the alias `gm`; the upstream wire shows the resolved name. The `model` field is NOT part of the input-token estimate segments (§3.5.2), so alias vs name does not change the estimate. |
+| `model` | top-level `model` | Set to the credential-resolved upstream model (executor `SetStringIfDifferent`). The client string itself is not forwarded. Routing note (recorded S2d8, routing algorithm owned by S4): when a model entry defines an alias, the ALIAS is the only client-addressable id — requesting the upstream NAME client-side is rejected with `400 {"type":"error","error":{"type":"invalid_request_error","message":"unknown provider for model <name>"}}` and NO upstream dispatch (evidence: golden tests/fixtures/S2d8/S2d8-19-alias-rejection/ + `_cpa_edge_ref/probes/S2d8-as-written/`). All other golden requests therefore use the alias `gm`; the upstream wire shows the resolved name. The `model` field is NOT part of the input-token estimate segments (§3.5.2), so alias vs name does not change the estimate. |
 | `system` (string) | `systemInstruction` = `{"parts":[{"text":<s>}]}` | No `role` key. Dropped entirely if the text is a Claude-Code attribution block. |
 | `system` (array of `{type:"text",text}`) | `systemInstruction` = `{"role":"user","parts":[{"text":...},...]}` | Only `type:"text"` items; attribution items skipped; empty result → key absent. NOTE: array form carries `role:"user"`, string form does not. |
 | `messages[].role` | `contents[].role` | `assistant`→`model`; `user`→`user`; `system`/`developer`→`user` reminder turn (below); any non-string role: message skipped. |
@@ -250,7 +253,7 @@ S1's bytes apply verbatim: 401 `{"error":"Missing API key"}` / `{"error":"Invali
 
 ## 6. Golden samples index
 
-All 18 cases RECORDED 2026-09-16 by @oracle-runner against CLIProxyAPI v7.3.4 (image digest sha256:97825da…) with the gemini mock fleet (per-case canned replies via mock control file). Layout per RECIPES (BOOTSTRAP.md §7): `tests/fixtures/S2d8/<case-id>/{meta.yaml,request.http,downstream.md,upstream.jsonl}` (mock control mirrored in `meta.yaml`).
+All 20 goldens RECORDED against CLIProxyAPI v7.3.4 (image digest sha256:97825da…): 18 by @oracle-runner-5 with the gemini mock fleet (per-case canned replies via mock control file); S2d8-19 promoted from the as-written run evidence and S2d8-20 recorded fresh at the adversarial gate. Layout per RECIPES (BOOTSTRAP.md §7): `tests/fixtures/S2d8/<case-id>/{meta.yaml,request.http,downstream.md,upstream.jsonl}` (mock control mirrored in `meta.yaml`; upstream.jsonl is EMPTY — zero upstream hits — for the two routing-stage 400s, 19/20).
 
 Recorded routing fact (affects every golden): the canonical recordings use client model `gm` (the alias). The as-written run (client model = upstream name `gemini-mock-model`) is preserved as evidence at `_cpa_edge_ref/probes/S2d8-as-written/` — the reference rejects those client-side with `400 unknown provider for model gemini-mock-model` and zero upstream hits; see §3.1 routing note. Affected `meta.yaml` files carry `request_model_substituted: "gemini-mock-model -> gm"`.
 
@@ -277,9 +280,12 @@ Recorded routing fact (affects every golden): the canonical recordings use clien
 | S2d8-17-disconnect | 200 | text deltas → message_stop → terminal `event: error` api_error "unexpected EOF" (message_stop PRECEDES the error; HTTP stays 200); input_tokens(msg-start)=4 | tests/fixtures/S2d8/S2d8-17-disconnect/ |
 | S2d8-18-stream-error-before-first-chunk | 500 | JSON error (api_error "Internal error."), Content-Type application/json, NO SSE headers | tests/fixtures/S2d8/S2d8-18-stream-error-before-first-chunk/ |
 
-Upstream wire (recorded for every case; 1 hit per request): path/header/body bytes match §2.2–§3.2 exactly — `Content-Type` + `x-goog-api-key` + `Accept-Encoding: gzip` + `User-Agent: Go-http-client/1.1`, no `Accept` on stream calls, body key order per §2.3, safetySettings always injected.
+Upstream wire (recorded for every executed case; 1 hit per request; none for 19/20): path/header/body bytes match §2.2–§3.2 exactly — `Content-Type` + `x-goog-api-key` + `Accept-Encoding: gzip` + `User-Agent: Go-http-client/1.1`, no `Accept` on stream calls, body key order per §2.3, safetySettings always injected.
 
-FIXTURE-DEFERRED (R-FIXTURE): none of the 18 cases required real credentials. The CREDENTIALED-ONLY surfaces of this direction (Gemini CLI/AIStudio OAuth, §7.2) have no fixtures by design. Error paths that ARE recordable are all recorded.
+| S2d8-19-alias-rejection | 400 | client model = upstream NAME `gemini-mock-model` → routing 400 `unknown provider for model gemini-mock-model`, ZERO upstream hits, no X-Cpa-Trace-Id | tests/fixtures/S2d8/S2d8-19-alias-rejection/ |
+| S2d8-20-strict-json-400 | 400 | non-JSON body → routing 400 `unknown provider for model` (trimmed: no model name, no trailing space — contrast S2d6 Responses-surface trailing-space variant), ZERO upstream hits, no X-Cpa-Trace-Id | tests/fixtures/S2d8/S2d8-20-strict-json-400/ |
+
+FIXTURE-DEFERRED (R-FIXTURE): none of the 20 cases required real credentials. The CREDENTIALED-ONLY surfaces of this direction (Gemini CLI/AIStudio OAuth, §7.2) have no fixtures by design. Error paths that ARE recordable are all recorded.
 
 ## 7. Open questions and deferred items
 

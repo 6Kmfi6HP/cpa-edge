@@ -1,0 +1,11 @@
+### S2d4-min-nonstream STEP 1 — POST /v1/messages
+POST /v1/messages HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+x-api-key: oracle-local-key-1
+anthropic-version: 2023-06-01
+content-type: application/json
+Content-Length: 137
+
+{"model":"mock-model","max_tokens":64,"stream":false,"system":"You are a helpful assistant.","messages":[{"role":"user","content":"Hi"}]}

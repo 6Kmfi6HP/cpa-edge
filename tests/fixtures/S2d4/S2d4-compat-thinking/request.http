@@ -1,0 +1,10 @@
+### S2d4-compat-thinking STEP 1 — POST /v1/messages
+POST /v1/messages HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-local-key-1
+content-type: application/json
+Content-Length: 292
+
+{"model":"mock-model-compat","max_tokens":128,"stream":false,"messages":[{"role":"user","content":"Hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"I should greet warmly.","signature":""},{"type":"text","text":"Hello!"}]},{"role":"user","content":"Continue the greeting."}]}

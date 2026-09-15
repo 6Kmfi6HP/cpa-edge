@@ -1,0 +1,33 @@
+{
+ "id": "S2d4-min-nonstream",
+ "run_order": 1,
+ "purpose": "Baseline non-stream round trip. Pins: x-api-key auth accepted on the Claude route; alias->upstream model rewrite (mock-model -> mock-gpt-model); system STRING -> one system message whose content is an ARRAY of text parts; user string content preserved as string; max_tokens passthrough; explicit stream:false in the upstream body; canned chat.completion -> Claude message JSON with exact key order id/type/role/model/content/stop_reason/stop_sequence/usage and usage input 9 / output 6; upstream headers UA cli-proxy-openai-compat + Content-Type + Bearer, NO Accept, no client header forwarding; response model keeps the UPSTREAM name (no force-mapping).",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image eceasy/cli-proxy-api:v7.3.4, digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+ "recorded_at": "2026-09-16T04:10:04",
+ "record_kind": "client-api translation (cla2oai), single request",
+ "config": "S2d4 baseline: worker-4 fleet config (port 8407) + second openai-compatibility entry mock-openai-compat (base-url host.docker.internal:21999/v1, api-key mock-upstream-key, models [mock-gpt-model alias mock-model-compat is-compat:true]); stock mock-openai entry unchanged (alias mock-model -> mock-gpt-model); api-keys [oracle-local-key-1]; request-retry 0; transient-error-cooldown-seconds -1; usage-statistics-enabled false; one reference container + one openai mock instance for the whole mission, shared wire log sliced per case; mock control ONLY via mock/control/openai.json (client headers are not forwarded upstream)",
+ "mock_upstream_mode": "happy",
+ "dynamic_fields": [
+  "Date response header",
+  "X-Cpa-Trace-Id",
+  "port numbers anywhere (8407 / 21999; masked for contract replay)",
+  "ts field in upstream.jsonl",
+  "NOTE: input_tokens values are DETERMINISTIC (o200k_base) \u2014 deliberately NOT masked"
+ ],
+ "port_substitution": "cases file drafted for the oracle-runner-5 stack (8417/22999); recorded on the worker-4 stack (8407/21999) with the mechanical port map 8417->8407, 22999->21999; request bodies carried no port literals",
+ "steps": [
+  {
+   "seq": 1,
+   "label": "STEP 1 \u2014 POST /v1/messages",
+   "method": "POST",
+   "path": "/v1/messages",
+   "http_status": 200,
+   "expect_status": 200
+  }
+ ],
+ "upstream_slice": {
+  "lines": 1,
+  "note": "sliced from the shared mock wire log by request boundaries"
+ },
+ "mismatches": []
+}

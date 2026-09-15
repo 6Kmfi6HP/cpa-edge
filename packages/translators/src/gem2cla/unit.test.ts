@@ -128,6 +128,65 @@ describe('request translation — contents', () => {
     }
   })
 
+  it('the system barrier guards only the first contents turn; user merging resumes after it', async () => {
+    const assembly = assembleClaudeContent(
+      JSON.stringify({
+        system_instruction: { parts: [{ text: 'Be terse.' }] },
+        contents: [
+          { role: 'user', parts: [{ text: 'A' }] },
+          { role: 'user', parts: [{ text: 'B' }] },
+        ],
+      }),
+    )
+    expect(assembly.messages).toEqual([
+      { role: 'user', content: [{ type: 'text', text: 'Be terse.' }] },
+      { role: 'user', content: [{ type: 'text', text: 'A' }, { type: 'text', text: 'B' }] },
+    ])
+  })
+
+  it('the barrier clears for assistant turns too: system + two model turns -> [system], [merged]', async () => {
+    const assembly = assembleClaudeContent(
+      JSON.stringify({
+        system_instruction: { parts: [{ text: 'Be terse.' }] },
+        contents: [
+          { role: 'model', parts: [{ text: 'P' }] },
+          { role: 'model', parts: [{ text: 'Q' }] },
+        ],
+      }),
+    )
+    expect(assembly.messages).toEqual([
+      { role: 'user', content: [{ type: 'text', text: 'Be terse.' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'P' }, { type: 'text', text: 'Q' }] },
+    ])
+  })
+
+  it('without system_instruction consecutive same-role turns merge (S2d7-17 behavior)', async () => {
+    const assembly = assembleClaudeContent(
+      JSON.stringify({
+        contents: [
+          { role: 'user', parts: [{ text: 'Part one.' }] },
+          { role: 'user', parts: [{ text: 'Part two.' }] },
+        ],
+      }),
+    )
+    expect(assembly.messages).toEqual([
+      { role: 'user', content: [{ type: 'text', text: 'Part one.' }, { type: 'text', text: 'Part two.' }] },
+    ])
+  })
+
+  it('system_instruction + one contents turn stays two messages (S2d7-04 behavior)', async () => {
+    const assembly = assembleClaudeContent(
+      JSON.stringify({
+        system_instruction: { parts: [{ text: 'Be terse.' }] },
+        contents: [{ role: 'user', parts: [{ text: 'Say hello' }] }],
+      }),
+    )
+    expect(assembly.messages).toEqual([
+      { role: 'user', content: [{ type: 'text', text: 'Be terse.' }] },
+      { role: 'user', content: [{ type: 'text', text: 'Say hello' }] },
+    ])
+  })
+
   it('thought parts are skipped; text parts stay separate blocks', async () => {
     const body = await translate({
       contents: [{ role: 'user', parts: [{ text: 'a' }, { thought: true, text: 'secret' }, { text: 'b' }] }],
@@ -729,6 +788,29 @@ describe('non-stream aggregation and validation', () => {
     })
   })
 
+  it('CRLF-framed data lines drop the trailing CR before parsing (aggregate path)', () => {
+    const crlf = (lines: readonly string[]): string => lines.map((line) => `${line}\r\n\r\n`).join('')
+    // Under CRLF the [DONE] and empty payloads keep their CR; without the
+    // strip they parse as malformed data (a spurious 502) instead of being
+    // skipped into the empty-stream gate.
+    expect(validateClaudeAggregatedStream(crlf(['data: [DONE]', 'data:']))).toEqual({
+      ok: false,
+      message: 'claude executor: upstream returned empty stream response',
+    })
+    const buffer = crlf([
+      start,
+      delta('Hello'),
+      'data: {"type":"message_delta","delta":{},"usage":{"output_tokens":6}}',
+      'data: [DONE]',
+    ])
+    expect(validateClaudeAggregatedStream(buffer)).toEqual({ ok: true })
+    const result = translateClaudeBufferToGemini(buffer, ctx)
+    expect(result.kind).toBe('ok')
+    if (result.kind !== 'ok') return
+    expect(result.body).toContain('"parts":[{"text":"Hello"}]},"finishReason":"STOP"')
+    expect(result.body).toContain('"candidatesTokenCount":6')
+  })
+
   it('aggregates text into one part with the always-STOP finishReason and delta-only usage', () => {
     const result = translateClaudeBufferToGemini(sse([start, delta('Hello'), delta(' there'), 'data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"},"usage":{"output_tokens":6}}', stop]), ctx)
     expect(result.kind).toBe('ok')
@@ -1240,6 +1322,53 @@ describe('service facade', () => {
       async () => ({ status: 200, headers: [], body: happyStream() }),
     )
     expect(ok.status).toBe(200)
+  })
+
+  it('an active cooldown gates countTokens: 429 model_cooldown, no count, no upstream call', async () => {
+    const store = new MemoryStore()
+    const service = makeService({ store, now: () => 1_000_000 })
+    const auth = { 'x-goog-api-key': 'gateway-key' }
+    const countBody = { contents: [{ role: 'user', parts: [{ text: 'Say hello' }] }] }
+    const first = await service.handleV1beta(
+      serviceRequest('/v1beta/models/cm:streamGenerateContent?alt=sse', { contents: [] }, auth),
+      async () => ({
+        status: 429,
+        headers: [['Content-Type', 'application/json']],
+        body: byteStream([
+          encoder.encode('{"type": "error", "error": {"type": "rate_limit_error", "message": "mock rate limit"}}'),
+        ]),
+      }),
+    )
+    expect(first.status).toBe(429)
+    // inside the window the count is gated before it runs, whatever the body
+    const gated = await service.handleV1beta(
+      serviceRequest('/v1beta/models/cm:countTokens', countBody, auth),
+      async () => {
+        throw new Error('a gated count must not reach the upstream')
+      },
+    )
+    expect(gated.status).toBe(429)
+    expect(gated.headers).toContainEqual(['Retry-After', '1'])
+    expect(gated.body).toBe(
+      '{"error":{"code":"model_cooldown","last_upstream_error":"{\\"type\\": \\"error\\", \\"error\\": {\\"type\\": \\"rate_limit_error\\", \\"message\\": \\"mock rate limit\\"}}","message":"All credentials for model cm are cooling down via provider claude (last error: {\\"type\\": \\"error\\", \\"error\\": {\\"type\\": \\"rate_limit_error\\", \\"message\\": \\"mock rate limit\\"}})","model":"cm","provider":"claude","reset_seconds":1,"reset_time":"1s"}}',
+    )
+    const gatedMalformed = await service.handleV1beta(
+      serviceRequest('/v1beta/models/cm:countTokens', '{"contents": [', auth),
+      async () => {
+        throw new Error('the pre-flight gate runs before the count validation')
+      },
+    )
+    expect(gatedMalformed.status).toBe(429)
+    // once the window passes the local count answers again
+    const later = makeService({ store, now: () => 1_000_000 + 2000 })
+    const counted = await later.handleV1beta(
+      serviceRequest('/v1beta/models/cm:countTokens', countBody, auth),
+      async () => {
+        throw new Error('countTokens never contacts the upstream')
+      },
+    )
+    expect(counted.status).toBe(200)
+    expect(counted.body).toBe('{"totalTokens":4,"promptTokensDetails":[{"modality":"TEXT","tokenCount":4}]}')
   })
 
   it('a Store failure during the cooldown write does not lose the verbatim 429', async () => {

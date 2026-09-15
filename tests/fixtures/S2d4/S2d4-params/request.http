@@ -1,0 +1,10 @@
+### S2d4-params STEP 1 — POST /v1/messages
+POST /v1/messages HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-local-key-1
+content-type: application/json
+Content-Length: 351
+
+{"model":"mock-model","max_tokens":128,"temperature":0.7,"top_k":40,"stop_sequences":["END","STOP"],"metadata":{"user_id":"user-abc-123"},"user":"external-user-1","system":[{"type":"text","text":"You are a concise assistant."},{"type":"text","text":"Always answer in English."}],"messages":[{"role":"user","content":[{"type":"text","text":"Hello"}]}]}

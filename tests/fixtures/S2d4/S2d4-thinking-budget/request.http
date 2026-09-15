@@ -1,0 +1,10 @@
+### S2d4-thinking-budget STEP 1 — POST /v1/messages
+POST /v1/messages HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-local-key-1
+content-type: application/json
+Content-Length: 319
+
+{"model":"mock-model","max_tokens":256,"thinking":{"type":"enabled","budget_tokens":8192},"messages":[{"role":"user","content":"Solve 2+2."},{"role":"assistant","content":[{"type":"thinking","thinking":"I will compute it.","signature":""},{"type":"text","text":"It is 4."}]},{"role":"user","content":"Now solve 3+3."}]}

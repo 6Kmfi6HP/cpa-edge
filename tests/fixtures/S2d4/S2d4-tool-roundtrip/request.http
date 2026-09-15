@@ -1,0 +1,10 @@
+### S2d4-tool-roundtrip STEP 1 — POST /v1/messages
+POST /v1/messages HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-local-key-1
+content-type: application/json
+Content-Length: 768
+
+{"model":"mock-model","max_tokens":300,"tools":[{"name":"Get_Weather","description":"Get current weather","input_schema":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}],"messages":[{"role":"user","content":[{"type":"text","text":"What's the weather in Paris and London?"}]},{"role":"assistant","content":[{"type":"tool_use","id":"toolu_01ABC","name":"Get_Weather","input":{"city":"Paris"}},{"type":"tool_use","id":"toolu_02XYZ","name":"Get_Weather","input":{"city":"London"}}]},{"role":"system","content":"Use metric units."},{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_02XYZ","content":"12C rain"},{"type":"tool_result","tool_use_id":"toolu_01ABC","content":"18C sunny"},{"type":"text","text":"Summarize."}]}]}

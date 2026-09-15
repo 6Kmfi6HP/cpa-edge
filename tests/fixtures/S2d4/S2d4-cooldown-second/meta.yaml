@@ -1,0 +1,51 @@
+{
+ "id": "S2d4-cooldown-second",
+ "run_order": 20,
+ "purpose": "Cooldown: fired IMMEDIATELY (same script, < 0.5s) after S2d4-error-429 with the same body while the credential is in its ~1s rate-limit cooldown. Expected: model_cooldown error surfaced for the Claude client as type from the mapped status (rate_limit_error if 429) + message 'All credentials for model mock-model are cooling down via provider mock-openai (last error: rate_limit_exceeded: mock rate limit)'. Record the ACTUAL status + body \u2014 they pin the Claude view of the recorded model_cooldown shape.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image eceasy/cli-proxy-api:v7.3.4, digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+ "recorded_at": "2026-09-16T04:10:04",
+ "record_kind": "client-api translation (cla2oai), single request",
+ "config": "S2d4 baseline: worker-4 fleet config (port 8407) + second openai-compatibility entry mock-openai-compat (base-url host.docker.internal:21999/v1, api-key mock-upstream-key, models [mock-gpt-model alias mock-model-compat is-compat:true]); stock mock-openai entry unchanged (alias mock-model -> mock-gpt-model); api-keys [oracle-local-key-1]; request-retry 0; transient-error-cooldown-seconds -1; usage-statistics-enabled false; one reference container + one openai mock instance for the whole mission, shared wire log sliced per case; mock control ONLY via mock/control/openai.json (client headers are not forwarded upstream)",
+ "mock_upstream_mode": "error",
+ "dynamic_fields": [
+  "Date response header",
+  "X-Cpa-Trace-Id",
+  "port numbers anywhere (8407 / 21999; masked for contract replay)",
+  "ts field in upstream.jsonl",
+  "NOTE: input_tokens values are DETERMINISTIC (o200k_base) \u2014 deliberately NOT masked"
+ ],
+ "port_substitution": "cases file drafted for the oracle-runner-5 stack (8417/22999); recorded on the worker-4 stack (8407/21999) with the mechanical port map 8417->8407, 22999->21999; request bodies carried no port literals",
+ "steps": [
+  {
+   "seq": 1,
+   "label": "STEP 1 \u2014 POST /v1/messages",
+   "method": "POST",
+   "path": "/v1/messages",
+   "http_status": 429,
+   "expect_status": null
+  }
+ ],
+ "upstream_slice": {
+  "lines": 0,
+  "note": "asserted EMPTY and confirmed EMPTY (served from cooldown state; no wire request) \u2014 correct"
+ },
+ "mismatches": [
+  {
+   "field": "downstream_body.provider_string",
+   "expected": "cooling down via provider mock-openai",
+   "actual": "cooling down via provider openai-compatible-mock-openai",
+   "note": "recorded wins: the provider string is \"openai-compatible-\" + entry name"
+  },
+  {
+   "field": "downstream_body.last_error_format",
+   "expected": "last error: rate_limit_exceeded: mock rate limit",
+   "actual": "last error: {\"error\": {\"message\": \"mock rate limit\", \"type\": \"rate_limit_exceeded\", \"code\": \"rate_limit_exceeded\"}}",
+   "note": "recorded wins: the VERBATIM upstream error body (raw JSON string as served by the mock) is embedded"
+  }
+ ],
+ "mock_control_file": {
+  "mode": "error",
+  "status": 429
+ },
+ "status_note": "recorded status 429 (answers the flagged 429-vs-500 question: the Claude-wire model_cooldown error maps to the rate-limit status 429)"
+}

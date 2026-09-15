@@ -1,0 +1,9 @@
+### S2d4-auth-missing STEP 1 — POST /v1/messages
+POST /v1/messages HTTP/1.1
+Host: 127.0.0.1:8407
+User-Agent: curl/8.7.1
+Accept: */*
+content-type: application/json
+Content-Length: 82
+
+{"model":"mock-model","max_tokens":64,"messages":[{"role":"user","content":"Hi"}]}

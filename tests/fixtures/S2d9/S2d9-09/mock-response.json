@@ -1,6 +1,8 @@
 {
  "mode": "upstream-error",
  "upstream_call_count": "one",
+ "case_file": "S2d9-09",
+ "note": "script bytes = cases-file mock_sse_script_exact_bytes, materialized verbatim into mock control dir",
  "http_error": {
   "status": 401,
   "content_type": "application/json",

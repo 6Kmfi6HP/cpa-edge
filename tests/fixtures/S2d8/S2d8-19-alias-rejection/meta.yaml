@@ -9,8 +9,14 @@
  "http_status": "400",
  "upstream_hits": 0,
  "dynamic_fields": [
-  "Date",
-  "X-Cpa-Trace-Id",
-  "Host/port numbers"
- ]
+  "Date, X-Cpa-Trace-Id, Content-Length headers",
+  "reference/mock port numbers in upstream.jsonl Host fields",
+  "content_block.id digits in stream tool_use events (process counter; orchestrator ruling S2d8-2 accepts masking)",
+  "terminal transport-error text if it differs from 'unexpected EOF' (record what the reference emits)",
+  "ports (worker-local): reference 18317, mock 19001"
+ ],
+ "byte_exact_fields": [
+  "message_start.usage.input_tokens (o200k_base estimate): NOT masked; asserted byte-exactly per orchestrator ruling S2d8-1 \u2014 record the actual value in the fixture; do NOT list it as a masked dynamic field"
+ ],
+ "request_model_note": "Request uses the UPSTREAM model name verbatim (gemini-mock-model) as the client model \u2014 intentionally NOT substituted to the client-visible alias gm; the reference rejects it client-side (400 unknown provider) and no upstream dispatch occurs."
 }

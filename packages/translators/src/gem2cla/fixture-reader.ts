@@ -171,8 +171,7 @@ export interface RecordedStep {
  * downstream surface lives in downstream-N.md (recorded: S2d7-31).
  */
 export function readRecordedSteps(caseId: string): readonly RecordedStep[] {
-  const lines = readText(`${FIXTURE_ROOT}/${caseId}/request.http`).split('
-')
+  const lines = readText(`${FIXTURE_ROOT}/${caseId}/request.http`).split('\n')
   const blocks: string[][] = []
   for (const line of lines) {
     if (line.startsWith('### step ')) {
@@ -185,8 +184,7 @@ export function readRecordedSteps(caseId: string): readonly RecordedStep[] {
     block.push(line)
   }
   return blocks.map((block, index) => ({
-    request: parseRequestFile(block.join('
-')),
+    request: parseRequestFile(block.join('\n')),
     downstream: readDownstreamFile(`${FIXTURE_ROOT}/${caseId}/downstream-${index + 1}.md`),
   }))
 }

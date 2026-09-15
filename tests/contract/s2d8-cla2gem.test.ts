@@ -1,7 +1,7 @@
 /**
  * S2d8 golden contract — Claude (Anthropic Messages) client → Gemini upstream.
  *
- * Spec source of truth: spec/sections/S2d8-cla2gem.md (admitted). Goldens: the 18 recorded
+ * Spec source of truth: spec/sections/S2d8-cla2gem.md (admitted). Goldens: the 20 recorded
  * fixture cases under tests/fixtures/S2d8/ — oracle wire transcripts of CLIProxyAPI v7.3.4
  * (commit 8335eac…) against the deterministic gemini mock (RECORDABLE-LOCALLY per R-FIXTURE;
  * transcripts only, no upstream source text). Rulings applied: R-SSE (downstream stream bodies
@@ -9,8 +9,10 @@
  * framing — never transport chunk boundaries), R-TOK + S2d8-1 (message_start.usage.input_tokens
  * is an o200k_base estimate of the ORIGINAL client request bytes, asserted byte-exactly and
  * UNMASKED; the recorded values are 4/9/32/4/4/4 across the six stream goldens), NE-LENIENT
- * (fixtures replay well-formed bodies only; the inventory self-check JSON-validates every
- * request body), R-FIXTURE, R-404 (route surface declared, no fixture exercises method/path
+ * (fixtures replay well-formed bodies only, with S2d8-20 as the deliberate malformed-body
+ * golden; the inventory self-check JSON-validates every request body and grants exactly the
+ * two declared exceptions by case id), R-FIXTURE, R-404 (route surface declared, no fixture
+ * exercises method/path
  * mismatches). R-ORDER is recorded here as NOT APPLICABLE: this surface emits at most one
  * delta frame per upstream part, so no run of interchangeably-ordered adjacent frames exists —
  * every frame is order-pinned. R-BCRYPT never touches this surface.
@@ -54,9 +56,14 @@
  *     path: string                    // '/v1/messages' | '/v1/messages/count_tokens'
  *     headers: HeaderList             // client headers, recorded order + casing
  *     body: string                    // exact request-body bytes; well-formed JSON per
- *                                     // NE-LENIENT — STRICT boundary: malformed/non-JSON
- *                                     // bodies are rejected with the §2.1 400 shape and
- *                                     // zero upstream dispatch (spec'd, not golden-pinned)
+ *                                     // NE-LENIENT — STRICT boundary, golden-pinned by
+ *                                     // S2d8-20: a non-JSON body is rejected client-side
+ *                                     // with 400 {"type":"error","error":{"type":
+ *                                     // "invalid_request_error","message":"unknown provider
+ *                                     // for model"}} (empty model, NO trailing space —
+ *                                     // recorded reality; it supersedes the §2.1
+ *                                     // "Invalid request: <err>" expectation, which the
+ *                                     // spec side must reconcile) and zero upstream dispatch
  *   }
  *
  *   interface Cla2GemUpstreamRequest {
@@ -98,7 +105,10 @@
  *   }
  *
  * The facade covers the whole pinned direction pipeline: alias-only model resolution and the
- * alias→upstream-name rewrite (§3.1), request translation with the byte-encoding MUSTs (§3.2:
+ * alias→upstream-name rewrite (§3.1), including the alias-only rejection golden S2d8-19 (the
+ * upstream NAME is not client-addressable → 400 Claude envelope `unknown provider for model
+ * gemini-mock-model`, zero upstream dispatch) and the strict-JSON boundary golden S2d8-20,
+ * request translation with the byte-encoding MUSTs (§3.2:
  * HTML escaping, raw client-byte passthrough for tool args/tool_result raw values/schema,
  * functionCall/functionResponse key orders, reminder turn, merge/reorder/align rules, boundary
  * user turns, the two-stage thinking rule whose executor capability strip is golden-pinned by
@@ -140,7 +150,9 @@
  * • Upstream calls are captured; at the end of a case the captured sequence must equal the
  *   recorded upstream.jsonl lines (count + bytes). The count_tokens case therefore pins that
  *   a REAL upstream call is made (no local synthesis), and every error case pins the exact
- *   single attempt.
+ *   single attempt. The two zero-dispatch goldens (S2d8-19/20) record an EMPTY upstream.jsonl;
+ *   `send` rejects any dispatch attempt on them, so an adapter that calls upstream fails
+ *   loudly instead of silently matching a zero-line recording.
  * • The recorded wire (upstream.jsonl / downstream.md) is AUTHORITATIVE over the metas'
  *   `expected_upstream` / `expected_downstream_body` fields, which this suite never reads:
  *   gate round-1 finding B1 (S2d8-07/10) showed those meta fields can carry pre-strip
@@ -181,7 +193,8 @@
  *
  * MASKS — applied identically to recorded and produced bytes, derived from each case's
  * meta.yaml `dynamic_fields` (unknown entries fail the suite loudly so new volatility must be
- * added consciously):
+ * added consciously; S2d8-19/20 declare their entries as separate `Date`, `X-Cpa-Trace-Id`,
+ * `Host/port numbers` spellings, all recognized):
  *   - `Date`, `X-Cpa-Trace-Id`, downstream `Content-Length`: response-head values owned by
  *     S1/the runtime; never asserted on any compared surface.
  *   - upstream Host port: trailing `:port` of the upstream `Host` header value → `:<PORT>`
@@ -329,6 +342,8 @@ const EXPECTED_CASES = [
   'S2d8-16-slow-chunks',
   'S2d8-17-disconnect',
   'S2d8-18-stream-error-before-first-chunk',
+  'S2d8-19-alias-rejection',
+  'S2d8-20-strictjson-400',
 ] as const
 
 type CaseId = (typeof EXPECTED_CASES)[number]
@@ -458,12 +473,17 @@ function maskProfile(caseId: string, dynamicFields: readonly string[]): MaskProf
   let port = false
   let toolIdDigits = false
   for (const field of dynamicFields) {
-    if (field === 'Date, X-Cpa-Trace-Id, Content-Length headers') {
+    if (
+      field === 'Date, X-Cpa-Trace-Id, Content-Length headers' ||
+      field === 'Date' ||
+      field === 'X-Cpa-Trace-Id'
+    ) {
       continue // response-head values owned by S1/the runtime; never asserted
     }
     if (
       field === 'reference/mock port numbers in upstream.jsonl Host fields' ||
-      field === 'ports (worker-local): reference 18317, mock 19001'
+      field === 'ports (worker-local): reference 18317, mock 19001' ||
+      field === 'Host/port numbers'
     ) {
       port = true
       continue
@@ -513,7 +533,7 @@ interface CaseMeta {
   readonly http_status: string | number
   readonly upstream_hits: number
   readonly dynamic_fields: readonly string[]
-  readonly mock_control: MockControl
+  readonly mock_control?: MockControl // absent on the zero-dispatch goldens (19/20)
   readonly request_model_substituted?: string
   readonly gate_round1_correction_B1?: string
 }
@@ -829,6 +849,11 @@ async function replayCase(caseId: CaseId): Promise<void> {
   const captured: UpstreamRequest[] = []
   const send: UpstreamSender = async (call) => {
     captured.push(call)
+    if (recordedUpstream.length === 0) {
+      throw new Error(
+        `S2d8[${caseId}]: zero-dispatch golden — the adapter must not call upstream (recorded upstream_hits: 0)`,
+      )
+    }
     return buildMockResponse(meta.mock_control, caseId)
   }
 
@@ -849,7 +874,7 @@ async function replayCase(caseId: CaseId): Promise<void> {
 // ─── Suites ──────────────────────────────────────────────────────────────────────────
 
 describe('S2d8 fixture inventory (harness self-check, adapter-independent)', () => {
-  it('exposes exactly the 18 admitted golden cases, each internally consistent', async () => {
+  it('exposes exactly the 20 admitted golden cases, each internally consistent', async () => {
     expect([...fixtureCaseDirs]).toEqual([...EXPECTED_CASES].sort())
     for (const caseId of EXPECTED_CASES) {
       const meta = await readFixtureJson<CaseMeta>(caseId, 'meta.yaml')
@@ -858,12 +883,16 @@ describe('S2d8 fixture inventory (harness self-check, adapter-independent)', () 
       const upstream = parseRecordedUpstream(await readFixtureText(caseId, 'upstream.jsonl'), caseId)
 
       expect(meta.id, `${caseId}: meta.id echoes the directory name`).toBe(caseId)
-      expect(meta.mock_control, `${caseId}: meta must embed the mock control`).toBeDefined()
+      if (meta.upstream_hits > 0) {
+        expect(meta.mock_control, `${caseId}: a dispatching golden must embed the mock control`).toBeDefined()
+      }
       maskProfile(caseId, meta.dynamic_fields) // fails loudly on unknown dynamic fields
 
       // Recorded request: POST on one of the two S2d8 routes, exact Content-Length,
-      // well-formed JSON per NE-LENIENT, and the alias-only client model (recorded
-      // routing fact — every golden requests `gm`, never the upstream name).
+      // and the alias-only client model (recorded routing fact — every dispatching
+      // golden requests `gm`, never the upstream name). NE-LENIENT grants exactly
+      // two declared exceptions, keyed by case id: the alias-rejection golden sends
+      // the verbatim upstream name, and the strict-JSON golden sends a non-JSON body.
       expect(request.method, `${caseId}: route method`).toBe('POST')
       expect(
         [CLIENT_ROUTE, COUNT_ROUTE].includes(request.path),
@@ -873,14 +902,29 @@ describe('S2d8 fixture inventory (harness self-check, adapter-independent)', () 
       expect(contentLength, `${caseId}: parsed body length matches the recorded Content-Length`).toBe(
         new TextEncoder().encode(request.body).length,
       )
-      let requestBody: Record<string, unknown>
+      let requestBody: Record<string, unknown> | undefined
       try {
         requestBody = JSON.parse(request.body) as Record<string, unknown>
       } catch {
-        throw new Error(`${caseId}: request body is not well-formed JSON (NE-LENIENT replay boundary)`)
+        requestBody = undefined
       }
-      expect(requestBody.model, `${caseId}: client model is the alias gm`).toBe('gm')
-      const streamRequest = requestBody.stream === true
+      const clientModel = typeof requestBody?.model === 'string' ? requestBody.model : undefined
+      if (clientModel === 'gm') {
+        // ordinary alias golden — no extra constraint
+      } else if (clientModel === RECORDED_UPSTREAM_MODEL) {
+        expect(
+          caseId,
+          `${caseId}: a verbatim upstream-name request is legal only in the alias-rejection golden (§3.1 routing note)`,
+        ).toBe('S2d8-19-alias-rejection')
+      } else if (requestBody === undefined) {
+        expect(
+          caseId,
+          `${caseId}: a non-JSON request body is legal only in the strict-JSON golden (NE-LENIENT)`,
+        ).toBe('S2d8-20-strictjson-400')
+      } else {
+        throw new Error(`${caseId}: unexpected client model ${JSON.stringify(clientModel)}`)
+      }
+      const streamRequest = requestBody?.stream === true
       const countRoute = request.path === COUNT_ROUTE
 
       // Recorded upstream wire: one hit per golden, gemini paths, redacted key,
@@ -928,32 +972,37 @@ describe('S2d8 fixture inventory (harness self-check, adapter-independent)', () 
 
       // Mock control shape vs the request: streams need a canned chunk script (slow and
       // disconnect wrap it), non-streams need a canned JSON body, errors need a reply.
-      const control = meta.mock_control
-      const mode = control.mode ?? 'happy'
-      expect(['happy', 'error', 'slow', 'disconnect'].includes(mode), `${caseId}: known mock mode`).toBe(true)
-      const cannedFields = [control.canned_nonstream, control.canned_stream, control.canned_count].filter(
-        (field) => field !== undefined,
-      )
-      if (mode === 'error') {
-        expect(cannedFields.length, `${caseId}: error mode carries no canned body`).toBe(0)
-        expect(control.status, `${caseId}: error mode carries the reply status`).toBeDefined()
-        expect(control.error_body, `${caseId}: error mode carries the reply body`).toBeDefined()
-      } else {
-        expect(cannedFields.length, `${caseId}: exactly one canned body per non-error control`).toBe(1)
-        expect(
-          control.canned_stream !== undefined,
-          `${caseId}: canned_stream is used exactly for streamed requests`,
-        ).toBe(streamRequest)
-        expect(control.canned_count !== undefined, `${caseId}: canned_count is used exactly on the count route`).toBe(
-          countRoute,
+      // The zero-dispatch goldens (S2d8-19/20) carry no mock control — nothing is served.
+      if (meta.upstream_hits > 0 && meta.mock_control !== undefined) {
+        const control = meta.mock_control
+        const mode = control.mode ?? 'happy'
+        expect(['happy', 'error', 'slow', 'disconnect'].includes(mode), `${caseId}: known mock mode`).toBe(true)
+        const cannedFields = [control.canned_nonstream, control.canned_stream, control.canned_count].filter(
+          (field) => field !== undefined,
         )
-        if (mode === 'slow') expect(control.delay_ms, `${caseId}: slow mode carries an inter-chunk delay`).toBeDefined()
-        if (mode === 'disconnect') {
-          expect(control.after, `${caseId}: disconnect mode carries the abort chunk count`).toBeDefined()
+        if (mode === 'error') {
+          expect(cannedFields.length, `${caseId}: error mode carries no canned body`).toBe(0)
+          expect(control.status, `${caseId}: error mode carries the reply status`).toBeDefined()
+          expect(control.error_body, `${caseId}: error mode carries the reply body`).toBeDefined()
+        } else {
+          expect(cannedFields.length, `${caseId}: exactly one canned body per non-error control`).toBe(1)
           expect(
-            (control.after ?? 0) < (control.canned_stream?.length ?? 0),
-            `${caseId}: disconnect aborts before the canned script ends`,
-          ).toBe(true)
+            control.canned_stream !== undefined,
+            `${caseId}: canned_stream is used exactly for streamed requests`,
+          ).toBe(streamRequest)
+          expect(control.canned_count !== undefined, `${caseId}: canned_count is used exactly on the count route`).toBe(
+            countRoute,
+          )
+          if (mode === 'slow') {
+            expect(control.delay_ms, `${caseId}: slow mode carries an inter-chunk delay`).toBeDefined()
+          }
+          if (mode === 'disconnect') {
+            expect(control.after, `${caseId}: disconnect mode carries the abort chunk count`).toBeDefined()
+            expect(
+              (control.after ?? 0) < (control.canned_stream?.length ?? 0),
+              `${caseId}: disconnect aborts before the canned script ends`,
+            ).toBe(true)
+          }
         }
       }
 

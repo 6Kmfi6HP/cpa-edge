@@ -220,3 +220,34 @@ N8 housekeeping applied: deduped `dynamic_fields` in all 22 S5 metas — removed
 "Date response header" / "port numbers anywhere (...)" entries; each list now holds the two
 global entries plus case-specific fields only. No other case gained a step. Stack torn down
 and verified clean after the fix.
+
+## S2d4 recording mission (2026-09-16, complete)
+
+Executed @spec-s2d4-cla2oai's request (re-routed from zombie worker-5): 22 cla2oai cases
+(Claude Messages client -> OpenAI chat upstream via openai-compatibility) into
+`tests/fixtures/S2d4/<case-id>/` (RECIPES layout, one request per case). Port map applied:
+8417->8407, 22999->21999 (drafted worker-5 stack -> worker-4 stack).
+
+Setup: one container for the whole mission on `run4/run/config.s2d4.yaml` (fleet config +
+second compat entry mock-openai-compat, alias mock-model-compat, is-compat:true), one openai
+mock instance, shared wire log sliced per case by request boundaries. Mock control only via
+`mock/control/openai.json`; my mock copy gained the requested `script` mode (scripted
+non_stream JSON / stream_events SSE). Ordering honored: 19->20 back-to-back, >1.2s pause
+before 21, 22 last.
+
+Results: 21/22 byte-exact vs the cases-file derivations (incl. all four scripted stream
+cases, the disconnect case, the empty-slice assertions for count-tokens/auth-missing/
+unknown-model, and the cooldown-hit empty slice). Recorded divergences (recorded bytes are
+the golden; flagged to the spec-writer):
+- S2d4-cooldown-second: status 429 (answers the flagged 429-vs-500 question); provider
+  string is "openai-compatible-mock-openai" (not "mock-openai"); the last upstream error is
+  embedded VERBATIM (raw mock JSON string), not the compact type: message form.
+- S2d4-tool-roundtrip / S2d4-toolresult-image-relay: upstream bodies DEEP-EQUAL, key order
+  differs (Go sorted-map marshal inside tool_calls.function) — informative only per the
+  cases-file comparison rules; noted in meta `upstream_emission_order`.
+- Openai-compat 429 rate-limit cooldown window measured at 2-4s (probe in
+  `probes/S2d4/cooldown-probe.json`); the first disconnect attempt fired at +1.5s hit it
+  and was superseded by a clean re-record (200 + partial SSE + `event: error` "unexpected
+  EOF", byte-exact).
+Raw evidence: `_cpa_edge_ref/run4/probes/S2d4/` (README.md). Teardown verified after the
+mission (no container, no mocks, ports free, auth dir cleaned, fleet config pristine).

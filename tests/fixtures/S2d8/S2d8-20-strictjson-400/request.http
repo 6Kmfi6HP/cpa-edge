@@ -1,1 +1,0 @@
-POST /v1/messages HTTP/1.1\nHost: 127.0.0.1:18317\nAccept: */*\nAuthorization: Bearer oracle-local-key-1\nContent-Type: application/json\nUser-Agent: claude-cli/2.1.63 (external, cli)\nContent-Length: 16\n\n\nthis is not json\n

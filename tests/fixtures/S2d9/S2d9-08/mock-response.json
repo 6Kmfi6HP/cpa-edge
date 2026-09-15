@@ -1,5 +1,7 @@
 {
  "mode": "disconnect-mid-stream",
  "upstream_call_count": "one",
+ "case_file": "S2d9-08",
+ "note": "script bytes = cases-file mock_sse_script_exact_bytes, materialized verbatim into mock control dir",
  "sse_script_exact_bytes": "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_mock_008\",\"object\":\"response\",\"created_at\":1742812800,\"status\":\"in_progress\",\"model\":\"mock-codex-upstream\",\"output\":[]}}\nevent: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":1,\"output_index\":0,\"item\":{\"id\":\"msg_mock_008\",\"type\":\"message\",\"status\":\"in_progress\",\"role\":\"assistant\",\"content\":[]}}\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"sequence_number\":2,\"item_id\":\"msg_mock_008\",\"output_index\":0,\"content_index\":0,\"delta\":\"partial answer\"}\nMOCK: wait 300ms after last frame, then close the socket without any terminal event"
 }

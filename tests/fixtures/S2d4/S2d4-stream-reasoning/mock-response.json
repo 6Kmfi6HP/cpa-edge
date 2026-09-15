@@ -1,0 +1,79 @@
+{
+ "note": "scripted reply via mock/control/openai.json (script mode)",
+ "served": [
+  [
+   null,
+   {
+    "id": "chatcmpl-think-0001",
+    "object": "chat.completion.chunk",
+    "created": 1770000000,
+    "model": "mock-gpt-model",
+    "choices": [
+     {
+      "index": 0,
+      "delta": {
+       "role": "assistant"
+      },
+      "finish_reason": null
+     }
+    ]
+   }
+  ],
+  [
+   null,
+   {
+    "id": "chatcmpl-think-0001",
+    "object": "chat.completion.chunk",
+    "created": 1770000000,
+    "model": "mock-gpt-model",
+    "choices": [
+     {
+      "index": 0,
+      "delta": {
+       "reasoning_content": "let me think"
+      },
+      "finish_reason": null
+     }
+    ]
+   }
+  ],
+  [
+   null,
+   {
+    "id": "chatcmpl-think-0001",
+    "object": "chat.completion.chunk",
+    "created": 1770000000,
+    "model": "mock-gpt-model",
+    "choices": [
+     {
+      "index": 0,
+      "delta": {
+       "content": "The answer is 42."
+      },
+      "finish_reason": null
+     }
+    ]
+   }
+  ],
+  [
+   null,
+   {
+    "id": "chatcmpl-think-0001",
+    "object": "chat.completion.chunk",
+    "created": 1770000000,
+    "model": "mock-gpt-model",
+    "choices": [
+     {
+      "index": 0,
+      "delta": {},
+      "finish_reason": "stop"
+     }
+    ]
+   }
+  ],
+  [
+   null,
+   "[DONE]"
+  ]
+ ]
+}

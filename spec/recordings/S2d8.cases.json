@@ -2311,6 +2311,92 @@
       "notes": [
         "response Content-Type must be application/json (NOT text/event-stream)"
       ]
+    },
+    {
+      "id": "S2d8-19-alias-rejection",
+      "purpose": "Gate-authorized golden (promoted from the as-written run): a client request naming the UPSTREAM model (gemini-mock-model) instead of a client-visible alias is rejected with 400 unknown-provider and NEVER reaches the upstream.",
+      "gate_recorded": true,
+      "fixture_note": "recorded at the adversarial gate; promoted from _cpa_edge_ref/probes/S2d8-as-written/ evidence",
+      "downstream_request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8417/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json",
+          "User-Agent": "claude-cli/2.1.63 (external, cli)"
+        },
+        "body": {
+          "model": "gemini-mock-model",
+          "max_tokens": 100,
+          "temperature": 0.7,
+          "top_p": 0.9,
+          "system": "You are terse.",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Say hello"
+            }
+          ]
+        }
+      },
+      "mock": {
+        "mode": "happy"
+      },
+      "record": [
+        "downstream status+headers+body"
+      ],
+      "expected_downstream": {
+        "status": 400,
+        "body": {
+          "type": "error",
+          "error": {
+            "type": "invalid_request_error",
+            "message": "unknown provider for model gemini-mock-model"
+          }
+        }
+      },
+      "notes": [
+        "ZERO upstream hits (upstream.jsonl empty)",
+        "no X-Cpa-Trace-Id response header (routing-stage error)"
+      ]
+    },
+    {
+      "id": "S2d8-20-strict-json-400",
+      "meta_id": "S2d8-20-strictjson-400",
+      "purpose": "Gate-authorized golden (recorded fresh): a non-JSON /v1/messages body is rejected client-side with the strict-JSON routing 400 (empty model name) before any upstream dispatch.",
+      "gate_recorded": true,
+      "fixture_note": "recorded at the adversarial gate; fixture dir S2d8-20-strict-json-400, meta id S2d8-20-strictjson-400",
+      "downstream_request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8417/v1/messages",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json",
+          "User-Agent": "claude-cli/2.1.63 (external, cli)"
+        },
+        "body_raw": "this is not json"
+      },
+      "mock": {
+        "mode": "happy"
+      },
+      "record": [
+        "downstream status+headers+body"
+      ],
+      "expected_downstream": {
+        "status": 400,
+        "body": {
+          "type": "error",
+          "error": {
+            "type": "invalid_request_error",
+            "message": "unknown provider for model"
+          }
+        }
+      },
+      "notes": [
+        "ZERO upstream hits (upstream.jsonl empty)",
+        "no X-Cpa-Trace-Id response header (routing-stage error)",
+        "Claude envelope TRIMS the message: no model name and NO trailing space — contrast the Responses surface (S2d6 badbody golden) which relays the untrimmed trailing-space variant"
+      ]
     }
   ],
   "byte_exact_fields": [
@@ -2321,5 +2407,12 @@
     "action": "All downstream_request bodies now use model 'gm' (matches the canonical fixtures; the oracle recorded with this substitution). Expected upstream bodies keep the resolved name gemini-mock-model.",
     "as_written_evidence": "_cpa_edge_ref/probes/S2d8-as-written/ (18 dirs + README; the original as-written run with model gemini-mock-model)",
     "estimate_note": "The model field is not part of the o200k input-token estimate segments, so the substitution does not change message_start.usage.input_tokens."
+  },
+  "gate_addenda": {
+    "note": "Cases 19 and 20 were authorized and recorded at the S2d8 adversarial gate (round 2); they are listed here so this file remains the complete case inventory.",
+    "fixture_dirs": [
+      "tests/fixtures/S2d8/S2d8-19-alias-rejection/",
+      "tests/fixtures/S2d8/S2d8-20-strict-json-400/"
+    ]
   }
 }
