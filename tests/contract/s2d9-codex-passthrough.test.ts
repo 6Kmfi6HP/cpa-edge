@@ -248,7 +248,9 @@
  *   re-serialization), the seq rules (data frames strictly +1 from 0; failure frame seq
  *   == data-frame count), the model echo asymmetry (stream created/in_progress get the
  *   alias when the upstream omitted model; the non-stream aggregate never injects), the
- *   per-frame usage-detail presence, and the output repair. These clauses restate
+ *   per-frame usage-detail presence (BOTH detail objects on every usage; values
+ *   forwarded VERBATIM when the upstream sent them — S2d9-02's 3/5 — and 0 injected
+ *   only where the upstream omitted them), and the output repair. These clauses restate
  *   §3-§5 in readable failures; they never loosen the byte gold.
  *
  * • DERIVED TEST (clearly labeled — no golden exists): the §4.2 response.done ->
