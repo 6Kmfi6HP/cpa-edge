@@ -63,6 +63,8 @@ export interface ChatToResponsesContext {
   readonly resolvedModel: string
   /** Declared tools from the request translation (name restoration). */
   readonly tools: readonly DeclaredTool[]
+  /** Chat-format tools produced by the request translation (echo source). */
+  readonly chatTools: readonly WireObject[]
   /** Translated tool_choice echoed back in chat shape, when present. */
   readonly toolChoice: WireObject | undefined
   /** Translated max_tokens echoed back as `max_output_tokens`, when present. */
