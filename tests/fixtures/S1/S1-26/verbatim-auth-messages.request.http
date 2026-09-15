@@ -1,0 +1,10 @@
+POST /v1/messages HTTP/1.1
+Host: 127.0.0.1:18317
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Type: application/json
+Authorization: oracle-local-key-1
+Content-Length: 93
+
+
+{"model": "no-such-model", "max_tokens": 16, "messages": [{"role": "user", "content": "hi"}]}

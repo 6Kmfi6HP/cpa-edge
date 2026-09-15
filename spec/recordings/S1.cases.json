@@ -1641,6 +1641,118 @@
         "mgmt-remote-disabled (V3): 403 {\"error\":\"remote management disabled\"} with a valid key from the non-loopback bridge gateway.",
         "mgmt-ip-ban-threshold (follow-up probe, fresh container): attempts 1-5 with wrong keys -> 401 invalid management key; attempt 6 with the VALID key -> 403 {\"error\":\"IP banned due to too many failed attempts. Try again in 30m0s\"} (duration dynamic; ban check precedes key validation). S1-21 group-F re-records swapped into tests/fixtures/S1/S1-21/ (artifact gone)."
       ]
+    },
+    {
+      "id": "S1-26",
+      "purpose": "Cross-check golden (cla2gem impl-review N6, routed via S1): pin that POST /v1/messages accepts ALL FIVE client credential transports (query ?key=, query ?auth_token=, X-Goog-Api-Key, non-Bearer verbatim Authorization), plus the non-Bearer-scheme rejection. S1-07 already pinned X-Api-Key on this route; this closes the remaining transports on the Claude surface.",
+      "classification": "RECORDABLE-LOCALLY",
+      "record": "response (per request: status + headers + exact body)",
+      "notes": [
+        "Plain baseline config (BOOTSTRAP.md section 3); NO provider attachment needed - every accepted-auth probe terminates at routing with 400 model_not_found (claude envelope), which is itself the proof that the auth gate passed.",
+        "Same request body for all probes so the only variable is the credential transport.",
+        "Source basis being pinned: internal/api/server_routes.go attaches ONE AuthMiddleware(accessManager) to the /v1 group (and /v1beta); internal/access/config_access/provider.go reads the same five transports for every request through that middleware, and extractBearerToken compares a non-Bearer Authorization header value verbatim."
+      ],
+      "requests": [
+        {
+          "name": "qkey-messages",
+          "method": "POST",
+          "path": "/v1/messages?key=oracle-local-key-1",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "no-such-model",
+            "max_tokens": 16,
+            "messages": [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ]
+          },
+          "expected": "400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"unknown provider for model no-such-model\"}} - auth accepted via query ?key="
+        },
+        {
+          "name": "qauthtoken-messages",
+          "method": "POST",
+          "path": "/v1/messages?auth_token=oracle-local-key-1",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "no-such-model",
+            "max_tokens": 16,
+            "messages": [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ]
+          },
+          "expected": "400 claude-shaped model_not_found - auth accepted via query ?auth_token="
+        },
+        {
+          "name": "xgoog-messages",
+          "method": "POST",
+          "path": "/v1/messages",
+          "headers": {
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": "oracle-local-key-1"
+          },
+          "body": {
+            "model": "no-such-model",
+            "max_tokens": 16,
+            "messages": [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ]
+          },
+          "expected": "400 claude-shaped model_not_found - auth accepted via X-Goog-Api-Key on the /v1 group"
+        },
+        {
+          "name": "verbatim-auth-messages",
+          "method": "POST",
+          "path": "/v1/messages",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "oracle-local-key-1"
+          },
+          "body": {
+            "model": "no-such-model",
+            "max_tokens": 16,
+            "messages": [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ]
+          },
+          "expected": "400 claude-shaped model_not_found - non-Bearer Authorization header value compared verbatim and accepted (no Bearer prefix required)"
+        },
+        {
+          "name": "badscheme-messages",
+          "method": "POST",
+          "path": "/v1/messages",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Basic oracle-local-key-1"
+          },
+          "body": {
+            "model": "no-such-model",
+            "max_tokens": 16,
+            "messages": [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ]
+          },
+          "expected": "401 {\"error\":\"Invalid API key\"} - a non-Bearer SCHEME makes the whole header value the candidate ('Basic oracle-local-key-1'), which does not match; rejected even though the key substring is valid"
+        }
+      ],
+      "recorded": "2026-09-15 (5/5 probes; 11 files at tests/fixtures/S1/S1-26/)"
     }
   ],
   "fixture_deferred": [
