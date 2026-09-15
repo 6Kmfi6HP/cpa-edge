@@ -1,7 +1,7 @@
 import { isJsonValue, type JsonValue, type Store } from '@cpa-edge/core'
 import { normalizeProvider } from './providers'
 import { isValidOauthState, OAUTH_SESSIONS_NAMESPACE, type OAuthSessionRegistry } from './oauth-sessions'
-import type { AuthResponse, Clock } from './types'
+import type { AuthResponse } from './types'
 import { goJsonStringify, parseGoUrl, parseQueryString } from './wire'
 
 /**
@@ -89,16 +89,29 @@ export function effectiveCallbackParams(params: CallbackParams): OAuthCallbackFi
   return { code, state, error }
 }
 
+/** Publisher seam for callback handshake records. */
+export type PublishCallbackFn = (
+  provider: string,
+  state: string,
+  file: OAuthCallbackFile,
+) => Promise<void>
+
+/** Store-backed publisher: runtimes bind waiters to the same Store. */
+export function storePublishCallback(store: Store): PublishCallbackFn {
+  return (provider, state, file) => publishCallbackFile(store, provider, state, file)
+}
+
 /** Service behind the plain and management callback routes. */
 export class OAuthCallbackService {
   private readonly registry: OAuthSessionRegistry
-  private readonly store: Store
-  private readonly now: Clock
+  private readonly publish: PublishCallbackFn
 
-  constructor(registry: OAuthSessionRegistry, store: Store, options: { now?: Clock } = {}) {
+  constructor(
+    registry: OAuthSessionRegistry,
+    options: { publish: PublishCallbackFn },
+  ) {
     this.registry = registry
-    this.store = store
-    this.now = options.now ?? (() => Date.now())
+    this.publish = options.publish
   }
 
   /**
@@ -115,7 +128,7 @@ export class OAuthCallbackService {
       const session = await this.registry.get(file.state)
       if (session !== undefined && session.status === 'pending' && !session.completed) {
         try {
-          await publishCallbackFile(this.store, session.provider, file.state, file)
+          await this.publish(session.provider, file.state, file)
         } catch {
           // Recorded reality: write failures are swallowed here.
         }
@@ -156,7 +169,7 @@ export class OAuthCallbackService {
       }
     }
     try {
-      await publishCallbackFile(this.store, session.provider, state, file)
+      await this.publish(session.provider, state, file)
     } catch {
       return {
         status: 500,
@@ -235,7 +248,7 @@ export class OAuthCallbackService {
       return errorBody(400, 'provider does not match state')
     }
     try {
-      await publishCallbackFile(this.store, session.provider, input.state, {
+      await this.publish(session.provider, input.state, {
         code: input.code,
         state: input.state,
         error: input.error,

@@ -57,6 +57,7 @@ export type {
 } from './mgmt-auth'
 export {
   INVALID_MANAGEMENT_KEY_BODY,
+  prepareManagementSecretSync,
   isLocalIp,
   isParseableIp,
   looksLikeBcrypt,
@@ -110,7 +111,18 @@ export {
   OAUTH_CALLBACKS_NAMESPACE,
   OAUTH_SUCCESS_HTML,
   publishCallbackFile,
+  storePublishCallback,
 } from './oauth-callback'
+export type { PublishCallbackFn } from './oauth-callback'
+
+export type {
+  AuthManagementVerdict,
+  AuthPlane,
+  AuthPlaneConfig,
+  AuthPlaneDeps,
+  AuthUrlProvider,
+} from './plane'
+export { createAuthPlane } from './plane'
 
 export type {
   AuthFileSkipReason,

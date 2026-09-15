@@ -84,6 +84,13 @@ export async function prepareManagementSecret(secret: string): Promise<PreparedM
   return { stored: hashed, mutated: true }
 }
 
+/** Synchronous flavor of {@link prepareManagementSecret} for sync factories. */
+export function prepareManagementSecretSync(secret: string): PreparedManagementSecret {
+  if (secret.length === 0) return { stored: '', mutated: false }
+  if (looksLikeBcrypt(secret)) return { stored: secret, mutated: false }
+  return { stored: bcrypt.hashSync(secret, 10), mutated: true }
+}
+
 /**
  * Compares a presented key against the stored secret: bcrypt compare when
  * the stored value is a hash, constant-time equality otherwise (defensive
@@ -211,7 +218,6 @@ export interface ManagementRequestHeaders extends ClientAddressInput {
 
 export interface ManagementRequestContext {
   readonly headers: ManagementRequestHeaders
-  readonly remoteAddr: string
 }
 
 export type ManagementAuthResult =
