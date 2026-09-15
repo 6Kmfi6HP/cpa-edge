@@ -1,0 +1,67 @@
+{
+ "id": "S1-11",
+ "purpose": "Model-not-found matrix across surfaces: 400 status and the exact error envelope per surface.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+ "recorded_at": "2026-09-15T23:47:08",
+ "record_kind": "response",
+ "mock_upstream_mode": null,
+ "config": "baseline+openai-compat(mock-openai,mock-model)",
+ "dynamic_fields": [
+  "Date",
+  "X-Cpa-Trace-Id",
+  "created",
+  "created_at",
+  "Content-Length when body is dynamic"
+ ],
+ "requests": [
+  {
+   "name": "chat-unknown",
+   "method": "POST",
+   "path": "/v1/chat/completions",
+   "request_file": "chat-unknown.request.http",
+   "downstream_file": "chat-unknown.downstream.md",
+   "http_status": "400"
+  },
+  {
+   "name": "messages-unknown",
+   "method": "POST",
+   "path": "/v1/messages",
+   "request_file": "messages-unknown.request.http",
+   "downstream_file": "messages-unknown.downstream.md",
+   "http_status": "400"
+  },
+  {
+   "name": "count-unknown",
+   "method": "POST",
+   "path": "/v1/messages/count_tokens",
+   "request_file": "count-unknown.request.http",
+   "downstream_file": "count-unknown.downstream.md",
+   "http_status": "400"
+  },
+  {
+   "name": "responses-unknown",
+   "method": "POST",
+   "path": "/v1/responses",
+   "request_file": "responses-unknown.request.http",
+   "downstream_file": "responses-unknown.downstream.md",
+   "http_status": "400"
+  },
+  {
+   "name": "gemini-unknown",
+   "method": "POST",
+   "path": "/v1beta/models/no-such-model:generateContent",
+   "request_file": "gemini-unknown.request.http",
+   "downstream_file": "gemini-unknown.downstream.md",
+   "http_status": "400"
+  },
+  {
+   "name": "chat-unknown-stream",
+   "method": "POST",
+   "path": "/v1/chat/completions",
+   "request_file": "chat-unknown-stream.request.http",
+   "downstream_file": "chat-unknown-stream.downstream.md",
+   "http_status": "400"
+  }
+ ],
+ "upstream_file": "upstream.jsonl"
+}

@@ -1,0 +1,75 @@
+{
+ "id": "S1-07",
+ "purpose": "Client auth accept matrix: all five credential styles accepted on both /v1 and /v1beta; X-Api-Key accepted on /v1/messages.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+ "recorded_at": "2026-09-15T23:47:08",
+ "record_kind": "response",
+ "mock_upstream_mode": null,
+ "config": "baseline+openai-compat(mock-openai,mock-model)",
+ "dynamic_fields": [
+  "Date",
+  "X-Cpa-Trace-Id",
+  "created",
+  "created_at",
+  "Content-Length when body is dynamic"
+ ],
+ "requests": [
+  {
+   "name": "x-goog-on-v1",
+   "method": "GET",
+   "path": "/v1/models",
+   "request_file": "x-goog-on-v1.request.http",
+   "downstream_file": "x-goog-on-v1.downstream.md",
+   "http_status": "200"
+  },
+  {
+   "name": "x-api-key-on-v1",
+   "method": "GET",
+   "path": "/v1/models",
+   "request_file": "x-api-key-on-v1.request.http",
+   "downstream_file": "x-api-key-on-v1.downstream.md",
+   "http_status": "200"
+  },
+  {
+   "name": "query-key",
+   "method": "GET",
+   "path": "/v1/models?key=oracle-local-key-1",
+   "request_file": "query-key.request.http",
+   "downstream_file": "query-key.downstream.md",
+   "http_status": "200"
+  },
+  {
+   "name": "query-auth-token",
+   "method": "GET",
+   "path": "/v1/models?auth_token=oracle-local-key-1",
+   "request_file": "query-auth-token.request.http",
+   "downstream_file": "query-auth-token.downstream.md",
+   "http_status": "200"
+  },
+  {
+   "name": "bearer-on-v1beta",
+   "method": "GET",
+   "path": "/v1beta/models",
+   "request_file": "bearer-on-v1beta.request.http",
+   "downstream_file": "bearer-on-v1beta.downstream.md",
+   "http_status": "200"
+  },
+  {
+   "name": "x-goog-on-v1beta",
+   "method": "GET",
+   "path": "/v1beta/models",
+   "request_file": "x-goog-on-v1beta.request.http",
+   "downstream_file": "x-goog-on-v1beta.downstream.md",
+   "http_status": "200"
+  },
+  {
+   "name": "x-api-key-messages",
+   "method": "POST",
+   "path": "/v1/messages",
+   "request_file": "x-api-key-messages.request.http",
+   "downstream_file": "x-api-key-messages.downstream.md",
+   "http_status": "400"
+  }
+ ],
+ "upstream_file": "upstream.jsonl"
+}

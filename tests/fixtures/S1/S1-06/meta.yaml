@@ -1,0 +1,59 @@
+{
+ "id": "S1-06",
+ "purpose": "Client auth rejection: presented-but-wrong credentials via each style.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+ "recorded_at": "2026-09-15T23:46:48",
+ "record_kind": "response",
+ "mock_upstream_mode": null,
+ "config": "baseline (no providers)",
+ "dynamic_fields": [
+  "Date",
+  "X-Cpa-Trace-Id",
+  "created",
+  "created_at",
+  "Content-Length when body is dynamic"
+ ],
+ "requests": [
+  {
+   "name": "bad-bearer",
+   "method": "GET",
+   "path": "/v1/models",
+   "request_file": "bad-bearer.request.http",
+   "downstream_file": "bad-bearer.downstream.md",
+   "http_status": "401"
+  },
+  {
+   "name": "bad-x-api-key",
+   "method": "GET",
+   "path": "/v1/models",
+   "request_file": "bad-x-api-key.request.http",
+   "downstream_file": "bad-x-api-key.downstream.md",
+   "http_status": "401"
+  },
+  {
+   "name": "bad-x-goog",
+   "method": "GET",
+   "path": "/v1/models",
+   "request_file": "bad-x-goog.request.http",
+   "downstream_file": "bad-x-goog.downstream.md",
+   "http_status": "401"
+  },
+  {
+   "name": "bad-query-key",
+   "method": "GET",
+   "path": "/v1/models?key=not-the-key",
+   "request_file": "bad-query-key.request.http",
+   "downstream_file": "bad-query-key.downstream.md",
+   "http_status": "401"
+  },
+  {
+   "name": "bad-query-auth-token",
+   "method": "GET",
+   "path": "/v1/models?auth_token=not-the-key",
+   "request_file": "bad-query-auth-token.request.http",
+   "downstream_file": "bad-query-auth-token.downstream.md",
+   "http_status": "401"
+  }
+ ],
+ "upstream_file": null
+}

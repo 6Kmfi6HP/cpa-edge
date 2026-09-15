@@ -1,0 +1,1273 @@
+{
+  "$schema": "cpa-edge/s6-recordings-request/1",
+  "step_id": "S6",
+  "section": "spec/sections/S6-state-storage.md",
+  "target_fixture_dir": "tests/fixtures/S6/",
+  "version_anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image eceasy/cli-proxy-api:v7.3.4 (digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266)",
+  "baseline_config": "_cpa_edge_ref/run/config.yaml (fleet config; port 18317, api-keys [\"oracle-local-key-1\"], remote-management.allow-remote true + secret-key, request-retry 0, transient-error-cooldown-seconds -1, usage-statistics-enabled false, all 8 mock upstreams wired)",
+  "secrets_used_in_recordings": {
+    "client_api_key": "oracle-local-key-1",
+    "management_key_plaintext": "oracle-mgmt-key-1",
+    "note": "Local-only recording values, already used in bootstrap probes. No real credentials anywhere."
+  },
+  "fixture_format_notes": [
+    "Per case: tests/fixtures/S6/<case-id>/ with meta.yaml, request.http, downstream.md, upstream.jsonl, mock-response.json exactly per BOOTSTRAP.md section 7.",
+    "Multi-step cases: number the requests/responses inside request.http / downstream.md (### 1, ### 2, ...) in execution order.",
+    "On-disk captures (config.yaml snapshots, auth files, .cds) go under tests/fixtures/S6/<case-id>/disk/<container-path-with-slashes>. Copy bytes verbatim; list each in meta.yaml.",
+    "RESP-protocol cases (07/08/09): request.http holds the client-to-server byte stream as a byte-exact hex+ascii block (plus readable form), downstream.md the server-to-client byte stream the same way. Use a python socket script; one connection per numbered segment.",
+    "Mask ONLY the dynamic_fields listed per case (plus global volatile whitelist in section 4 of S6). Everything else must be byte-identical between runs."
+  ],
+  "cases": [
+    {
+      "id": "S6-01-config-get",
+      "purpose": "Effective-config JSON view: exact key set, sanitized values, json:\"-\" omissions (section 3.2, B1).",
+      "classification": "RECORDABLE-LOCALLY",
+      "preconditions": "Fresh container from fleet config; all 8 mocks not needed for this call but config lists them.",
+      "steps": [
+        {
+          "n": 1,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v0/management/config",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null
+        }
+      ],
+      "record": {
+        "http": "status+headers+body",
+        "disk": []
+      },
+      "dynamic_fields": [
+        "Date header",
+        "X-CPA-VERSION/X-CPA-COMMIT/X-CPA-BUILD-DATE (build-stable; record actual values, mask in diff if image rebuilt)"
+      ],
+      "mock_upstream": null,
+      "determinism": "Static config; no timestamps in response body. Byte-identical across restarts of the same image+config. Assert: api-keys present in plaintext; remote-management, auth-dir, host, port keys ABSENT; provider blocks present with model aliases."
+    },
+    {
+      "id": "S6-02-secret-bcrypt-mutation",
+      "purpose": "In-place bcrypt mutation of remote-management.secret-key at startup (B21, section 3.3.1) + plaintext remains the accepted management key.",
+      "classification": "RECORDABLE-LOCALLY",
+      "preconditions": "FRESH config copy (NOT the current fleet config, whose secret is already hashed): identical to fleet config but remote-management.secret-key set to PLAINTEXT \"oracle-mgmt-key-1\". Mount as config.yaml, start container, wait for startup log line.",
+      "steps": [
+        {
+          "n": 1,
+          "transport": "disk",
+          "capture": "config.yaml BEFORE container start (bytes)"
+        },
+        {
+          "n": 2,
+          "transport": "wait",
+          "until": "docker log line 'API server started successfully' (or equivalent); then sleep 2s for the write-back"
+        },
+        {
+          "n": 3,
+          "transport": "disk",
+          "capture": "config.yaml AFTER startup (bytes)"
+        },
+        {
+          "n": 4,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v0/management/api-keys",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "200 with the plaintext key still accepted"
+        }
+      ],
+      "record": {
+        "http": "status+headers+body for step 4",
+        "disk": [
+          "config.yaml before",
+          "config.yaml after"
+        ]
+      },
+      "dynamic_fields": [
+        "bcrypt hash value (random salt; keep the $2a$10$ + 53-char tail structure in the fixture, mask the tail)",
+        "Date"
+      ],
+      "mock_upstream": null,
+      "determinism": "Only the hash string varies. Assert: after == before except the secret-key line; after line matches ^[ \\t]*secret-key: *\"?\\$2[aby]\\$10\\$[./A-Za-z0-9]{53}\"?$; step 4 returns 200 proving plaintext still valid."
+    },
+    {
+      "id": "S6-03-config-yaml-roundtrip",
+      "purpose": "Raw config.yaml read/write round-trip + parse/validation error shapes (B2/B3).",
+      "classification": "RECORDABLE-LOCALLY",
+      "preconditions": "Fresh container from fleet config.",
+      "steps": [
+        {
+          "n": 1,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v0/management/config.yaml",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "200 raw YAML bytes"
+        },
+        {
+          "n": 2,
+          "transport": "http",
+          "method": "PUT",
+          "path": "/v0/management/config.yaml",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": "<verbatim bytes recorded in step 1>",
+          "expect": "200 {\"ok\":true,\"changed\":[\"config\"]}"
+        },
+        {
+          "n": 3,
+          "transport": "http",
+          "method": "PUT",
+          "path": "/v0/management/config.yaml",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": "port: 18317\nbogus-open: {[}\n",
+          "expect": "400 {\"error\":\"invalid_yaml\",\"message\":...}"
+        },
+        {
+          "n": 4,
+          "transport": "http",
+          "method": "PUT",
+          "path": "/v0/management/config.yaml",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": "port: 18317\ncredential-in-flight:\n  snapshot-interval: 2s\n  stale-after: 1s\n",
+          "expect": "422 {\"error\":\"invalid_config\",\"message\":...} (stale-after must be >= 3x snapshot-interval)"
+        },
+        {
+          "n": 5,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v0/management/config.yaml",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "200 bytes IDENTICAL to step 1 (PUT must not reformat)"
+        }
+      ],
+      "record": {
+        "http": "status+headers+body for all steps",
+        "disk": []
+      },
+      "dynamic_fields": [
+        "message text of invalid_yaml/invalid_config (upstream error strings; treat as masked-dynamic, assert error code only)",
+        "Date"
+      ],
+      "mock_upstream": null,
+      "determinism": "Step 5 byte-compares against step 1. YAML error text may embed line numbers -> masked. Deterministic by construction."
+    },
+    {
+      "id": "S6-04-field-toggle-persist",
+      "purpose": "Scalar field PUT persists to config.yaml and hot-applies (B4, sections 3.1.2/3.3.2/3.3.4).",
+      "classification": "RECORDABLE-LOCALLY",
+      "preconditions": "Fresh container from fleet config.",
+      "steps": [
+        {
+          "n": 1,
+          "transport": "http",
+          "method": "PUT",
+          "path": "/v0/management/usage-statistics-enabled",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": "{\"value\":true}",
+          "expect": "200 {\"status\":\"ok\"}"
+        },
+        {
+          "n": 2,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v0/management/usage-statistics-enabled",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "200 {\"usage-statistics-enabled\":true}"
+        },
+        {
+          "n": 3,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v0/management/config.yaml",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "200; body now contains line 'usage-statistics-enabled: true' (record bytes)"
+        },
+        {
+          "n": 4,
+          "transport": "http",
+          "method": "PUT",
+          "path": "/v0/management/usage-statistics-enabled",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": "{\"value\":\"yes\"}",
+          "expect": "400 {\"error\":\"invalid body\"}"
+        },
+        {
+          "n": 5,
+          "transport": "http",
+          "method": "PUT",
+          "path": "/v0/management/logs-max-total-size-mb",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": "{\"value\":5}",
+          "expect": "200 {\"status\":\"ok\"}"
+        },
+        {
+          "n": 6,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v0/management/logs-max-total-size-mb",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "200 {\"logs-max-total-size-mb\":5}"
+        },
+        {
+          "n": 7,
+          "transport": "http",
+          "method": "PUT",
+          "path": "/v0/management/usage-statistics-enabled",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": "{\"value\":false}",
+          "expect": "200 (cleanup)"
+        },
+        {
+          "n": 8,
+          "transport": "http",
+          "method": "PUT",
+          "path": "/v0/management/logs-max-total-size-mb",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": "{\"value\":0}",
+          "expect": "200 (cleanup)"
+        },
+        {
+          "n": 9,
+          "transport": "disk",
+          "capture": "config.yaml after cleanup (secret-key line masked; assert usage-statistics-enabled: false, no logs-max-total-size-mb line or value 0 per the known-default suppression rules)",
+          "expect": "contains 'usage-statistics-enabled: false' AND 'logs-max-total-size-mb: 0' (existing keys are updated even to zero values; new zero-value keys are not added — section 3.3.2)"
+        }
+      ],
+      "record": {
+        "http": "status+headers+body for steps 1-8",
+        "disk": [
+          "config.yaml after cleanup"
+        ]
+      },
+      "dynamic_fields": [
+        "secret-key hash line",
+        "Date"
+      ],
+      "mock_upstream": null,
+      "determinism": "Known-default suppression (section 3.3.2) decides whether logs-max-total-size-mb: 0 appears; record reality, spec asserts the recorded outcome."
+    },
+    {
+      "id": "S6-05-usage-queue-record",
+      "purpose": "One usage record: full field schema + destructive pop (B5, sections 3.5.1/3.5.3).",
+      "classification": "RECORDABLE-LOCALLY",
+      "preconditions": "Fresh container with config identical to fleet EXCEPT usage-statistics-enabled: true. Mock openai (port 18999) running, control file absent (happy).",
+      "steps": [
+        {
+          "n": 1,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization: Bearer oracle-local-key-1": "",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"model\":\"mock-model\",\"messages\":[{\"role\":\"user\",\"content\":\"Say OK\"}]}",
+          "expect": "200 chat.completion (mock canned)"
+        },
+        {
+          "n": 2,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v0/management/usage-queue?count=5",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "200 JSON array of EXACTLY 1 record"
+        },
+        {
+          "n": 3,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v0/management/usage-queue?count=5",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "200 [] (pop was destructive)"
+        }
+      ],
+      "record": {
+        "http": "status+headers+body all steps",
+        "disk": []
+      },
+      "dynamic_fields": [
+        "record.timestamp",
+        "record.latency_ms",
+        "record.ttft_ms",
+        "record.request_id",
+        "record.client_ip",
+        "record.x_forwarded_for",
+        "record.user_agent (curl version)",
+        "record.access_token_sha256 (if populated)",
+        "Date"
+      ],
+      "mock_upstream": {
+        "type": "openai",
+        "mode": "happy",
+        "port": 18999
+      },
+      "determinism": "Record in step 2 must contain every field of section 3.5.1 (assert field names present, tokens from mock canned usage, model 'mock-gpt-model', alias 'mock-model', provider 'mock-openai' — record actuals). Step 3 proves destructive pop. Deterministic: fixed canned mock response, single request."
+    },
+    {
+      "id": "S6-06-usage-queue-errors",
+      "purpose": "count parameter validation (B5).",
+      "classification": "RECORDABLE-LOCALLY",
+      "preconditions": "Same container as S6-05 (queue may be empty or not — validation happens before pop; run steps in order).",
+      "steps": [
+        {
+          "n": 1,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v0/management/usage-queue?count=0",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "400 {\"error\":\"count must be a positive integer\"}"
+        },
+        {
+          "n": 2,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v0/management/usage-queue?count=abc",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "400 same"
+        },
+        {
+          "n": 3,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v0/management/usage-queue?count=-1",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "400 same"
+        },
+        {
+          "n": 4,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v0/management/usage-queue",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "200 [] or 1-record array (record reality; no count = pop exactly 1)"
+        }
+      ],
+      "record": {
+        "http": "status+headers+body all steps",
+        "disk": []
+      },
+      "dynamic_fields": [
+        "Date",
+        "step 4 record fields if a record is present (mask as in S6-05)"
+      ],
+      "mock_upstream": null,
+      "determinism": "Pure validation paths; byte-stable error strings."
+    },
+    {
+      "id": "S6-07-usage-resp-protocol",
+      "purpose": "RESP command surface on the management port: NOAUTH, AUTH ok/bad, LPOP/RPOP frames, unsupported channel, unknown command, QUIT (B18, section 4).",
+      "classification": "RECORDABLE-LOCALLY",
+      "preconditions": "Same container as S6-05 (usage-statistics-enabled true). Before the RESP steps, produce exactly 2 mock chat completions via HTTP (same request as S6-05 step 1, twice) so the queue holds exactly 2 records. Mock openai happy.",
+      "steps": [
+        {
+          "n": 1,
+          "transport": "resp",
+          "conn": 1,
+          "send": "*2\r\n$4\r\nLPOP\r\n$5\r\nusage\r\n",
+          "expect": "-NOAUTH Authentication required.\r\n"
+        },
+        {
+          "n": 2,
+          "transport": "resp",
+          "conn": 2,
+          "send": "*2\r\n$4\r\nAUTH\r\n$12\r\nwrong-key-123\r\n",
+          "expect": "-ERR invalid management key\r\n"
+        },
+        {
+          "n": 3,
+          "transport": "resp",
+          "conn": 3,
+          "send": "*2\r\n$4\r\nAUTH\r\n$16\r\noracle-mgmt-key-1\r\n",
+          "expect": "+OK\r\n"
+        },
+        {
+          "n": 4,
+          "transport": "resp",
+          "conn": 3,
+          "send": "*3\r\n$4\r\nLPOP\r\n$5\r\nusage\r\n$2\r\n10\r\n",
+          "expect": "*2 + two bulk strings (oldest first), byte-exact RESP"
+        },
+        {
+          "n": 5,
+          "transport": "resp",
+          "conn": 3,
+          "send": "*2\r\n$4\r\nLPOP\r\n$5\r\nusage\r\n",
+          "expect": "$-1\r\n (empty)"
+        },
+        {
+          "n": 6,
+          "transport": "resp",
+          "conn": 3,
+          "send": "*3\r\n$4\r\nRPOP\r\n$5\r\nusage\r\n$1\r\n1\r\n",
+          "expect": "$-1\r\n (RPOP reads the same head; empty now)"
+        },
+        {
+          "n": 7,
+          "transport": "resp",
+          "conn": 3,
+          "send": "*3\r\n$4\r\nLPOP\r\n$6\r\nerrors\r\n$1\r\n1\r\n",
+          "expect": "-ERR unsupported channel 'errors'\r\n"
+        },
+        {
+          "n": 8,
+          "transport": "resp",
+          "conn": 3,
+          "send": "*1\r\n$3\r\nFOO\r\n",
+          "expect": "-ERR unknown command 'foo'\r\n"
+        },
+        {
+          "n": 9,
+          "transport": "resp",
+          "conn": 3,
+          "send": "*1\r\n$4\r\nQUIT\r\n",
+          "expect": "+OK\r\n then server closes"
+        }
+      ],
+      "record": {
+        "http": "the 2 seed chat completions (status+headers+body)",
+        "resp": "full bidirectional byte streams for conns 1-3 (hex+ascii blocks, numbered)",
+        "disk": []
+      },
+      "dynamic_fields": [
+        "usage record fields inside step-4 bulk strings (mask as in S6-05)",
+        "Date"
+      ],
+      "mock_upstream": {
+        "type": "openai",
+        "mode": "happy",
+        "port": 18999
+      },
+      "determinism": "Frames are byte-deterministic apart from record payload contents (masked). Record raw socket bytes; the runner script should NOT use redis-cli (its formatting differs).",
+      "resp_encoding_note": "send/expect fields contain the LITERAL bytes to exchange: real CRLF control characters (JSON-escaped as \\r\\n in the file). RESP frames are byte-exact; hex+ascii both in the transcripts."
+    },
+    {
+      "id": "S6-08-usage-subscribe-stream",
+      "purpose": "SUBSCRIBE usage: ack frame, initial {\"support_refresh\":true}, live message delivery, PING/UNSUBSCRIBE framing (B18, sections 3.5.3/4).",
+      "classification": "RECORDABLE-LOCALLY",
+      "preconditions": "Same container as S6-05. Mock openai happy. RESP connection stays open while a chat completion is triggered out-of-band.",
+      "steps": [
+        {
+          "n": 1,
+          "transport": "resp",
+          "conn": 1,
+          "send": "*2\r\n$4\r\nAUTH\r\n$16\r\noracle-mgmt-key-1\r\n",
+          "expect": "+OK\r\n"
+        },
+        {
+          "n": 2,
+          "transport": "resp",
+          "conn": 1,
+          "send": "*2\r\n$9\r\nSUBSCRIBE\r\n$5\r\nusage\r\n",
+          "expect": "*3 subscribe-ack (:1) then message frame with payload {\"support_refresh\":true}"
+        },
+        {
+          "n": 3,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization: Bearer oracle-local-key-1": "",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"model\":\"mock-model\",\"messages\":[{\"role\":\"user\",\"content\":\"Say OK\"}]}",
+          "expect": "200 (this request's usage record goes to the subscriber, not the queue)"
+        },
+        {
+          "n": 4,
+          "transport": "resp",
+          "conn": 1,
+          "recv": "one message frame carrying the usage record",
+          "expect": "*3 $7 message $5 usage $<len> <record>\r\n"
+        },
+        {
+          "n": 5,
+          "transport": "resp",
+          "conn": 1,
+          "send": "*1\r\n$4\r\nPING\r\n",
+          "expect": "*2 $4 pong $0 \r\n (empty payload)"
+        },
+        {
+          "n": 6,
+          "transport": "resp",
+          "conn": 1,
+          "send": "*2\r\n$4\r\nPING\r\n$5\r\nhello\r\n",
+          "expect": "*2 $4 pong $5 hello\r\n"
+        },
+        {
+          "n": 7,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v0/management/usage-queue?count=5",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "200 [] (subscriber precedence: step-3 record was NOT queued)"
+        },
+        {
+          "n": 8,
+          "transport": "resp",
+          "conn": 1,
+          "send": "*2\r\n$11\r\nUNSUBSCRIBE\r\n$5\r\nusage\r\n",
+          "expect": "*3 unsubscribe-ack (:0) then close"
+        }
+      ],
+      "record": {
+        "http": "status+headers+body steps 3/7",
+        "resp": "full bidirectional byte stream conn 1",
+        "disk": []
+      },
+      "dynamic_fields": [
+        "usage record fields inside step-4 message frame",
+        "Date"
+      ],
+      "mock_upstream": {
+        "type": "openai",
+        "mode": "happy",
+        "port": 18999
+      },
+      "determinism": "Subscribe BEFORE triggering the request. Step 7 proves live-subscriber precedence (section 3.5.3).",
+      "resp_encoding_note": "send/expect fields contain the LITERAL bytes to exchange: real CRLF control characters (JSON-escaped as \\r\\n in the file). RESP frames are byte-exact; hex+ascii both in the transcripts."
+    },
+    {
+      "id": "S6-09-errors-subscribe-stream",
+      "purpose": "SUBSCRIBE errors: ack without initial payload + live error event on failed request (B18, section 3.5.2).",
+      "classification": "RECORDABLE-LOCALLY",
+      "preconditions": "Same container as S6-05 (usage-statistics flag irrelevant for the errors channel). Mock openai with control file {\"mode\":\"error\",\"status\":500} (or X-Mock-Mode error/500 on the triggering request — but the control file is the deterministic path). transient-error-cooldown-seconds: -1 keeps cooldowns off.",
+      "steps": [
+        {
+          "n": 1,
+          "transport": "file",
+          "write": "mock/control/openai.json = {\"mode\":\"error\",\"status\":500}"
+        },
+        {
+          "n": 2,
+          "transport": "resp",
+          "conn": 1,
+          "send": "*2\r\n$4\r\nAUTH\r\n$16\r\noracle-mgmt-key-1\r\n",
+          "expect": "+OK\r\n"
+        },
+        {
+          "n": 3,
+          "transport": "resp",
+          "conn": 1,
+          "send": "*2\r\n$9\r\nSUBSCRIBE\r\n$6\r\nerrors\r\n",
+          "expect": "*3 subscribe-ack for errors (:1) and NOTHING else (no initial payload)"
+        },
+        {
+          "n": 4,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization: Bearer oracle-local-key-1": "",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"model\":\"mock-model\",\"messages\":[{\"role\":\"user\",\"content\":\"fail please\"}]}",
+          "expect": "500 (mock error body passed downstream; record exact status+body)"
+        },
+        {
+          "n": 5,
+          "transport": "resp",
+          "conn": 1,
+          "recv": "one message frame on channel errors",
+          "expect": "error event JSON per section 3.5.2 (auth_index, status_code 500, body, auth_status block)"
+        },
+        {
+          "n": 6,
+          "transport": "resp",
+          "conn": 1,
+          "send": "*1\r\n$4\r\nQUIT\r\n",
+          "expect": "+OK\r\n then close"
+        },
+        {
+          "n": 7,
+          "transport": "file",
+          "delete": "mock/control/openai.json (restore happy)"
+        }
+      ],
+      "record": {
+        "http": "status+headers+body step 4",
+        "resp": "full bidirectional byte stream conn 1",
+        "disk": []
+      },
+      "dynamic_fields": [
+        "error event timestamp",
+        "auth_status.next_retry_after / quota timestamps if present",
+        "record body/message text fragments that embed upstream error strings (record actuals; mask only timestamps)",
+        "Date"
+      ],
+      "mock_upstream": {
+        "type": "openai",
+        "mode": "error",
+        "status": 500,
+        "port": 18999
+      },
+      "determinism": "Error events are NOT gated by usage-statistics-enabled (only by the management secret). Single failing request -> exactly one error event frame.",
+      "resp_encoding_note": "send/expect fields contain the LITERAL bytes to exchange: real CRLF control characters (JSON-escaped as \\r\\n in the file). RESP frames are byte-exact; hex+ascii both in the transcripts."
+    },
+    {
+      "id": "S6-10-authfile-upload-list-delete",
+      "purpose": "Auth-file CRUD over HTTP + on-disk bytes + listing entry shape (B12/B13/B14/B15, sections 3.4.1-3.4.5).",
+      "classification": "RECORDABLE-LOCALLY",
+      "preconditions": "Fresh container from fleet config (auth dir mounted at _cpa_edge_ref/run/auths; ensure it is EMPTY before this case).",
+      "steps": [
+        {
+          "n": 1,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v0/management/auth-files?name=s6-test-claude.json",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": "",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"type\":\"claude\",\"access_token\":\"s6-fake-access\",\"refresh_token\":\"s6-fake-refresh\",\"email\":\"s6@example.com\",\"last_refresh\":\"2026-01-01T00:00:00Z\",\"expired\":\"2099-01-01T00:00:00Z\"}",
+          "expect": "200 {\"status\":\"ok\"}"
+        },
+        {
+          "n": 2,
+          "transport": "disk",
+          "capture": "/root/.cli-proxy-api/s6-test-claude.json (must equal the uploaded bytes verbatim)"
+        },
+        {
+          "n": 3,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v0/management/auth-files?name=s6-test-claude.json",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "200 {observed_at, files:[<entry>]} (record entry fully)"
+        },
+        {
+          "n": 4,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v0/management/auth-files/download?name=s6-test-claude.json",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "200 raw bytes == step-1 body; Content-Disposition: attachment; filename=\"s6-test-claude.json\"; Content-Type: application/json"
+        },
+        {
+          "n": 5,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v0/management/auth-files/download?name=s6-test-claude",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "400 {\"error\":\"name must end with .json\"}"
+        },
+        {
+          "n": 6,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v0/management/auth-files/download?name=../../etc/passwd.json",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "400 {\"error\":\"invalid name\"}"
+        },
+        {
+          "n": 7,
+          "transport": "http",
+          "method": "DELETE",
+          "path": "/v0/management/auth-files?name=nope.json",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "404 {\"error\":\"auth file not found\"}"
+        },
+        {
+          "n": 8,
+          "transport": "http",
+          "method": "DELETE",
+          "path": "/v0/management/auth-files?name=s6-test-claude.json",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "200 {\"status\":\"ok\"}"
+        },
+        {
+          "n": 9,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v0/management/auth-files?name=s6-test-claude.json",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "200 {observed_at, files:[]}"
+        },
+        {
+          "n": 10,
+          "transport": "disk",
+          "capture": "/root/.cli-proxy-api/ listing after delete (file gone)"
+        }
+      ],
+      "record": {
+        "http": "status+headers+body all steps",
+        "disk": [
+          "s6-test-claude.json after upload",
+          "auth dir listing after delete"
+        ]
+      },
+      "dynamic_fields": [
+        "observed_at",
+        "entry created_at/modtime/updated_at/last_refresh if populated",
+        "entry size (record actual)",
+        "entry auth_index (record actual; deterministic for identical config but mask in diff)",
+        "entry recent_requests bucket labels (HH:MM local time)",
+        "Date"
+      ],
+      "mock_upstream": null,
+      "determinism": "Synthetic token file (expired 2099 => no auto-refresh network calls). Upload writes raw bytes verbatim; download returns them unchanged. Entry asserts: type 'claude', label 's6@example.com', status 'active', source 'file', disabled false, quota null-object per actuals."
+    },
+    {
+      "id": "S6-11-authfile-patch-fields",
+      "purpose": "PATCH /auth-files/fields: typed field merge + weight/request_retry validation errors + persisted bytes (B17, section 3.4.6).",
+      "classification": "RECORDABLE-LOCALLY",
+      "preconditions": "Same container state as S6-10 after step 1 re-run (re-upload the same file first).",
+      "steps": [
+        {
+          "n": 1,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v0/management/auth-files?name=s6-test-claude.json",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": "",
+            "Content-Type": "application/json"
+          },
+          "body": "<same body as S6-10 step 1>",
+          "expect": "200"
+        },
+        {
+          "n": 2,
+          "transport": "http",
+          "method": "PATCH",
+          "path": "/v0/management/auth-files/fields",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": "",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"name\":\"s6-test-claude.json\",\"priority\":5,\"note\":\"s6 note\",\"weight\":7}",
+          "expect": "200 {\"status\":\"ok\"}"
+        },
+        {
+          "n": 3,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v0/management/auth-files/download?name=s6-test-claude.json",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "200; bytes now contain priority/note/weight keys (record exact serialization)"
+        },
+        {
+          "n": 4,
+          "transport": "http",
+          "method": "PATCH",
+          "path": "/v0/management/auth-files/fields",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": "",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"name\":\"s6-test-claude.json\",\"weight\":2000000}",
+          "expect": "400 {\"error\":\"weight must not exceed 1000000\"}"
+        },
+        {
+          "n": 5,
+          "transport": "http",
+          "method": "PATCH",
+          "path": "/v0/management/auth-files/fields",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": "",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"name\":\"s6-test-claude.json\",\"weight\":{\"a\":1}}",
+          "expect": "400 {\"error\":\"weight must be an integer\"}"
+        },
+        {
+          "n": 6,
+          "transport": "http",
+          "method": "PATCH",
+          "path": "/v0/management/auth-files/fields",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": "",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"name\":\"s6-test-claude.json\",\"request_retry\":{\"x\":1}}",
+          "expect": "400 {\"error\":\"request_retry does not support nested fields\"}"
+        },
+        {
+          "n": 7,
+          "transport": "http",
+          "method": "PATCH",
+          "path": "/v0/management/auth-files/fields",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": "",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"note\":\"no name\"}",
+          "expect": "400 {\"error\":\"name is required\"}"
+        },
+        {
+          "n": 8,
+          "transport": "http",
+          "method": "PATCH",
+          "path": "/v0/management/auth-files/fields",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": "",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"name\":\"missing-file.json\",\"note\":\"x\"}",
+          "expect": "404 {\"error\":\"auth file not found\"}"
+        },
+        {
+          "n": 9,
+          "transport": "http",
+          "method": "PATCH",
+          "path": "/v0/management/auth-files/fields",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": "",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"name\":\"s6-test-claude.json\"}",
+          "expect": "400 {\"error\":\"no fields to update\"}"
+        },
+        {
+          "n": 10,
+          "transport": "http",
+          "method": "PATCH",
+          "path": "/v0/management/auth-files/fields",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": "",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"name\":\"s6-test-claude.json\",\"request_retry\":3}",
+          "expect": "200 {\"status\":\"ok\"}"
+        },
+        {
+          "n": 11,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v0/management/auth-files/download?name=s6-test-claude.json",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "200; bytes contain request_retry:3 (record)"
+        },
+        {
+          "n": 12,
+          "transport": "http",
+          "method": "DELETE",
+          "path": "/v0/management/auth-files?name=s6-test-claude.json",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "200 (cleanup)"
+        }
+      ],
+      "record": {
+        "http": "status+headers+body all steps",
+        "disk": [
+          "s6-test-claude.json after step 3 and after step 11"
+        ]
+      },
+      "dynamic_fields": [
+        "Date"
+      ],
+      "mock_upstream": null,
+      "determinism": "All request/response bodies are fixed strings; persisted file bytes recorded as-is (map-marshal key ordering is upstream behavior we keep)."
+    },
+    {
+      "id": "S6-12-logs-disabled",
+      "purpose": "Logs endpoints refuse when logging-to-file is false; request-error-logs shape (B7/B8/B9).",
+      "classification": "RECORDABLE-LOCALLY",
+      "preconditions": "Fresh container from fleet config (logging-to-file false, request-log false).",
+      "steps": [
+        {
+          "n": 1,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v0/management/logs",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "400 {\"error\":\"logging to file disabled\"}"
+        },
+        {
+          "n": 2,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v0/management/logs?limit=5&after=1",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "400 same"
+        },
+        {
+          "n": 3,
+          "transport": "http",
+          "method": "DELETE",
+          "path": "/v0/management/logs",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "400 same"
+        },
+        {
+          "n": 4,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v0/management/request-error-logs",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "200 {\"files\":[]}"
+        }
+      ],
+      "record": {
+        "http": "status+headers+body all steps",
+        "disk": []
+      },
+      "dynamic_fields": [
+        "Date"
+      ],
+      "mock_upstream": null,
+      "determinism": "Pure gating paths; byte-stable."
+    },
+    {
+      "id": "S6-13-logs-enabled",
+      "purpose": "GET/DELETE /logs with file logging on: response shape, tail/limit semantics, clear (B7/B8, section 3.6.2).",
+      "classification": "RECORDABLE-LOCALLY",
+      "preconditions": "Fresh container from fleet config MODIFIED: logging-to-file: true (request-log stays false). The logs dir (./logs in container workdir, i.e. /CLIProxyAPI/logs) starts fresh with the container.",
+      "steps": [
+        {
+          "n": 1,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v0/management/logs",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "200 {lines:[...], line-count:<n>, latest-timestamp:<unix s>, next-cursor:\"<base64url>\"}"
+        },
+        {
+          "n": 2,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v0/management/logs?limit=1",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "200; len(lines)==1 AND line-count==1 (tail semantics: line-count is returned-lines count on the tail path)"
+        },
+        {
+          "n": 3,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v0/management/logs?limit=abc",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "400 {\"error\":\"invalid limit: must be a positive integer\"}"
+        },
+        {
+          "n": 4,
+          "transport": "http",
+          "method": "DELETE",
+          "path": "/v0/management/logs",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "200 {\"success\":true,\"message\":\"Logs cleared successfully\",\"removed\":0} (no rotated files yet)"
+        },
+        {
+          "n": 5,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v0/management/logs?limit=5",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "200; lines contain only post-delete log lines, len(lines)<=5 (record; mask content)"
+        }
+      ],
+      "record": {
+        "http": "status+headers+body all steps",
+        "disk": []
+      },
+      "dynamic_fields": [
+        "lines contents (timestamps, ports, config echoes)",
+        "line-count",
+        "latest-timestamp",
+        "next-cursor",
+        "Date"
+      ],
+      "mock_upstream": null,
+      "determinism": "Log CONTENT is dynamic (masked); the contract is the response key set, the 400/200 status matrix, tail semantics of limit, and the exact DELETE success body. Keep one run's bytes as the fixture; a second run validates masking."
+    },
+    {
+      "id": "S6-14-models-created-epoch",
+      "purpose": "Model list from config-defined models: created = server epoch (dynamic), alias mapping, {id,object,created,owned_by} filtering (B26, section 3.7.3).",
+      "classification": "RECORDABLE-LOCALLY",
+      "preconditions": "Fresh container from fleet config; mocks need not run (catalog comes from config, no upstream calls needed for /v1/models).",
+      "steps": [
+        {
+          "n": 1,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v1/models",
+          "headers": {
+            "Authorization: Bearer oracle-local-key-1": ""
+          },
+          "body": null,
+          "expect": "200 {\"object\":\"list\",\"data\":[...]}"
+        },
+        {
+          "n": 2,
+          "transport": "disk",
+          "capture": "container start time: first docker log line timestamp (to prove created ~= server epoch, delta < 120 s)"
+        }
+      ],
+      "record": {
+        "http": "status+headers+body",
+        "disk": []
+      },
+      "dynamic_fields": [
+        "data[].created (server epoch; mask value, assert within [start-60s, now])",
+        "Date"
+      ],
+      "mock_upstream": null,
+      "determinism": "Data must contain aliases mock-model/gm/cm/cx/xg/mm/im/vm with object 'model' and owned_by equal to provider names (record actuals). Byte-diff after masking created."
+    },
+    {
+      "id": "S6-15-hot-reload-provider",
+      "purpose": "Config file edit is hot-reloaded: new openai-compatibility provider appears in /v1/models without restart (B22, section 3.3.4).",
+      "classification": "RECORDABLE-LOCALLY",
+      "preconditions": "Fresh container from fleet config (mounted file is writable by the host). No mocks needed for listing.",
+      "steps": [
+        {
+          "n": 1,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v1/models",
+          "headers": {
+            "Authorization: Bearer oracle-local-key-1": ""
+          },
+          "body": null,
+          "expect": "200; data lacks id 'hot-model'"
+        },
+        {
+          "n": 2,
+          "transport": "file",
+          "edit": "append to the mounted config.yaml:\nopenai-compatibility:\n  - name: \"mock-hot\"\n    base-url: \"http://host.docker.internal:18999/v1\"\n    api-key-entries:\n      - api-key: \"mock-upstream-key\"\n    models:\n      - name: \"mock-gpt-model\"\n        alias: \"hot-model\"\n"
+        },
+        {
+          "n": 3,
+          "transport": "poll",
+          "until": "/v1/models contains id 'hot-model'",
+          "timeout_s": 10,
+          "interval_s": "0.5",
+          "expect": "appears within debounce 150 ms + reload; record final /v1/models bytes"
+        },
+        {
+          "n": 4,
+          "transport": "disk",
+          "capture": "docker logs excerpt showing 'config successfully reloaded, triggering client reload' and the config-changes detail lines"
+        },
+        {
+          "n": 5,
+          "transport": "file",
+          "edit": "restore original config.yaml bytes"
+        }
+      ],
+      "record": {
+        "http": "status+headers+body steps 1/3",
+        "disk": [
+          "config.yaml after edit",
+          "docker logs excerpt"
+        ]
+      },
+      "dynamic_fields": [
+        "created fields",
+        "docker log timestamps",
+        "reload timing",
+        "Date"
+      ],
+      "mock_upstream": null,
+      "determinism": "Poll-until-stable makes the outcome deterministic. NOTE: the append creates a SECOND openai-compatibility key if one exists — edit the existing block instead if YAML duplicate keys break the parse; the fallback is a separate minimal config run. Record whichever path the oracle takes in meta.yaml."
+    },
+    {
+      "id": "S6-16-cds-cooldown",
+      "purpose": "save-cooldown-status persists cooldown sidecar .cds next to auth files + downstream cooldown error shape (B24, section 3.4.4).",
+      "classification": "RECORDABLE-LOCALLY",
+      "preconditions": "Fresh container from fleet config MODIFIED: save-cooldown-status: true, transient-error-cooldown-seconds: 30 (cooldowns ON for this case). Mock openai with control file {\"mode\":\"error\",\"status\":500}.",
+      "steps": [
+        {
+          "n": 1,
+          "transport": "file",
+          "write": "mock/control/openai.json = {\"mode\":\"error\",\"status\":500}"
+        },
+        {
+          "n": 2,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization: Bearer oracle-local-key-1": "",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"model\":\"mock-model\",\"messages\":[{\"role\":\"user\",\"content\":\"trigger cooldown\"}]}",
+          "expect": "500 error body (record exact; transient-error cooldown engages the single credential)"
+        },
+        {
+          "n": 3,
+          "transport": "wait",
+          "seconds": 2,
+          "reason": "cooldown state flush"
+        },
+        {
+          "n": 4,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization: Bearer oracle-local-key-1": "",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"model\":\"mock-model\",\"messages\":[{\"role\":\"user\",\"content\":\"during cooldown\"}]}",
+          "expect": "500 with cooldown error shape: {\"error\":{\"code\":\"model_cooldown\",\"last_upstream_error\":...,\"message\":\"All credentials for model mock-model are cooling down via provider mock-openai (last error: ...)\"}} — record actual"
+        },
+        {
+          "n": 5,
+          "transport": "disk",
+          "capture": "/root/.cli-proxy-api/*.cds (JSON envelope per section 3.4.4; one file for the config-synthesized credential, sanitized name derived from its stable auth id)"
+        },
+        {
+          "n": 6,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v0/management/auth-files",
+          "headers": {
+            "Authorization: Bearer oracle-mgmt-key-1": ""
+          },
+          "body": null,
+          "expect": "200; entries carry cooldowns block (record actual; mask timestamps)"
+        },
+        {
+          "n": 7,
+          "transport": "file",
+          "delete": "mock/control/openai.json"
+        }
+      ],
+      "record": {
+        "http": "status+headers+body steps 2/4/6",
+        "disk": [
+          "*.cds files",
+          "auth dir listing"
+        ]
+      },
+      "dynamic_fields": [
+        ".cds updated_at / next_retry_at timestamps",
+        "cooldowns block timestamps",
+        "last_upstream_error body string (embeds mock error text — record actual, mask in diff)",
+        "Date"
+      ],
+      "mock_upstream": {
+        "type": "openai",
+        "mode": "error",
+        "status": 500,
+        "port": 18999
+      },
+      "determinism": "Deterministic given fixed mock error body and 30 s cooldown window (recording completes within it). .cds filename is stable (StableIDGenerator hashes config content). Cooldown survives restart — optional bonus: restart container and re-run step 4 to prove persistence (record if cheap)."
+    },
+    {
+      "id": "S6-17-oauth-token-file-live-login",
+      "purpose": "Auth files written by REAL OAuth logins (claude/codex/xai/kimi/meta/devin/antigravity) — full token-file bytes incl. account fields.",
+      "classification": "FIXTURE-DEFERRED",
+      "preconditions": "Requires real vendor accounts (CREDENTIALED-ONLY per R-FIXTURE).",
+      "steps": [],
+      "record": {
+        "http": null,
+        "disk": []
+      },
+      "dynamic_fields": [],
+      "mock_upstream": null,
+      "determinism": "On-disk shapes are specified from upstream source (section 3.4.2/3.4.3). Synthetic uploads (S6-10/11) cover read/patch/list/delete behavior locally. Revisit only if a credentialed environment is provided.",
+      "deferred_reason": "CREDENTIALED-ONLY: real OAuth account required; token issuance cannot be mocked locally."
+    }
+  ]
+}

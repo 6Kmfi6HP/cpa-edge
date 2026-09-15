@@ -175,7 +175,7 @@ Weight validation (all provider lists): `weight` is optional; `null`/absent = de
 | PUT/PATCH | `/plugins/:id/config` | Body = JSON object merge (PUT replaces, PATCH merges); 400 `{"error":"invalid_body","message":...}`; 200 `{"status":"ok"}` |
 | PATCH | `/plugins/:id/enabled` | Body `{"enabled":bool}`; 400 `{"error":"invalid_body","message":"enabled is required"}`; 200 `{"status":"ok"}` |
 | DELETE | `/plugins/:id` | 404 `plugin_not_found`; 409 `{"error":"plugin_delete_requires_restart","message":"loaded plugin cannot be deleted while the server is running","restart_required":true}`; 200 `{"status":"ok","deleted":<bool>}` |
-| GET/POST/DELETE | `/plugins/:id/quota` (+ POST `/plugins/:id/quota/reset`) | `?auth_index=`; same envelope family as `/quota/*` |
+| GET/POST/DELETE | `/plugins/:id/quota` (+ POST `/plugins/:id/quota/reset`) | `?auth_index=` (or JSON body for POST); missing → 400 `{"error":"auth_index is required"}`; unknown auth_index → 404 `{"error":"auth not found"}` (checked before the plugin); unknown plugin → 404 `{"error":"quota provider not found for plugin"}` |
 | GET | `/plugin-store` | External registry listing — see §8 |
 | POST | `/plugin-store/:id/install` | External — see §8 |
 | Invalid `:id` (fails plugin-id validation) | any `/plugins/:id/**` | 400 `{"error":"invalid_plugin_id","message":"invalid plugin id"}` |
@@ -203,7 +203,7 @@ There is NO restart endpoint. Config mutations hot-reload in place (save + async
 
 ### 3.1 `GET /config` — effective config object
 
-The response is the full runtime `Config` marshaled to JSON (Go pointer-to-copy marshals the struct; evidence: `internal/api/handlers/management/config_basic.go` `GetConfig`). Fields whose JSON tag is `-` are hidden: `host`, `port`, `auth-dir`, `remote-management`, `home`. The recorded reference body (probe `13-mgmt-valid-bearer`, oracle-local-key-1 config) is normative for field names; key excerpt (all values shown are the defaults for that config):
+The response is the full runtime `Config` marshaled to JSON (Go pointer-to-copy marshals the struct; evidence: `internal/api/handlers/management/config_basic.go` `GetConfig`). Fields whose JSON tag is `-` are hidden: `host`, `port`, `auth-dir`, `remote-management`, `home`. The recorded reference body (probe `13-mgmt-valid-bearer`, oracle-local-key-1 config) is normative for field names; key excerpt (values are from the recorded bootstrap oracle config — one api key, no providers):
 
 ```json
 {"proxy-url":"","disable-image-generation":false,"force-model-prefix":false,
@@ -230,6 +230,8 @@ The response is the full runtime `Config` marshaled to JSON (Go pointer-to-copy 
 "disable-claude-cloak-mode":false,"openai-compatibility":null,"vertex-api-key":null,
 "payload":{"default":null,"default-raw":null,"override":null,"override-raw":null,"filter":null}}
 ```
+
+With the current oracle fleet template (all 8 mock providers wired) the same response contains all eight provider lists populated under these exact field names; the S5-config-get golden records that variant.
 
 MUST: the response contains `api-keys`, `claude-api-key`, `codex-api-key`, `xai-api-key`, `meta-api-key`, `gemini-api-key`, `interactions-api-key`, `vertex-api-key`, `openai-compatibility` with the config-list shapes of §3.3, and MUST NOT contain `remote-management`, `host`, `port`, `auth-dir`. Absent provider lists marshal as `null`.
 
@@ -318,6 +320,8 @@ Config persist failures: every mutating handler that calls `persist` responds 50
 Recordings: CLIProxyAPI v7.3.4 (docker image digest `sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266`), oracle env per `reports/oracle/BOOTSTRAP.md` §3 (config: port 18317, `api-keys:["oracle-local-key-1"]`, `remote-management:{allow-remote:true, secret-key:"oracle-mgmt-key-1", disable-control-panel:true}`, `request-retry:0`, `transient-error-cooldown-seconds:-1`, `usage-statistics-enabled:false`; no real credentials). Management key value `oracle-mgmt-key-1` in fixtures is not a secret.
 
 Fixtures live in `tests/fixtures/S5/<case-id>/` per the RECIPES layout (`meta.yaml`, `request.http`, `downstream.md`, `upstream.jsonl`, `mock-response.json` — `upstream.jsonl` is only used for `api-call` cases). All S5 goldens are RECORDABLE-LOCALLY: the management API is exercised against the reference binary directly; no upstream LLM is involved (the mission classification).
+
+Recording environment (@oracle-runner-4 stack): reference on `127.0.0.1:8407`, mock upstreams on ports `21999` (openai), `22001` (gemini), `22002` (claude), `22003` (codex), `22004` (xai), `22005` (meta), `22006` (interactions), `22007` (vertex); management key `oracle-mgmt-key-1`; client api key `oracle-local-key-1`. PORT NUMBERS anywhere in a transcript (8407, 21999-22007, and URLs embedding them) are masked dynamic fields for contract replay; all other bytes are compared exactly. (The cases file `spec/recordings/S5.cases.json` was drafted against the oracle-runner-2 stack — 8387/19999-20007 — and oracle-runner-4 applies the mechanical port map 8387→8407, 19999→21999, 2000N→2200N when executing; the recorded fixtures carry the runner-4 ports.)
 
 | case-id | purpose | fixture dir | dynamic fields (mask these) |
 |---|---|---|---|

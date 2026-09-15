@@ -1,0 +1,10 @@
+POST /v1/responses HTTP/1.1
+Host: 127.0.0.1:18317
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-local-key-1
+Content-Type: application/json
+Content-Length: 501
+
+
+{"model": "codex-mock", "instructions": "Be terse.", "input": "Hi", "stream": true, "store": true, "previous_response_id": "resp_prev_123", "truncation": "auto", "user": "user-42", "temperature": 0.7, "top_p": 0.9, "max_output_tokens": 256, "service_tier": "auto", "prompt_cache_key": "sess-fix-123", "prompt_cache_retention": "24h", "safety_identifier": "safety-1", "generate": true, "metadata": {"trace": "t1"}, "stream_options": {"reasoning_summary_delivery": "consequential", "other_field": true}}

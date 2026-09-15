@@ -1,0 +1,1213 @@
+{
+  "step_id": "S1",
+  "section": "spec/sections/S1-endpoints.md",
+  "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+  "fixture_dir": "tests/fixtures/S1/",
+  "baseline_config": {
+    "note": "Reuse the bootstrap run config (reports/oracle/BOOTSTRAP.md section 3). These are local loopback test values, not real secrets.",
+    "port": 18317,
+    "api_keys": [
+      "oracle-local-key-1"
+    ],
+    "remote_management": {
+      "allow_remote": true,
+      "secret_key": "oracle-mgmt-key-1",
+      "disable_control_panel": true
+    },
+    "request_retry": 0,
+    "transient_error_cooldown_seconds": -1,
+    "usage_statistics_enabled": false
+  },
+  "provider_config_fragment": {
+    "note": "Attach ONLY for cases whose id is listed in 'provider_cases'. Same fragment as bootstrap mock-recordings; mock upstream port 18999 (openai-compatible wire), control via X-Mock-* mode headers per _cpa_edge_ref/probes/mocks/README.md.",
+    "openai_compatibility": [
+      {
+        "name": "mock-openai",
+        "base-url": "http://host.docker.internal:18999/v1",
+        "api-key-entries": [
+          {
+            "api-key": "mock-upstream-key"
+          }
+        ],
+        "models": [
+          {
+            "name": "mock-gpt-model",
+            "alias": "mock-model"
+          }
+        ]
+      }
+    ]
+  },
+  "provider_cases": [
+    "S1-07",
+    "S1-09",
+    "S1-10",
+    "S1-11",
+    "S1-12",
+    "S1-13",
+    "S1-14",
+    "S1-15",
+    "S1-16",
+    "S1-17",
+    "S1-18",
+    "S1-24"
+  ],
+  "common_headers_sans_secrets": {
+    "Host": "127.0.0.1:18317",
+    "User-Agent": "curl/8.7.1",
+    "Accept": "*/*"
+  },
+  "dynamic_fields_default": [
+    "Date",
+    "X-Cpa-Trace-Id",
+    "created",
+    "created_at",
+    "Content-Length when body is dynamic"
+  ],
+  "record_kinds": {
+    "response": "status + response headers + body (exact bytes)",
+    "response+upstream": "response plus upstream.jsonl (method,path,headers,body the reference emitted to the mock)",
+    "sse+upstream": "full SSE byte stream incl. framing and terminal [DONE] plus upstream.jsonl"
+  },
+  "cases": [
+    {
+      "id": "S1-01",
+      "purpose": "Root info payload: exact body bytes, key order, CORS block on a no-auth 200.",
+      "classification": "RECORDABLE-LOCALLY",
+      "record": "response",
+      "requests": [
+        {
+          "name": "root",
+          "method": "GET",
+          "path": "/",
+          "headers": {}
+        }
+      ],
+      "expected": "200; body {\"endpoints\":[\"POST /v1/chat/completions\",\"POST /v1/completions\",\"GET /v1/models\"],\"message\":\"CLI Proxy API Server\"}; CORS block present."
+    },
+    {
+      "id": "S1-02",
+      "purpose": "OPTIONS preflight is answered on every path, including unknown paths, before auth.",
+      "classification": "RECORDABLE-LOCALLY",
+      "record": "response",
+      "requests": [
+        {
+          "name": "options-known",
+          "method": "OPTIONS",
+          "path": "/v1/chat/completions",
+          "headers": {}
+        },
+        {
+          "name": "options-unknown",
+          "method": "OPTIONS",
+          "path": "/definitely/not/a/route",
+          "headers": {}
+        },
+        {
+          "name": "options-mgmt",
+          "method": "OPTIONS",
+          "path": "/v0/management/config",
+          "headers": {}
+        }
+      ],
+      "expected": "All three: 204 No Content, empty body, CORS block, no auth required (no 401 even without credentials)."
+    },
+    {
+      "id": "S1-03",
+      "purpose": "Ruling R-404 part 1: unknown routes return 404 with EMPTY body.",
+      "classification": "RECORDABLE-LOCALLY",
+      "record": "response",
+      "requests": [
+        {
+          "name": "unknown-under-v1",
+          "method": "GET",
+          "path": "/v1/no-such-route",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1"
+          }
+        },
+        {
+          "name": "unknown-top-level",
+          "method": "GET",
+          "path": "/top-level-nope",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1"
+          }
+        },
+        {
+          "name": "unknown-mgmt-style",
+          "method": "GET",
+          "path": "/v2/models",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1"
+          }
+        }
+      ],
+      "expected": "All: 404, Content-Length: 0, no JSON body, CORS block present."
+    },
+    {
+      "id": "S1-04",
+      "purpose": "Ruling R-404 part 2: wrong method on a known route returns 404 with empty body, not 405; HEAD only registered on /healthz.",
+      "classification": "RECORDABLE-LOCALLY",
+      "record": "response",
+      "requests": [
+        {
+          "name": "get-on-post-route",
+          "method": "GET",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1"
+          }
+        },
+        {
+          "name": "post-on-get-route",
+          "method": "POST",
+          "path": "/v1/models",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1"
+          },
+          "body": ""
+        },
+        {
+          "name": "put-on-messages",
+          "method": "PUT",
+          "path": "/v1/messages",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1"
+          },
+          "body": ""
+        },
+        {
+          "name": "head-on-root",
+          "method": "HEAD",
+          "path": "/",
+          "headers": {}
+        }
+      ],
+      "expected": "All: 404 empty body. Also pins that HEAD / is NOT the same as GET /."
+    },
+    {
+      "id": "S1-05",
+      "purpose": "Client auth rejection: missing credentials on each auth-gated surface.",
+      "classification": "RECORDABLE-LOCALLY",
+      "record": "response",
+      "requests": [
+        {
+          "name": "models-noauth",
+          "method": "GET",
+          "path": "/v1/models",
+          "headers": {}
+        },
+        {
+          "name": "chat-noauth",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ]
+          }
+        },
+        {
+          "name": "messages-noauth",
+          "method": "POST",
+          "path": "/v1/messages",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "max_tokens": 16,
+            "messages": [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ]
+          }
+        },
+        {
+          "name": "v1beta-noauth",
+          "method": "GET",
+          "path": "/v1beta/models",
+          "headers": {}
+        },
+        {
+          "name": "backend-codex-noauth",
+          "method": "POST",
+          "path": "/backend-api/codex/responses",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "input": "hi"
+          }
+        }
+      ],
+      "expected": "All: 401 {\"error\":\"Missing API key\"}; Content-Type application/json; charset=utf-8; CORS block; no X-CPA-TRACE-ID."
+    },
+    {
+      "id": "S1-06",
+      "purpose": "Client auth rejection: presented-but-wrong credentials via each style.",
+      "classification": "RECORDABLE-LOCALLY",
+      "record": "response",
+      "requests": [
+        {
+          "name": "bad-bearer",
+          "method": "GET",
+          "path": "/v1/models",
+          "headers": {
+            "Authorization": "Bearer not-the-key"
+          }
+        },
+        {
+          "name": "bad-x-api-key",
+          "method": "GET",
+          "path": "/v1/models",
+          "headers": {
+            "X-Api-Key": "not-the-key"
+          }
+        },
+        {
+          "name": "bad-x-goog",
+          "method": "GET",
+          "path": "/v1/models",
+          "headers": {
+            "X-Goog-Api-Key": "not-the-key"
+          }
+        },
+        {
+          "name": "bad-query-key",
+          "method": "GET",
+          "path": "/v1/models?key=not-the-key",
+          "headers": {}
+        },
+        {
+          "name": "bad-query-auth-token",
+          "method": "GET",
+          "path": "/v1/models?auth_token=not-the-key",
+          "headers": {}
+        }
+      ],
+      "expected": "All: 401 {\"error\":\"Invalid API key\"}."
+    },
+    {
+      "id": "S1-07",
+      "purpose": "Client auth accept matrix: all five credential styles accepted on both /v1 and /v1beta; X-Api-Key accepted on /v1/messages.",
+      "classification": "RECORDABLE-LOCALLY",
+      "record": "response",
+      "requests": [
+        {
+          "name": "x-goog-on-v1",
+          "method": "GET",
+          "path": "/v1/models",
+          "headers": {
+            "X-Goog-Api-Key": "oracle-local-key-1"
+          }
+        },
+        {
+          "name": "x-api-key-on-v1",
+          "method": "GET",
+          "path": "/v1/models",
+          "headers": {
+            "X-Api-Key": "oracle-local-key-1"
+          }
+        },
+        {
+          "name": "query-key",
+          "method": "GET",
+          "path": "/v1/models?key=oracle-local-key-1",
+          "headers": {}
+        },
+        {
+          "name": "query-auth-token",
+          "method": "GET",
+          "path": "/v1/models?auth_token=oracle-local-key-1",
+          "headers": {}
+        },
+        {
+          "name": "bearer-on-v1beta",
+          "method": "GET",
+          "path": "/v1beta/models",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1"
+          }
+        },
+        {
+          "name": "x-goog-on-v1beta",
+          "method": "GET",
+          "path": "/v1beta/models",
+          "headers": {
+            "X-Goog-Api-Key": "oracle-local-key-1"
+          }
+        },
+        {
+          "name": "x-api-key-messages",
+          "method": "POST",
+          "path": "/v1/messages",
+          "headers": {
+            "X-Api-Key": "oracle-local-key-1",
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "no-such-model",
+            "max_tokens": 16,
+            "messages": [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ]
+          }
+        }
+      ],
+      "expected": "First six: 200 (list bodies may be empty when no provider attached; attach provider for this run so lists are non-trivial). Last: 400 claude-shaped {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"unknown provider for model no-such-model\"}} — proves X-Api-Key passed the auth gate.",
+      "notes": "Run with provider attached (use S1 provider_cases config) so the 200 model lists are meaningful."
+    },
+    {
+      "id": "S1-08",
+      "purpose": "Trailing-slash routing: gin RedirectTrailingSlash behavior on GET (301) and POST (307).",
+      "classification": "RECORDABLE-LOCALLY",
+      "record": "response",
+      "requests": [
+        {
+          "name": "get-trailing",
+          "method": "GET",
+          "path": "/v1/models/",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1"
+          }
+        },
+        {
+          "name": "post-trailing",
+          "method": "POST",
+          "path": "/v1/chat/completions/",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1"
+          },
+          "body": {
+            "Content-Type": "application/json"
+          },
+          "note": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ]
+          }
+        }
+      ],
+      "expected": "GET /v1/models/: 301 Moved Permanently, Location: /v1/models, Content-Type: text/html; charset=utf-8, body <a href=\"/v1/models\">Moved Permanently</a>., and NO CORS headers (RECORDED). POST /v1/chat/completions/: 307 Temporary Redirect, Location: /v1/chat/completions, empty body, no CORS (RECORDED)."
+    },
+    {
+      "id": "S1-09",
+      "purpose": "OpenAI models list shape with a provider attached (entry fields, map-sorted keys).",
+      "classification": "RECORDABLE-LOCALLY",
+      "record": "response",
+      "mock_upstream_mode": "happy",
+      "requests": [
+        {
+          "name": "models-openai",
+          "method": "GET",
+          "path": "/v1/models",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1"
+          }
+        }
+      ],
+      "expected": "200 {\"data\":[{\"created\":<epoch>,\"id\":\"mock-model\",\"object\":\"model\",\"owned_by\":\"mock-openai\"}],\"object\":\"list\"} (key order: created,id,object,owned_by inside entry; data before object at top level).",
+      "dynamic_fields": [
+        "created"
+      ]
+    },
+    {
+      "id": "S1-10",
+      "purpose": "Claude models list shape via Anthropic-Version header and via claude-cli User-Agent, incl. id cloaking.",
+      "classification": "RECORDABLE-LOCALLY",
+      "record": "response",
+      "mock_upstream_mode": "happy",
+      "requests": [
+        {
+          "name": "models-claude-version",
+          "method": "GET",
+          "path": "/v1/models",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Anthropic-Version": "2023-06-01"
+          }
+        },
+        {
+          "name": "models-claude-ua",
+          "method": "GET",
+          "path": "/v1/models",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "User-Agent": "claude-cli/1.0.72 (external, cli)"
+          }
+        }
+      ],
+      "expected": "200 {\"data\":[...],\"first_id\":\"claude-fable-5-dd-ledom-kcom\",\"has_more\":false,\"last_id\":\"...\"}; entries have id/object/owned_by/created_at/type/display_name/max_input_tokens/max_tokens; the alias appears cloaked as claude-fable-5-dd-<reversed alias>.",
+      "dynamic_fields": [
+        "created_at"
+      ]
+    },
+    {
+      "id": "S1-11",
+      "purpose": "Model-not-found matrix across surfaces: 400 status and the exact error envelope per surface.",
+      "classification": "RECORDABLE-LOCALLY",
+      "record": "response",
+      "requests": [
+        {
+          "name": "chat-unknown",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer oracle-local-key-1"
+          },
+          "body": {
+            "model": "no-such-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ]
+          }
+        },
+        {
+          "name": "messages-unknown",
+          "method": "POST",
+          "path": "/v1/messages",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer oracle-local-key-1"
+          },
+          "body": {
+            "model": "no-such-model",
+            "max_tokens": 16,
+            "messages": [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ]
+          }
+        },
+        {
+          "name": "count-unknown",
+          "method": "POST",
+          "path": "/v1/messages/count_tokens",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer oracle-local-key-1"
+          },
+          "body": {
+            "model": "no-such-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ]
+          }
+        },
+        {
+          "name": "responses-unknown",
+          "method": "POST",
+          "path": "/v1/responses",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer oracle-local-key-1"
+          },
+          "body": {
+            "model": "no-such-model",
+            "input": "hi"
+          }
+        },
+        {
+          "name": "gemini-unknown",
+          "method": "POST",
+          "path": "/v1beta/models/no-such-model:generateContent",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer oracle-local-key-1"
+          },
+          "body": {
+            "contents": [
+              {
+                "role": "user",
+                "parts": [
+                  {
+                    "text": "hi"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "chat-unknown-stream",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer oracle-local-key-1"
+          },
+          "body": {
+            "model": "no-such-model",
+            "stream": true,
+            "messages": [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ]
+          }
+        }
+      ],
+      "expected": "OpenAI/gemini surfaces: 400 {\"error\":{\"message\":\"unknown provider for model no-such-model\",\"type\":\"invalid_request_error\",\"code\":\"model_not_found\",\"param\":\"model\"}}. Claude surfaces: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"unknown provider for model no-such-model\"}}. Streaming flag does not change the pre-stream error (no SSE headers).",
+      "notes": "Run with provider attached so the only failure is routing, not absence of providers."
+    },
+    {
+      "id": "S1-12",
+      "purpose": "Gemini models list and model-get: 200 shape, plus the handler-level 404 WITH a JSON body (R-404 exemption).",
+      "classification": "RECORDABLE-LOCALLY",
+      "record": "response",
+      "mock_upstream_mode": "happy",
+      "requests": [
+        {
+          "name": "gemini-models",
+          "method": "GET",
+          "path": "/v1beta/models",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1"
+          }
+        },
+        {
+          "name": "gemini-model-get",
+          "method": "GET",
+          "path": "/v1beta/models/mock-model",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1"
+          }
+        },
+        {
+          "name": "gemini-model-404",
+          "method": "GET",
+          "path": "/v1beta/models/no-such-model",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1"
+          }
+        }
+      ],
+      "expected": "200 {\"models\":[{\"description\":\"mock-model\",\"displayName\":\"mock-model\",\"name\":\"models/mock-model\",\"supportedGenerationMethods\":[\"generateContent\"]}]}; gemini-model-get: 200 with the registry's gemini-format entry for mock-model — exact field set may be a subset of the list entry (defaults are added by the LIST handler, not the GET handler); record verbatim. gemini-model-404: 404 {\"error\":{\"message\":\"Not Found\",\"type\":\"not_found\"}} (handler-level 404 WITH JSON body — the R-404 exemption)."
+    },
+    {
+      "id": "S1-13",
+      "purpose": "Gemini action routing: unknown :method silently falls through to 200-empty; colon-less actions are 404 JSON; generateContent routes upstream.",
+      "classification": "RECORDABLE-LOCALLY",
+      "record": "response+upstream",
+      "mock_upstream_mode": "happy",
+      "requests": [
+        {
+          "name": "bogus-method",
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:bogus",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer oracle-local-key-1"
+          },
+          "body": {
+            "contents": [
+              {
+                "role": "user",
+                "parts": [
+                  {
+                    "text": "hi"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "no-colon",
+          "method": "POST",
+          "path": "/v1beta/models/bogusaction",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer oracle-local-key-1"
+          },
+          "body": {
+            "contents": [
+              {
+                "role": "user",
+                "parts": [
+                  {
+                    "text": "hi"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "generate-content",
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:generateContent",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer oracle-local-key-1"
+          },
+          "body": {
+            "contents": [
+              {
+                "role": "user",
+                "parts": [
+                  {
+                    "text": "hi"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "expected": "bogus-method: 200 with EMPTY body (Content-Length: 0), no X-CPA-TRACE-ID, and NO upstream dispatch (RECORDED OUTCOME — silent fall-through; the earlier 404 expectation was wrong). no-colon: 404 {\"error\":{\"message\":\"/v1beta/models/bogusaction not found.\",\"type\":\"invalid_request_error\"}} (RECORDED). generate-content: 200 translated Gemini JSON; upstream.jsonl shows the translated OpenAI wire request (RECORDED)."
+    },
+    {
+      "id": "S1-14",
+      "purpose": "OpenAI chat happy path: 200 passthrough, alias rewrite upstream, standard headers.",
+      "classification": "RECORDABLE-LOCALLY",
+      "record": "response+upstream",
+      "mock_upstream_mode": "happy",
+      "requests": [
+        {
+          "name": "chat-nostream",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer oracle-local-key-1"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Say hello"
+              }
+            ]
+          }
+        }
+      ],
+      "expected": "200; mock JSON body verbatim; upstream request POST /v1/chat/completions with model rewritten to mock-gpt-model, User-Agent cli-proxy-openai-compat, Authorization Bearer mock-upstream-key, Accept-Encoding gzip."
+    },
+    {
+      "id": "S1-15",
+      "purpose": "OpenAI chat SSE framing: data: frames, [DONE] terminal, upstream streaming headers and stream_options injection.",
+      "classification": "RECORDABLE-LOCALLY",
+      "record": "sse+upstream",
+      "mock_upstream_mode": "happy",
+      "requests": [
+        {
+          "name": "chat-stream",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer oracle-local-key-1"
+          },
+          "body": {
+            "model": "mock-model",
+            "stream": true,
+            "messages": [
+              {
+                "role": "user",
+                "content": "Say hello"
+              }
+            ]
+          }
+        }
+      ],
+      "expected": "200 text/event-stream; Cache-Control: no-cache; Connection: keep-alive; frames data: <chunk>\\n\\n ... terminal data: [DONE]\\n\\n; upstream Accept: text/event-stream + body gains \"stream_options\":{\"include_usage\":true}; upstream event: lines are dropped downstream."
+    },
+    {
+      "id": "S1-16",
+      "purpose": "Claude messages happy path: 200 claude-shaped body; upstream translated to OpenAI wire.",
+      "classification": "RECORDABLE-LOCALLY",
+      "record": "response+upstream",
+      "mock_upstream_mode": "happy",
+      "requests": [
+        {
+          "name": "messages-nostream",
+          "method": "POST",
+          "path": "/v1/messages",
+          "headers": {
+            "Content-Type": "application/json",
+            "anthropic-version": "2023-06-01",
+            "Authorization": "Bearer oracle-local-key-1"
+          },
+          "body": {
+            "model": "mock-model",
+            "max_tokens": 64,
+            "messages": [
+              {
+                "role": "user",
+                "content": "Say hello"
+              }
+            ]
+          }
+        }
+      ],
+      "expected": "200 claude-shaped JSON (id/type/role/content/stop_reason/usage per translation); upstream.jsonl shows POST /v1/chat/completions with mock-gpt-model."
+    },
+    {
+      "id": "S1-17",
+      "purpose": "Gemini streamGenerateContent alt switch: absent and alt=sse give SSE framing; alt=json gives raw chunks (gateway inversion vs real Gemini).",
+      "classification": "RECORDABLE-LOCALLY",
+      "record": "sse+upstream",
+      "mock_upstream_mode": "happy",
+      "requests": [
+        {
+          "name": "stream-no-alt",
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:streamGenerateContent",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer oracle-local-key-1"
+          },
+          "body": {
+            "contents": [
+              {
+                "role": "user",
+                "parts": [
+                  {
+                    "text": "hi"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "stream-alt-sse",
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:streamGenerateContent?alt=sse",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer oracle-local-key-1"
+          },
+          "body": {
+            "contents": [
+              {
+                "role": "user",
+                "parts": [
+                  {
+                    "text": "hi"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "stream-alt-json",
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:streamGenerateContent?alt=json",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer oracle-local-key-1"
+          },
+          "body": {
+            "contents": [
+              {
+                "role": "user",
+                "parts": [
+                  {
+                    "text": "hi"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "expected": "no-alt: 200 text/event-stream with data: <json>\\n\\n framing and no [DONE]. alt=sse: identical framing. alt=json: raw concatenated JSON chunks, no SSE headers/framing. Capture all three byte streams."
+    },
+    {
+      "id": "S1-18",
+      "purpose": "Responses endpoints: non-stream 200, SSE stream 200, compact route 400 when stream:true.",
+      "classification": "RECORDABLE-LOCALLY",
+      "record": "response+upstream",
+      "mock_upstream_mode": "happy",
+      "requests": [
+        {
+          "name": "responses-nostream",
+          "method": "POST",
+          "path": "/v1/responses",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer oracle-local-key-1"
+          },
+          "body": {
+            "model": "mock-model",
+            "input": "Say hello",
+            "stream": false
+          }
+        },
+        {
+          "name": "responses-stream",
+          "method": "POST",
+          "path": "/v1/responses",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer oracle-local-key-1"
+          },
+          "body": {
+            "model": "mock-model",
+            "input": "Say hello",
+            "stream": true
+          }
+        },
+        {
+          "name": "compact-stream-true",
+          "method": "POST",
+          "path": "/v1/responses/compact",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer oracle-local-key-1"
+          },
+          "body": {
+            "model": "mock-model",
+            "input": "Say hello",
+            "stream": true
+          }
+        },
+        {
+          "name": "codex-alias",
+          "method": "POST",
+          "path": "/backend-api/codex/responses",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer oracle-local-key-1"
+          },
+          "body": {
+            "model": "mock-model",
+            "input": "Say hello",
+            "stream": false
+          }
+        }
+      ],
+      "expected": "responses-nostream: 200 Responses-wire JSON. responses-stream: 200 SSE with responses event framing. compact-stream-true: 400 {\"error\":{\"message\":\"Streaming not supported for compact responses\",\"type\":\"invalid_request_error\"}}. codex-alias: identical to responses-nostream (route alias proof)."
+    },
+    {
+      "id": "S1-19",
+      "purpose": "WS routes without upgrade: /v1/responses -> 400 plain-text handshake failure; /v1/realtime -> 426 + Upgrade header; realtime auth uses the nested error envelope.",
+      "classification": "RECORDABLE-LOCALLY",
+      "record": "response",
+      "requests": [
+        {
+          "name": "responses-get-nows",
+          "method": "GET",
+          "path": "/v1/responses",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1"
+          }
+        },
+        {
+          "name": "realtime-get-nows",
+          "method": "GET",
+          "path": "/v1/realtime",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1"
+          }
+        },
+        {
+          "name": "realtime-get-noauth",
+          "method": "GET",
+          "path": "/v1/realtime",
+          "headers": {}
+        },
+        {
+          "name": "realtime-get-badauth",
+          "method": "GET",
+          "path": "/v1/realtime",
+          "headers": {
+            "Authorization": "Bearer not-the-key"
+          }
+        }
+      ],
+      "expected": "responses-get-nows: 400 (gorilla handshake failure; plain-text body; Sec-Websocket-Version: 13 header). realtime-get-nows: 426, Upgrade: websocket header, body {\"error\":{\"code\":\"websocket_upgrade_required\",\"message\":\"WebSocket upgrade required\",\"param\":null,\"type\":\"invalid_request_error\"}}. realtime-get-noauth: 401 nested {\"error\":{...\"Missing API key\"...authentication_error/invalid_api_key}}. realtime-get-badauth: 401 nested with \"Invalid API key\".",
+      "notes": "No upstream; no codex credentials in config, so nothing dials upstream."
+    },
+    {
+      "id": "S1-20",
+      "purpose": "Management auth matrix: Bearer and X-Management-Key accept, missing/invalid reject, unknown subroute and wrong-method 404 empty, version headers on all responses.",
+      "classification": "RECORDABLE-LOCALLY",
+      "record": "response",
+      "requests": [
+        {
+          "name": "mgmt-none",
+          "method": "GET",
+          "path": "/v0/management/config",
+          "headers": {}
+        },
+        {
+          "name": "mgmt-wrong",
+          "method": "GET",
+          "path": "/v0/management/config",
+          "headers": {
+            "X-Management-Key": "not-the-key"
+          }
+        },
+        {
+          "name": "mgmt-bearer",
+          "method": "GET",
+          "path": "/v0/management/config",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          }
+        },
+        {
+          "name": "mgmt-header",
+          "method": "GET",
+          "path": "/v0/management/config",
+          "headers": {
+            "X-Management-Key": "oracle-mgmt-key-1"
+          }
+        },
+        {
+          "name": "mgmt-apikeys",
+          "method": "GET",
+          "path": "/v0/management/api-keys",
+          "headers": {
+            "X-Management-Key": "oracle-mgmt-key-1"
+          }
+        },
+        {
+          "name": "mgmt-unknown-subroute",
+          "method": "GET",
+          "path": "/v0/management/no-such-subroute",
+          "headers": {
+            "X-Management-Key": "oracle-mgmt-key-1"
+          }
+        },
+        {
+          "name": "mgmt-wrong-method",
+          "method": "POST",
+          "path": "/v0/management/config",
+          "headers": {
+            "X-Management-Key": "oracle-mgmt-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {}
+        },
+        {
+          "name": "mgmt-callback-badstate",
+          "method": "GET",
+          "path": "/v0/management/oauth-callback?provider=codex&code=x&state=bogus",
+          "headers": {}
+        }
+      ],
+      "expected": "none: 401 {\"error\":\"missing management key\"}. wrong: 401 {\"error\":\"invalid management key\"}. bearer/header: 200. apikeys: 200 {\"api-keys\":[\"oracle-local-key-1\"]}. unknown-subroute + wrong-method: 404 EMPTY body. callback-badstate: 404 {\"error\":\"unknown or expired state\",\"status\":\"error\"} WITHOUT requiring a management key (RECORDED OUTCOME — a syntactically valid but unknown state is 404; 400 invalid state only fires for malformed states: too long, path separators, .., invalid chars). All responses carry X-CPA-VERSION/X-CPA-COMMIT/X-CPA-BUILD-DATE/X-CPA-SUPPORT-PLUGIN.",
+      "notes": "Careful: 5 failed attempts from one IP trigger a 30-minute ban (403 IP banned...). Run the wrong-key probe at most once per recording session, or from a different client IP."
+    },
+    {
+      "id": "S1-21",
+      "purpose": "healthz (GET/HEAD), HEAD-on-root 404, keep-alive absent in server mode.",
+      "classification": "RECORDABLE-LOCALLY",
+      "record": "response",
+      "requests": [
+        {
+          "name": "healthz-get",
+          "method": "GET",
+          "path": "/healthz",
+          "headers": {}
+        },
+        {
+          "name": "healthz-head",
+          "method": "HEAD",
+          "path": "/healthz",
+          "headers": {}
+        },
+        {
+          "name": "root-head",
+          "method": "HEAD",
+          "path": "/",
+          "headers": {}
+        },
+        {
+          "name": "keepalive",
+          "method": "GET",
+          "path": "/keep-alive",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1"
+          }
+        }
+      ],
+      "expected": "healthz-get: 200 {\"status\":\"ok\"}. healthz-head: 200 empty. root-head: 404 empty. keepalive: 404 empty (route not registered in server mode)."
+    },
+    {
+      "id": "S1-22",
+      "purpose": "OAuth callback endpoints: fixed HTML 200, devin 400 validation, management oauth-callback state validation.",
+      "classification": "RECORDABLE-LOCALLY",
+      "record": "response",
+      "requests": [
+        {
+          "name": "anthropic-cb",
+          "method": "GET",
+          "path": "/anthropic/callback",
+          "headers": {}
+        },
+        {
+          "name": "anthropic-cb-params",
+          "method": "GET",
+          "path": "/anthropic/callback?code=c&state=s",
+          "headers": {}
+        },
+        {
+          "name": "devin-cb-empty",
+          "method": "GET",
+          "path": "/devin/callback",
+          "headers": {}
+        },
+        {
+          "name": "callback-empty",
+          "method": "GET",
+          "path": "/callback",
+          "headers": {}
+        },
+        {
+          "name": "callback-error",
+          "method": "GET",
+          "path": "/callback?error=access_denied",
+          "headers": {}
+        }
+      ],
+      "expected": "anthropic-cb and anthropic-cb-params: 200 identical fixed HTML page, Content-Type text/html; charset=utf-8. devin-cb-empty/callback-empty: 400 {\"error\":\"code or error is required\"}. callback-error: 400 {\"error\":\"invalid or expired OAuth callback\"}."
+    },
+    {
+      "id": "S1-23",
+      "purpose": "Codex-only routes without codex credentials: 503 selector errors; backend-api alias routing.",
+      "classification": "RECORDABLE-LOCALLY",
+      "record": "response",
+      "requests": [
+        {
+          "name": "alpha-search",
+          "method": "POST",
+          "path": "/v1/alpha/search",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer oracle-local-key-1"
+          },
+          "body": {
+            "model": "gpt-5.6-sol",
+            "query": "hi"
+          }
+        },
+        {
+          "name": "live-empty",
+          "method": "POST",
+          "path": "/v1/live",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer oracle-local-key-1"
+          },
+          "body": {}
+        },
+        {
+          "name": "codex-alias-unknown",
+          "method": "POST",
+          "path": "/backend-api/codex/responses",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer oracle-local-key-1"
+          },
+          "body": {
+            "model": "no-such-model",
+            "input": "hi"
+          }
+        }
+      ],
+      "expected": "alpha-search and live-empty: 503 with {\"error\":\"<selector error string>\"} — capture exact bytes. codex-alias-unknown: 400 model_not_found (proves the alias routes to the responses handler).",
+      "notes": "Exact 503 message text comes from the credential selector; record verbatim so the spec can pin it."
+    },
+    {
+      "id": "S1-24",
+      "purpose": "countTokens route via openai-compat provider: local token synthesis, no upstream round-trip (RECORDED).",
+      "classification": "RECORDABLE-LOCALLY",
+      "record": "response+upstream",
+      "mock_upstream_mode": "happy",
+      "requests": [
+        {
+          "name": "count-tokens",
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:countTokens",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer oracle-local-key-1"
+          },
+          "body": {
+            "contents": [
+              {
+                "role": "user",
+                "parts": [
+                  {
+                    "text": "hi"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "expected": "200 {\"totalTokens\":3,\"promptTokensDetails\":[{\"modality\":\"TEXT\",\"tokenCount\":3}]} computed LOCALLY (RECORDED OUTCOME); upstream.jsonl is EMPTY — the openai-compat executor tokenizes in-process and synthesizes the count body; no upstream call happens.",
+      "notes": "VERIFY-AND-REPORT: count-via-openai-compat behavior is not pinned by prior probes; recording it pins the route regardless of outcome."
+    }
+  ],
+  "fixture_deferred": [
+    {
+      "id": "S1-D1-keepalive-tui",
+      "purpose": "GET /keep-alive 200/401 bodies in TUI mode (local password).",
+      "classification": "FIXTURE-DEFERRED",
+      "reason": "Requires a TUI/embedded run with a local management password; the anchored docker image runs server mode where the route is absent (recorded as 404 in S1-21). Spec: section 3.1."
+    },
+    {
+      "id": "S1-D2-client-version-catalog",
+      "purpose": "GET /v1/models?client_version=<v> codex client catalog shape.",
+      "classification": "FIXTURE-DEFERRED",
+      "reason": "Response embeds the remotely fetched codex model catalog (raw.githubusercontent.com) — not deterministic by construction in the oracle environment; also grok-shell UA catalog. Spec marks both OPTIONAL (OQ-2)."
+    },
+    {
+      "id": "S1-D3-example-api-key-safe-mode",
+      "purpose": "403 gate + warning page when api-keys contain template values.",
+      "classification": "FIXTURE-DEFERRED",
+      "reason": "Needs a second dedicated config run with example-template api-keys; behavior is fully specified in section 3.10 and remains testable via unit contract tests; not blocking S1 admission (OQ-5)."
+    },
+    {
+      "id": "S1-D4-home-mode-gates",
+      "purpose": "503 heartbeat gate and Home catalogs when home.enabled=true.",
+      "classification": "FIXTURE-DEFERRED",
+      "reason": "Home mode is config-off in the reference deployment and requires the Home control-center service; out of S1 scope (OQ-4)."
+    },
+    {
+      "id": "S1-D5-plugin-ws",
+      "purpose": "Plugin WebSocket route /v1/ws (AttachWebsocketRoute) with websocket-auth on/off.",
+      "classification": "FIXTURE-DEFERRED",
+      "reason": "Requires a plugin to be installed and registered; plugin surface is OPTIONAL for S1 (section 3.10) and owned by S5/S7."
+    }
+  ]
+}

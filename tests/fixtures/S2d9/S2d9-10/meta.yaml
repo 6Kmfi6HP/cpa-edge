@@ -1,0 +1,20 @@
+{
+ "id": "S2d9-10",
+ "purpose": "Upstream HTTP 404 with model_not_found body: status and body pass downstream VERBATIM (no rewrite), plain JSON response (not SSE).",
+ "upstream_anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6 (image eceasy/cli-proxy-api:v7.3.4)",
+ "recorded_at": "2026-09-15T23:52:14",
+ "record": {
+  "downstream": "status + response headers + full body (for SSE: complete byte stream until connection close)",
+  "upstream": "all requests the reference emitted, from mock upstream_log.jsonl (method, path, headers, body)"
+ },
+ "mock_mode": "upstream-error",
+ "expected_upstream_call_count": "one",
+ "dynamic_fields_to_mask": [
+  "Date response header",
+  "X-Cpa-Trace-Id and other X-Cpa-*/X-Server-* response headers",
+  "upstream body prompt_cache_key (uuid) and header Session-Id when the client sent no prompt_cache_key",
+  "nothing else is dynamic: mock ids (resp_mock_*), created_at 1742812800, ports, and key strings are fixed"
+ ],
+ "config": "baseline + codex-api-key (mock-codex-key-1, base-url host.docker.internal:19012, aliases codex-mock/codex-mock-forced)",
+ "http_status": "404"
+}

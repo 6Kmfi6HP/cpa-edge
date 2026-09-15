@@ -1,0 +1,59 @@
+{
+ "id": "S1-05",
+ "purpose": "Client auth rejection: missing credentials on each auth-gated surface.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+ "recorded_at": "2026-09-15T23:46:48",
+ "record_kind": "response",
+ "mock_upstream_mode": null,
+ "config": "baseline (no providers)",
+ "dynamic_fields": [
+  "Date",
+  "X-Cpa-Trace-Id",
+  "created",
+  "created_at",
+  "Content-Length when body is dynamic"
+ ],
+ "requests": [
+  {
+   "name": "models-noauth",
+   "method": "GET",
+   "path": "/v1/models",
+   "request_file": "models-noauth.request.http",
+   "downstream_file": "models-noauth.downstream.md",
+   "http_status": "401"
+  },
+  {
+   "name": "chat-noauth",
+   "method": "POST",
+   "path": "/v1/chat/completions",
+   "request_file": "chat-noauth.request.http",
+   "downstream_file": "chat-noauth.downstream.md",
+   "http_status": "401"
+  },
+  {
+   "name": "messages-noauth",
+   "method": "POST",
+   "path": "/v1/messages",
+   "request_file": "messages-noauth.request.http",
+   "downstream_file": "messages-noauth.downstream.md",
+   "http_status": "401"
+  },
+  {
+   "name": "v1beta-noauth",
+   "method": "GET",
+   "path": "/v1beta/models",
+   "request_file": "v1beta-noauth.request.http",
+   "downstream_file": "v1beta-noauth.downstream.md",
+   "http_status": "401"
+  },
+  {
+   "name": "backend-codex-noauth",
+   "method": "POST",
+   "path": "/backend-api/codex/responses",
+   "request_file": "backend-codex-noauth.request.http",
+   "downstream_file": "backend-codex-noauth.downstream.md",
+   "http_status": "401"
+  }
+ ],
+ "upstream_file": null
+}

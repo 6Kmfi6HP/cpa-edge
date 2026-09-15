@@ -1,0 +1,20 @@
+{
+ "id": "S2d9-09",
+ "purpose": "Upstream HTTP 401 with authentication_error body: downstream 401 with REWRITTEN classified body {\"error\":{\"message\":\"Invalid token\",\"type\":\"authentication_error\",\"code\":\"auth_unavailable\"}}; plain JSON (not SSE). Run LAST because a 401 may additionally mark the credential unauthorized (auth-status side effects are S4 scope; recording it last avoids poisoning other cases).",
+ "upstream_anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6 (image eceasy/cli-proxy-api:v7.3.4)",
+ "recorded_at": "2026-09-15T23:52:19",
+ "record": {
+  "downstream": "status + response headers + full body (for SSE: complete byte stream until connection close)",
+  "upstream": "all requests the reference emitted, from mock upstream_log.jsonl (method, path, headers, body)"
+ },
+ "mock_mode": "upstream-error",
+ "expected_upstream_call_count": "one",
+ "dynamic_fields_to_mask": [
+  "Date response header",
+  "X-Cpa-Trace-Id and other X-Cpa-*/X-Server-* response headers",
+  "upstream body prompt_cache_key (uuid) and header Session-Id when the client sent no prompt_cache_key",
+  "nothing else is dynamic: mock ids (resp_mock_*), created_at 1742812800, ports, and key strings are fixed"
+ ],
+ "config": "baseline + codex-api-key (mock-codex-key-1, base-url host.docker.internal:19012, aliases codex-mock/codex-mock-forced)",
+ "http_status": "503"
+}

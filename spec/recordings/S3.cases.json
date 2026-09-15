@@ -1,0 +1,1030 @@
+{
+  "section": "S3",
+  "title": "Auth flows — golden recording request",
+  "spec": "spec/sections/S3-auth-flows.md",
+  "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image eceasy/cli-proxy-api:v7.3.4",
+  "target_fixture_dir": "tests/fixtures/S3/",
+  "oracle_config_default": {
+    "port": 18317,
+    "api-keys": [
+      "oracle-local-key-1"
+    ],
+    "remote-management": {
+      "allow-remote": true,
+      "secret-key": "oracle-mgmt-key-1",
+      "disable-control-panel": true
+    },
+    "request-retry": 0,
+    "transient-error-cooldown-seconds": -1,
+    "usage-statistics-enabled": false
+  },
+  "config_instances": {
+    "default": "config template from reports/oracle/BOOTSTRAP.md §3 (as above). Client IP = docker bridge gateway (a REMOTE client; allow-remote: true).",
+    "open": "same as default but api-keys removed entirely (open-proxy instance)",
+    "safemode": "same as default but api-keys: [\"your-api-key-1\"] (template-value instance)",
+    "no-mgmt-secret": "same as default but the whole remote-management block removed",
+    "mgmt-local-only": "same as default but remote-management.allow-remote: false",
+    "fresh-ban": "same as default, started FRESH immediately before the ban cases (per-IP failure counter must start at 0)"
+  },
+  "secrets_note": "Request headers below use <api-key> = oracle-local-key-1 and <mgmt-key> = oracle-mgmt-key-1 from your config template; do not copy other secrets. <port> = 18317.",
+  "mock_upstream": "None needed for S3: no provider credentials are in scope. The reference binary itself on 127.0.0.1:18317 is the target. mock-upstream mode flags (happy/upstream-error/slow-chunks/disconnect-mid-stream) do not apply to S3 cases.",
+  "ordering_constraints": [
+    "Cases 19-20 (IP ban) MUST run in the fresh-ban instance, in that order (reset case first, ban case last); the ban poisons the client IP for 30 minutes.",
+    "In the default instance, run all other cases first; the missing-key/invalid-key cases each add one failure to the per-IP counter (2 total) but never reach the threshold of 5.",
+    "Multi-request cases (33-34) must run their steps in the listed order; the state from step 1 is captured and substituted in later steps (record the substitution in meta.yaml).",
+    "auth-url cases leave a 5-minute background waiter per state; harmless, do not wait for it."
+  ],
+  "record_format": "Per case directory tests/fixtures/S3/<case-id>/: meta.yaml, request.http (or one request per step, suffixed), downstream.md per step, upstream.jsonl NOT needed (no mock upstream; omit or leave empty with a note), mock-response.json not needed.",
+  "dynamic_fields_common": [
+    "Date header",
+    "Content-Length (mask only if body bytes recorded)",
+    "X-CPA-VERSION/X-CPA-COMMIT/X-CPA-BUILD-DATE/X-CPA-SUPPORT-PLUGIN on /v0/management responses",
+    "X-Cpa-Trace-Id/X-Request-Id style trace headers if present"
+  ],
+  "cases": [
+    {
+      "id": "s3-apikey-missing",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "No credential anywhere on a proxied route -> 401 {\"error\":\"Missing API key\"} (auth error string shape, S3 §2.1).",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v1/models",
+          "headers": {}
+        }
+      ],
+      "record": "status + response headers + exact body bytes",
+      "dynamic_fields": [
+        "Date"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-apikey-invalid-bearer",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "Credential present (Bearer) but not in the key set -> 401 {\"error\":\"Invalid API key\"}.",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v1/models",
+          "headers": {
+            "Authorization": "Bearer wrong-key-000"
+          }
+        }
+      ],
+      "record": "status + headers + body",
+      "dynamic_fields": [
+        "Date"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-apikey-valid-bearer",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "Valid Bearer key accepted on /v1 (no providers configured -> empty model list).",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v1/models",
+          "headers": {
+            "Authorization": "Bearer <api-key>"
+          }
+        }
+      ],
+      "record": "status + headers + body",
+      "dynamic_fields": [
+        "Date"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-apikey-raw-authorization",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "Authorization header WITHOUT Bearer prefix: entire header value is compared as the key (extractBearerToken quirk, S3 §2.1).",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v1/models",
+          "headers": {
+            "Authorization": "<api-key>"
+          }
+        }
+      ],
+      "record": "status + headers + body",
+      "dynamic_fields": [
+        "Date"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-apikey-x-goog",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "X-Goog-Api-Key accepted on /v1beta (Gemini-style key source).",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v1beta/models",
+          "headers": {
+            "x-goog-api-key": "<api-key>"
+          }
+        }
+      ],
+      "record": "status + headers + body",
+      "dynamic_fields": [
+        "Date"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-apikey-x-api-key",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "X-Api-Key (Anthropic-style) accepted as key source on /v1.",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v1/models",
+          "headers": {
+            "X-Api-Key": "<api-key>"
+          }
+        }
+      ],
+      "record": "status + headers + body",
+      "dynamic_fields": [
+        "Date"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-apikey-query-key",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "Query parameter key=<key> accepted (S3 §2.1 source 4).",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v1/models?key=<api-key>",
+          "headers": {}
+        }
+      ],
+      "record": "status + headers + body",
+      "dynamic_fields": [
+        "Date"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-apikey-query-auth-token",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "Query parameter auth_token=<key> accepted (S3 §2.1 source 5).",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v1/models?auth_token=<api-key>",
+          "headers": {}
+        }
+      ],
+      "record": "status + headers + body",
+      "dynamic_fields": [
+        "Date"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-apikey-open-when-unconfigured",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "api-keys unconfigured -> NO auth provider -> request allowed without any credential (open proxy, S3 §2.1 + O-2).",
+      "instance": "open",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v1/models",
+          "headers": {}
+        }
+      ],
+      "record": "status + headers + body",
+      "dynamic_fields": [
+        "Date"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-safemode-example-key",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "Template api-key safe mode: proxied route 403 with X-CPA-SAFE-MODE header and unsafe_example_api_key body; root serves the warning HTML instead of the normal payload (S3 §2.1).",
+      "instance": "safemode",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v1/models",
+          "headers": {
+            "Authorization": "Bearer your-api-key-1"
+          }
+        },
+        {
+          "step": 2,
+          "method": "GET",
+          "path": "/",
+          "headers": {}
+        }
+      ],
+      "record": "status + headers + body for both steps",
+      "dynamic_fields": [
+        "Date"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-realtime-unauth",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "Realtime route without auth -> 401 with OpenAI-shaped error {message,type:authentication_error,param:null,code:invalid_api_key} (S3 §2.1 realtime branch).",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "POST",
+          "path": "/v1/realtime/sessions",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": "{}"
+        }
+      ],
+      "record": "status + headers + body",
+      "dynamic_fields": [
+        "Date"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-realtime-invalid-key",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "Realtime route with a wrong Bearer key -> 401 invalid_api_key realtime shape.",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "POST",
+          "path": "/v1/realtime/sessions",
+          "headers": {
+            "Authorization": "Bearer wrong-key-000",
+            "Content-Type": "application/json"
+          },
+          "body": "{}"
+        }
+      ],
+      "record": "status + headers + body",
+      "dynamic_fields": [
+        "Date"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-mgmt-missing-key",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "Management route without any key -> 401 {\"error\":\"missing management key\"} (failure counted).",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v0/management/api-keys",
+          "headers": {}
+        }
+      ],
+      "record": "status + headers (incl. X-CPA-VERSION/X-CPA-COMMIT/X-CPA-BUILD-DATE/X-CPA-SUPPORT-PLUGIN) + body",
+      "dynamic_fields": [
+        "Date",
+        "X-CPA-VERSION",
+        "X-CPA-COMMIT",
+        "X-CPA-BUILD-DATE",
+        "X-CPA-SUPPORT-PLUGIN"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-mgmt-invalid-key",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "Management route with wrong X-Management-Key -> 401 {\"error\":\"invalid management key\"} (failure counted).",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v0/management/api-keys",
+          "headers": {
+            "X-Management-Key": "wrong-mgmt-key-000"
+          }
+        }
+      ],
+      "record": "status + headers + body",
+      "dynamic_fields": [
+        "Date",
+        "X-CPA-* build headers"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-mgmt-valid-x-management-key",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "Valid X-Management-Key accepted (bcrypt compare of plaintext vs stored hash).",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v0/management/api-keys",
+          "headers": {
+            "X-Management-Key": "<mgmt-key>"
+          }
+        }
+      ],
+      "record": "status + headers + body",
+      "dynamic_fields": [
+        "Date",
+        "X-CPA-* build headers"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-mgmt-valid-bearer",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "Authorization: Bearer <mgmt-key> accepted on a management route (S3 §2.2 key extraction).",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v0/management/api-keys",
+          "headers": {
+            "Authorization": "Bearer <mgmt-key>"
+          }
+        }
+      ],
+      "record": "status + headers + body",
+      "dynamic_fields": [
+        "Date",
+        "X-CPA-* build headers"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-mgmt-remote-disabled",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "allow-remote: false + request from a REMOTE client (docker gateway) -> 403 {\"error\":\"remote management disabled\"} even with the valid key (gate runs before key validation; no failure counted).",
+      "instance": "mgmt-local-only",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v0/management/api-keys",
+          "headers": {
+            "X-Management-Key": "<mgmt-key>"
+          }
+        }
+      ],
+      "record": "status + headers + body",
+      "dynamic_fields": [
+        "Date",
+        "X-CPA-* build headers"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-mgmt-unconfigured-404",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "No remote-management secret at all -> management routes never registered -> 404 EMPTY body (R-404) even with a key header.",
+      "instance": "no-mgmt-secret",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v0/management/api-keys",
+          "headers": {
+            "X-Management-Key": "<mgmt-key>"
+          }
+        }
+      ],
+      "record": "status + headers + body (assert empty body)",
+      "dynamic_fields": [
+        "Date"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-mgmt-ban-reset-on-success",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "Sliding counter resets on success: 4 invalid keys (4x401), then valid key (200), then 4 invalid keys again (4x401) — never banned.",
+      "instance": "fresh-ban",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v0/management/api-keys",
+          "headers": {
+            "X-Management-Key": "wrong-mgmt-key-000"
+          },
+          "repeat": 4
+        },
+        {
+          "step": 2,
+          "method": "GET",
+          "path": "/v0/management/api-keys",
+          "headers": {
+            "X-Management-Key": "<mgmt-key>"
+          }
+        },
+        {
+          "step": 3,
+          "method": "GET",
+          "path": "/v0/management/api-keys",
+          "headers": {
+            "X-Management-Key": "wrong-mgmt-key-000"
+          },
+          "repeat": 4
+        }
+      ],
+      "record": "status + headers + body for every request (12 responses)",
+      "dynamic_fields": [
+        "Date",
+        "X-CPA-* build headers"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": "Run BEFORE s3-mgmt-ban-after-5-invalid in the same fresh instance. Record every response; the contract asserts the 200 in the middle and 401s around it."
+    },
+    {
+      "id": "s3-mgmt-ban-after-5-invalid",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "5 counted failures -> IP banned: 6th request (even with a VALID key) -> 403 {\"error\":\"IP banned due to too many failed attempts. Try again in <duration>\"} (S3 §2.2).",
+      "instance": "fresh-ban",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v0/management/api-keys",
+          "headers": {
+            "X-Management-Key": "wrong-mgmt-key-000"
+          },
+          "repeat": 5
+        },
+        {
+          "step": 2,
+          "method": "GET",
+          "path": "/v0/management/api-keys",
+          "headers": {
+            "X-Management-Key": "<mgmt-key>"
+          }
+        }
+      ],
+      "record": "status + headers + body for every request (6 responses)",
+      "dynamic_fields": [
+        "Date",
+        "X-CPA-* build headers",
+        "ban countdown duration in body (mask; format is Go duration string like 29m59s)"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": "Run LAST in the fresh-ban instance (after the reset case). The final 403 body's countdown is dynamic — mask the duration token, keep the surrounding text exact."
+    },
+    {
+      "id": "s3-oauth-callback-anthropic-unknown-state",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "GET /anthropic/callback with a state that matches no pending session: callback write is silently skipped, response is STILL 200 success HTML (S3 §2.4 / O-3).",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/anthropic/callback?code=fake-code&state=0123456789abcdef0123456789abcdef",
+          "headers": {}
+        }
+      ],
+      "record": "status + headers + exact HTML body bytes",
+      "dynamic_fields": [
+        "Date"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-oauth-callback-codex-unknown-state",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "Same 200-HTML-always contract for /codex/callback with an error param present (error is written into the skipped callback file; response still 200 HTML).",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/codex/callback?error=access_denied&error_description=user+denied&state=0123456789abcdef0123456789abcdef",
+          "headers": {}
+        }
+      ],
+      "record": "status + headers + exact HTML body bytes",
+      "dynamic_fields": [
+        "Date"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-oauth-callback-devin-missing",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "Devin callback is strict: GET /devin/callback with neither code nor error -> 400 {\"error\":\"code or error is required\"}.",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/devin/callback",
+          "headers": {}
+        }
+      ],
+      "record": "status + headers (incl. Cache-Control: no-store) + body",
+      "dynamic_fields": [
+        "Date"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-oauth-callback-devin-unknown",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "Devin callback with a code but no matching pending session -> 400 {\"error\":\"invalid or expired OAuth callback\"}.",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/devin/callback?code=fake-code&state=0123456789abcdef0123456789abcdef",
+          "headers": {}
+        }
+      ],
+      "record": "status + headers (incl. Cache-Control: no-store) + body",
+      "dynamic_fields": [
+        "Date"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-mgmt-oauth-callback-invalid-body",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "POST /v0/management/oauth-callback with unparseable JSON -> 400 {\"status\":\"error\",\"error\":\"invalid body\"} (no management key needed on this route).",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "POST",
+          "path": "/v0/management/oauth-callback",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": "{not-json"
+        }
+      ],
+      "record": "status + headers + body",
+      "dynamic_fields": [
+        "Date",
+        "X-CPA-* build headers"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-mgmt-oauth-callback-missing-state",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "POST with parseable body but no state -> 400 \"state is required\".",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "POST",
+          "path": "/v0/management/oauth-callback",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": "{\"provider\":\"anthropic\",\"code\":\"x\"}"
+        }
+      ],
+      "record": "status + headers + body",
+      "dynamic_fields": [
+        "Date"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-mgmt-oauth-callback-invalid-state",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "POST with state containing invalid characters (space) -> 400 \"invalid state\" (state regex [A-Za-z0-9._-]{1..128}).",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "POST",
+          "path": "/v0/management/oauth-callback",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": "{\"provider\":\"anthropic\",\"state\":\"bad state!\",\"code\":\"x\"}"
+        }
+      ],
+      "record": "status + headers + body",
+      "dynamic_fields": [
+        "Date"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-mgmt-oauth-callback-missing-code",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "Valid-syntax state but neither code nor error -> 400 \"code or error is required\" (checked before session lookup).",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v0/management/oauth-callback?provider=anthropic&state=0123456789abcdef0123456789abcdef",
+          "headers": {}
+        }
+      ],
+      "record": "status + headers + body",
+      "dynamic_fields": [
+        "Date"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-mgmt-oauth-callback-unknown-state",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "Valid-syntax state that was never registered -> 404 {\"status\":\"error\",\"error\":\"unknown or expired state\"}.",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "POST",
+          "path": "/v0/management/oauth-callback",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": "{\"provider\":\"anthropic\",\"state\":\"0123456789abcdef0123456789abcdef\",\"code\":\"x\"}"
+        }
+      ],
+      "record": "status + headers + body",
+      "dynamic_fields": [
+        "Date"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-auth-url-anthropic",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "GET /v0/management/anthropic-auth-url -> 200 {\"state\",\"status\",\"url\"}: url = https://claude.ai/oauth/authorize with the exact query parameter set (code=true, client_id, code_challenge, code_challenge_method=S256, redirect_uri=http://localhost:54545/callback, response_type=code, scope, state). Records exact byte order of the JSON map serialization.",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v0/management/anthropic-auth-url",
+          "headers": {
+            "X-Management-Key": "<mgmt-key>"
+          }
+        }
+      ],
+      "record": "status + headers + body. Mask: state value (32-hex) and the url's state/code_challenge parameter values; keep parameter NAMES, order, and all other values exact.",
+      "dynamic_fields": [
+        "Date",
+        "state (random 32-hex)",
+        "url state/code_challenge values",
+        "X-CPA-* build headers"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": "No vendor network call happens on this path; a 5-minute background waiter polls for a callback file — do not wait for it. Do not send is_webui."
+    },
+    {
+      "id": "s3-auth-url-codex",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "GET /v0/management/codex-auth-url -> 200 with https://auth.openai.com/oauth/authorize URL incl. prompt=login, id_token_add_organizations=true, codex_cli_simplified_flow=true, scope=openid email profile offline_access, redirect_uri=http://localhost:1455/auth/callback (S3 §2.3.2).",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v0/management/codex-auth-url",
+          "headers": {
+            "X-Management-Key": "<mgmt-key>"
+          }
+        }
+      ],
+      "record": "status + headers + body (mask state + code_challenge values)",
+      "dynamic_fields": [
+        "Date",
+        "state",
+        "url code_challenge",
+        "X-CPA-* build headers"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-auth-url-antigravity",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "GET /v0/management/antigravity-auth-url -> 200 with https://accounts.google.com/o/oauth2/v2/auth URL incl. access_type=offline, prompt=consent, redirect_uri=http://localhost:51121/oauth-callback, 5 googleapis scopes (S3 §2.3.3).",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v0/management/antigravity-auth-url",
+          "headers": {
+            "X-Management-Key": "<mgmt-key>"
+          }
+        }
+      ],
+      "record": "status + headers + body (mask state value)",
+      "dynamic_fields": [
+        "Date",
+        "state",
+        "X-CPA-* build headers"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-auth-url-devin",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "GET /v0/management/devin-auth-url -> 200 with https://app.devin.ai/auth/cli/continue URL; query order: redirect_uri=http://127.0.0.1:<port>/callback, state, prompt=select_account, code_challenge, code_challenge_method=S256 (NOT alphabetical; hand-built order, S3 §2.3.4).",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v0/management/devin-auth-url",
+          "headers": {
+            "X-Management-Key": "<mgmt-key>"
+          }
+        }
+      ],
+      "record": "status + headers + body (mask state + code_challenge values; <port> = 18317)",
+      "dynamic_fields": [
+        "Date",
+        "state",
+        "url code_challenge",
+        "X-CPA-* build headers"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-oauth-session-lifecycle",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "Full pending-session lifecycle with no vendor network: anthropic-auth-url registers state S -> get-auth-status?state=S = wait -> DELETE oauth-session?state=S = {cancelled:true} -> get-auth-status = unknown or expired state -> oauth-callback POST with S = 404 unknown or expired state (S3 §2.5).",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v0/management/anthropic-auth-url",
+          "headers": {
+            "X-Management-Key": "<mgmt-key>"
+          },
+          "capture": "state -> $S"
+        },
+        {
+          "step": 2,
+          "method": "GET",
+          "path": "/v0/management/get-auth-status?state=$S",
+          "headers": {
+            "X-Management-Key": "<mgmt-key>"
+          }
+        },
+        {
+          "step": 3,
+          "method": "DELETE",
+          "path": "/v0/management/oauth-session?state=$S",
+          "headers": {
+            "X-Management-Key": "<mgmt-key>"
+          }
+        },
+        {
+          "step": 4,
+          "method": "GET",
+          "path": "/v0/management/get-auth-status?state=$S",
+          "headers": {
+            "X-Management-Key": "<mgmt-key>"
+          }
+        },
+        {
+          "step": 5,
+          "method": "POST",
+          "path": "/v0/management/oauth-callback",
+          "headers": {
+            "X-Management-Key": "<mgmt-key>",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"provider\":\"anthropic\",\"state\":\"$S\",\"code\":\"x\"}"
+        }
+      ],
+      "record": "status + headers + body for all 5 steps; record $S substitution in meta.yaml",
+      "dynamic_fields": [
+        "Date",
+        "$S (random per run; masked)",
+        "X-CPA-* build headers"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": "Expected: step2 {\"status\":\"wait\"}; step3 {\"status\":\"ok\",\"cancelled\":true}; step4 {\"status\":\"error\",\"error\":\"unknown or expired state\"}; step5 404 {\"status\":\"error\",\"error\":\"unknown or expired state\"}. JSON key order per recording."
+    },
+    {
+      "id": "s3-mgmt-oauth-callback-provider-mismatch",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "codex-auth-url registers state S as a codex session; POST oauth-callback with provider=anthropic + S + code -> 400 {\"status\":\"error\",\"error\":\"provider does not match state\"} (S3 §2.4 ladder step 9).",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v0/management/codex-auth-url",
+          "headers": {
+            "X-Management-Key": "<mgmt-key>"
+          },
+          "capture": "state -> $S"
+        },
+        {
+          "step": 2,
+          "method": "POST",
+          "path": "/v0/management/oauth-callback",
+          "headers": {
+            "X-Management-Key": "<mgmt-key>",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"provider\":\"anthropic\",\"state\":\"$S\",\"code\":\"x\"}"
+        }
+      ],
+      "record": "status + headers + body for both steps",
+      "dynamic_fields": [
+        "Date",
+        "$S",
+        "X-CPA-* build headers"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": "Step 2 does NOT hit any vendor endpoint: the mismatch check fires before the callback file is written."
+    },
+    {
+      "id": "s3-get-auth-status-empty",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "GET /v0/management/get-auth-status without state param -> 200 {\"status\":\"ok\"}.",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v0/management/get-auth-status",
+          "headers": {
+            "X-Management-Key": "<mgmt-key>"
+          }
+        }
+      ],
+      "record": "status + headers + body",
+      "dynamic_fields": [
+        "Date",
+        "X-CPA-* build headers"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-get-auth-status-invalid-state",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "GET /v0/management/get-auth-status?state=<invalid> -> 400 {\"status\":\"error\",\"error\":\"invalid state\"}.",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v0/management/get-auth-status?state=bad%2Fstate",
+          "headers": {
+            "X-Management-Key": "<mgmt-key>"
+          }
+        }
+      ],
+      "record": "status + headers + body",
+      "dynamic_fields": [
+        "Date",
+        "X-CPA-* build headers"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    },
+    {
+      "id": "s3-cancel-session-missing-state",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "DELETE /v0/management/oauth-session without state -> 400 {\"status\":\"error\",\"error\":\"missing state\"}.",
+      "instance": "default",
+      "requests": [
+        {
+          "step": 1,
+          "method": "DELETE",
+          "path": "/v0/management/oauth-session",
+          "headers": {
+            "X-Management-Key": "<mgmt-key>"
+          }
+        }
+      ],
+      "record": "status + headers + body",
+      "dynamic_fields": [
+        "Date",
+        "X-CPA-* build headers"
+      ],
+      "mock_upstream_mode": "none",
+      "notes": ""
+    }
+  ],
+  "fixture_deferred": [
+    {
+      "id": "s3-def-claude-token-exchange",
+      "behavior": "Claude code->token exchange happy path (POST platform.claude.com/v1/oauth/token) + profile/roles companion calls",
+      "reason": "CREDENTIALED-ONLY: fixed vendor endpoint requires a real Anthropic account; no base-url override exists for OAuth credential types (R-FIXTURE)."
+    },
+    {
+      "id": "s3-def-claude-refresh",
+      "behavior": "Claude refresh flow incl. 429 Retry-After blocking",
+      "reason": "CREDENTIALED-ONLY: requires a live refresh token."
+    },
+    {
+      "id": "s3-def-codex-token-exchange",
+      "behavior": "Codex code->token exchange + id_token claim parsing + refresh (incl. refresh_token_reused non-retryable)",
+      "reason": "CREDENTIALED-ONLY: fixed auth.openai.com endpoint."
+    },
+    {
+      "id": "s3-def-antigravity-exchange",
+      "behavior": "Antigravity code exchange + userinfo + loadCodeAssist project discovery",
+      "reason": "CREDENTIALED-ONLY: Google account required; fixed endpoints."
+    },
+    {
+      "id": "s3-def-kimi-device-flow",
+      "behavior": "Kimi RFC 8628 device flow against auth.kimi.com (device code, polling, 200-with-error pending quirk)",
+      "reason": "CREDENTIALED-ONLY: fixed vendor endpoint; live device codes are nondeterministic."
+    },
+    {
+      "id": "s3-def-xai-device-flow",
+      "behavior": "xAI OIDC discovery + device flow against auth.x.ai (slow_down interval += 5s)",
+      "reason": "CREDENTIALED-ONLY."
+    },
+    {
+      "id": "s3-def-meta-device-flow",
+      "behavior": "Meta device flow against auth.meta.com + muse-code key minting",
+      "reason": "CREDENTIALED-ONLY."
+    },
+    {
+      "id": "s3-def-devin-exchange",
+      "behavior": "Devin code->session-token exchange + /v3/self profile",
+      "reason": "CREDENTIALED-ONLY."
+    },
+    {
+      "id": "s3-def-device-auth-url-endpoints",
+      "behavior": "GET /v0/management/{kimi,xai,meta}-auth-url 200 bodies (flow:device, user_code, expires_in, state prefixes kmi-/xai-/meta-)",
+      "reason": "Endpoint itself needs no credentials, but it performs a LIVE vendor device-code request; the response embeds a live user_code and is nondeterministic. Deferred rather than recorded. Contract: response field set only (S3 §2.5)."
+    },
+    {
+      "id": "s3-def-refresh-on-401",
+      "behavior": "Refresh-on-401 during request execution (synchronous refresh, credential quarantine on refresh-401)",
+      "reason": "CREDENTIALED-ONLY: needs a live upstream 401 from an OAuth provider. Unit-testable in cpa-edge with local mocks; no oracle golden per R-FIXTURE."
+    }
+  ]
+}

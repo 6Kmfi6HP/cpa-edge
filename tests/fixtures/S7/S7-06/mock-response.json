@@ -1,0 +1,15 @@
+{
+  "route": "GET /v1/models",
+  "status": 200,
+  "body": {
+    "object": "list",
+    "data": [
+      {
+        "id": "mock-gpt-model",
+        "object": "model",
+        "owned_by": "mock-openai"
+      }
+    ]
+  },
+  "note": "canned reply served by mock_openai.py for every GET /v1/models; api-call steps 1 and 4 hit it"
+}

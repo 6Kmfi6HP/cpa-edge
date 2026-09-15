@@ -1,0 +1,43 @@
+{
+ "id": "S1-12",
+ "purpose": "Gemini models list and model-get: 200 shape, plus the handler-level 404 WITH a JSON body (R-404 exemption).",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+ "recorded_at": "2026-09-15T23:47:08",
+ "record_kind": "response",
+ "mock_upstream_mode": "happy",
+ "config": "baseline+openai-compat(mock-openai,mock-model)",
+ "dynamic_fields": [
+  "Date",
+  "X-Cpa-Trace-Id",
+  "created",
+  "created_at",
+  "Content-Length when body is dynamic"
+ ],
+ "requests": [
+  {
+   "name": "gemini-models",
+   "method": "GET",
+   "path": "/v1beta/models",
+   "request_file": "gemini-models.request.http",
+   "downstream_file": "gemini-models.downstream.md",
+   "http_status": "200"
+  },
+  {
+   "name": "gemini-model-get",
+   "method": "GET",
+   "path": "/v1beta/models/mock-model",
+   "request_file": "gemini-model-get.request.http",
+   "downstream_file": "gemini-model-get.downstream.md",
+   "http_status": "200"
+  },
+  {
+   "name": "gemini-model-404",
+   "method": "GET",
+   "path": "/v1beta/models/no-such-model",
+   "request_file": "gemini-model-404.request.http",
+   "downstream_file": "gemini-model-404.downstream.md",
+   "http_status": "404"
+  }
+ ],
+ "upstream_file": "upstream.jsonl"
+}

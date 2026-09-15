@@ -1,0 +1,9 @@
+{
+ "mode": "upstream-error",
+ "upstream_call_count": "one",
+ "http_error": {
+  "status": 401,
+  "content_type": "application/json",
+  "body": "{\"error\":{\"message\":\"Invalid token\",\"type\":\"authentication_error\",\"code\":\"invalid_api_key\"}}"
+ }
+}

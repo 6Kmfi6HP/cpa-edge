@@ -1,0 +1,83 @@
+{
+ "id": "S1-20",
+ "purpose": "Management auth matrix: Bearer and X-Management-Key accept, missing/invalid reject, unknown subroute and wrong-method 404 empty, version headers on all responses.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+ "recorded_at": "2026-09-15T23:46:48",
+ "record_kind": "response",
+ "mock_upstream_mode": null,
+ "config": "baseline (no providers)",
+ "dynamic_fields": [
+  "Date",
+  "X-Cpa-Trace-Id",
+  "created",
+  "created_at",
+  "Content-Length when body is dynamic"
+ ],
+ "requests": [
+  {
+   "name": "mgmt-none",
+   "method": "GET",
+   "path": "/v0/management/config",
+   "request_file": "mgmt-none.request.http",
+   "downstream_file": "mgmt-none.downstream.md",
+   "http_status": "401"
+  },
+  {
+   "name": "mgmt-wrong",
+   "method": "GET",
+   "path": "/v0/management/config",
+   "request_file": "mgmt-wrong.request.http",
+   "downstream_file": "mgmt-wrong.downstream.md",
+   "http_status": "401"
+  },
+  {
+   "name": "mgmt-bearer",
+   "method": "GET",
+   "path": "/v0/management/config",
+   "request_file": "mgmt-bearer.request.http",
+   "downstream_file": "mgmt-bearer.downstream.md",
+   "http_status": "200"
+  },
+  {
+   "name": "mgmt-header",
+   "method": "GET",
+   "path": "/v0/management/config",
+   "request_file": "mgmt-header.request.http",
+   "downstream_file": "mgmt-header.downstream.md",
+   "http_status": "200"
+  },
+  {
+   "name": "mgmt-apikeys",
+   "method": "GET",
+   "path": "/v0/management/api-keys",
+   "request_file": "mgmt-apikeys.request.http",
+   "downstream_file": "mgmt-apikeys.downstream.md",
+   "http_status": "200"
+  },
+  {
+   "name": "mgmt-unknown-subroute",
+   "method": "GET",
+   "path": "/v0/management/no-such-subroute",
+   "request_file": "mgmt-unknown-subroute.request.http",
+   "downstream_file": "mgmt-unknown-subroute.downstream.md",
+   "http_status": "404"
+  },
+  {
+   "name": "mgmt-wrong-method",
+   "method": "POST",
+   "path": "/v0/management/config",
+   "request_file": "mgmt-wrong-method.request.http",
+   "downstream_file": "mgmt-wrong-method.downstream.md",
+   "http_status": "404"
+  },
+  {
+   "name": "mgmt-callback-badstate",
+   "method": "GET",
+   "path": "/v0/management/oauth-callback?provider=codex&code=x&state=bogus",
+   "request_file": "mgmt-callback-badstate.request.http",
+   "downstream_file": "mgmt-callback-badstate.downstream.md",
+   "http_status": "404"
+  }
+ ],
+ "upstream_file": null
+}

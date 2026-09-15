@@ -1,0 +1,64 @@
+# Exact downstream request bytes, in order (step dividers)
+
+### step 1: GET http://127.0.0.1:8397/anthropic/callback (anthropic callback, no params)
+GET /anthropic/callback HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+
+
+
+
+### step 2: GET http://127.0.0.1:8397/anthropic/callback?code=demo-code&state=demo-state (anthropic callback with code+state)
+GET /anthropic/callback?code=demo-code&state=demo-state HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+
+
+
+
+### step 3: GET http://127.0.0.1:8397/codex/callback (codex callback)
+GET /codex/callback HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+
+
+
+
+### step 4: GET http://127.0.0.1:8397/antigravity/callback (antigravity callback)
+GET /antigravity/callback HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+
+
+
+
+### step 5: GET http://127.0.0.1:8397/callback (generic /callback missing params)
+GET /callback HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+
+
+
+
+### step 6: GET http://127.0.0.1:8397/devin/callback?code=demo-code&state=demo-state (devin callback no pending session)
+GET /devin/callback?code=demo-code&state=demo-state HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+
+
+
+
+### step 7: POST http://127.0.0.1:8397/anthropic/callback (POST wrong method -> R-404)
+POST /anthropic/callback HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+
+
+

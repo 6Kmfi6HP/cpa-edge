@@ -1,0 +1,9 @@
+{
+ "mode": "upstream-error",
+ "upstream_call_count": "one",
+ "http_error": {
+  "status": 429,
+  "content_type": "application/json",
+  "body": "{\"error\":{\"message\":\"You have exceeded your usage limit\",\"type\":\"usage_limit_reached\",\"code\":\"usage_limit_reached\",\"resets_in_seconds\":3600}}"
+ }
+}

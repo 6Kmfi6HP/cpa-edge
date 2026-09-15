@@ -1,0 +1,5 @@
+{
+ "mode": "upstream-error",
+ "upstream_call_count": "one",
+ "sse_script_exact_bytes": "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_mock_014\",\"object\":\"response\",\"created_at\":1742812800,\"status\":\"in_progress\",\"model\":\"mock-codex-upstream\",\"output\":[]}}\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"sequence_number\":1,\"item_id\":\"msg_mock_014\",\"output_index\":0,\"content_index\":0,\"delta\":\"partial\"}\ndata: {\"type\":\"error\",\"code\":\"server_error\",\"message\":\"upstream exploded\",\"sequence_number\":2}\n"
+}

@@ -1,0 +1,5 @@
+{
+ "mode": "happy",
+ "upstream_call_count": "one",
+ "compact_reply_exact_bytes": "{\"id\":\"resp_mock_compact_015\",\"object\":\"response.compaction\",\"status\":\"completed\",\"output\":[{\"type\":\"summary\",\"text\":\"Compressed.\"}]}"
+}

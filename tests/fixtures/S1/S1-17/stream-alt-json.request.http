@@ -1,0 +1,11 @@
+POST /v1beta/models/mock-model:streamGenerateContent?alt=json HTTP/1.1
+Host: 127.0.0.1:18317
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Type: application/json
+Authorization: Bearer oracle-local-key-1
+Content-Type: application/json
+Content-Length: 59
+
+
+{"contents": [{"role": "user", "parts": [{"text": "hi"}]}]}

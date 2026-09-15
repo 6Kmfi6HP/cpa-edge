@@ -1,0 +1,8 @@
+### step 1: raw WebSocket upgrade (stdlib socket)
+GET /v1/ws HTTP/1.1
+Host: 127.0.0.1:8397
+Upgrade: websocket
+Connection: Upgrade
+Sec-WebSocket-Key: T2Try7F8BIaZbRok24njlg==
+Sec-WebSocket-Version: 13
+

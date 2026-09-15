@@ -1,0 +1,59 @@
+{
+ "id": "S1-22",
+ "purpose": "OAuth callback endpoints: fixed HTML 200, devin 400 validation, management oauth-callback state validation.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+ "recorded_at": "2026-09-15T23:46:49",
+ "record_kind": "response",
+ "mock_upstream_mode": null,
+ "config": "baseline (no providers)",
+ "dynamic_fields": [
+  "Date",
+  "X-Cpa-Trace-Id",
+  "created",
+  "created_at",
+  "Content-Length when body is dynamic"
+ ],
+ "requests": [
+  {
+   "name": "anthropic-cb",
+   "method": "GET",
+   "path": "/anthropic/callback",
+   "request_file": "anthropic-cb.request.http",
+   "downstream_file": "anthropic-cb.downstream.md",
+   "http_status": "200"
+  },
+  {
+   "name": "anthropic-cb-params",
+   "method": "GET",
+   "path": "/anthropic/callback?code=c&state=s",
+   "request_file": "anthropic-cb-params.request.http",
+   "downstream_file": "anthropic-cb-params.downstream.md",
+   "http_status": "200"
+  },
+  {
+   "name": "devin-cb-empty",
+   "method": "GET",
+   "path": "/devin/callback",
+   "request_file": "devin-cb-empty.request.http",
+   "downstream_file": "devin-cb-empty.downstream.md",
+   "http_status": "400"
+  },
+  {
+   "name": "callback-empty",
+   "method": "GET",
+   "path": "/callback",
+   "request_file": "callback-empty.request.http",
+   "downstream_file": "callback-empty.downstream.md",
+   "http_status": "400"
+  },
+  {
+   "name": "callback-error",
+   "method": "GET",
+   "path": "/callback?error=access_denied",
+   "request_file": "callback-error.request.http",
+   "downstream_file": "callback-error.downstream.md",
+   "http_status": "400"
+  }
+ ],
+ "upstream_file": null
+}

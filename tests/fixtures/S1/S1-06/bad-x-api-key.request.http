@@ -1,0 +1,6 @@
+GET /v1/models HTTP/1.1
+Host: 127.0.0.1:18317
+User-Agent: curl/8.7.1
+Accept: */*
+X-Api-Key: not-the-key
+

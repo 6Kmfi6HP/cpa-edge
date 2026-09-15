@@ -1,0 +1,38 @@
+{
+  "case": "S7-07",
+  "title": "plugins-config-accepted-visible",
+  "feature": "c-abi-plugins",
+  "recorded_at": "2026-09-15T16:56:58Z",
+  "recorder": "oracle-runner-3",
+  "version": {
+    "image": "eceasy/cli-proxy-api:v7.3.4",
+    "digest": "sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+    "commit": "8335eac731946bd4eff18f500653f93736df53d6",
+    "binary_self_report": "CLIProxyAPI Version: v7.3.4, Commit: 8335eac, BuiltAt: 2026-09-15T14:07:06Z"
+  },
+  "base_url": "http://127.0.0.1:8397",
+  "client_protocol": "HTTP/1.1 via curl against the reference binary directly",
+  "upstream_provider_type": "none",
+  "stream": false,
+  "config": "worker-3 pristine template run3/run/config.yaml (port 8397, 8 mock base-urls on worker-3 ports, api-keys [oracle-local-key-1], no real credentials)",
+  "port_adaptation": "cases file defaults 18317->8397 (reference), 18999->20999 (openai mock), forwarder host publish 54545->24545 (container-internal 54545 unchanged)",
+  "dynamic_fields": [
+    "Date response header",
+    "X-Cpa-Trace-Id response header",
+    "port numbers (worker-3: reference 8397, openai mock 20999, forwarder host publish 24545)",
+    "config file sha256 before/after edit",
+    "plugins_dir path (container-relative)"
+  ],
+  "files": [
+    "request.http",
+    "downstream.md",
+    "upstream.jsonl",
+    "mock-response.json"
+  ],
+  "notes": [
+    "Demonstrate the plugins config surface is accepted and visible after an EXTERNAL config file edit (also exercises hot-reload): plugins.enabled=true + a configured instance show up in GET /v0/management/plugins with registered=false (no binary present).",
+    "config sha256 before edit: a33508ee63d2551bee3de9cb0922a0f7869cf312cd74ab24d8b8595657adace5",
+    "config sha256 after edit (pre-reload): 994896ef3a0b9e7ebf02dae8e1a5dcaa5c8e33d14db58f621a9b5d69b8a33be7",
+    "server rewrites config.yaml on management-driven saves (comment/format normalization); the external edit itself preserves all prior bytes and appends the block"
+  ]
+}

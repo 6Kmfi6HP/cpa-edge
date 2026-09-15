@@ -1,0 +1,43 @@
+{
+ "id": "S1-13",
+ "purpose": "Gemini action routing: unknown :method and colon-less actions are 404 JSON; generateContent routes upstream.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+ "recorded_at": "2026-09-15T23:47:08",
+ "record_kind": "response+upstream",
+ "mock_upstream_mode": "happy",
+ "config": "baseline+openai-compat(mock-openai,mock-model)",
+ "dynamic_fields": [
+  "Date",
+  "X-Cpa-Trace-Id",
+  "created",
+  "created_at",
+  "Content-Length when body is dynamic"
+ ],
+ "requests": [
+  {
+   "name": "bogus-method",
+   "method": "POST",
+   "path": "/v1beta/models/mock-model:bogus",
+   "request_file": "bogus-method.request.http",
+   "downstream_file": "bogus-method.downstream.md",
+   "http_status": "200"
+  },
+  {
+   "name": "no-colon",
+   "method": "POST",
+   "path": "/v1beta/models/bogusaction",
+   "request_file": "no-colon.request.http",
+   "downstream_file": "no-colon.downstream.md",
+   "http_status": "404"
+  },
+  {
+   "name": "generate-content",
+   "method": "POST",
+   "path": "/v1beta/models/mock-model:generateContent",
+   "request_file": "generate-content.request.http",
+   "downstream_file": "generate-content.downstream.md",
+   "http_status": "200"
+  }
+ ],
+ "upstream_file": "upstream.jsonl"
+}

@@ -1,0 +1,7 @@
+DELETE /v0/management/oauth-session HTTP/1.1
+Host: 127.0.0.1:8387
+X-Management-Key: oracle-mgmt-key-1
+User-Agent: oracle-s3-probe/1.0
+Accept: */*
+Connection: close
+

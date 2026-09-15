@@ -1,0 +1,777 @@
+{
+  "step_id": "S2d10",
+  "section": "spec/sections/S2d10-antigravity-redirect.md",
+  "upstream_anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6",
+  "target_fixture_dir": "tests/fixtures/S2d10/",
+  "recording_config": {
+    "reference": "docker run eceasy/cli-proxy-api:v7.3.4 with _cpa_edge_ref/run/config.yaml (port 18317, api-keys [oracle-local-key-1], remote-management secret-key oracle-mgmt-key-1)",
+    "extra_port_mapping": "-p 127.0.0.1:51121:51121  (REQUIRED for forwarder cases; the loopback forwarder binds 0.0.0.0:51121 inside the container)",
+    "placeholders": {
+      "<mgmt-key>": "oracle-mgmt-key-1",
+      "<api-key>": "oracle-local-key-1",
+      "<state>": "32-hex state value returned by a prior antigravity-auth-url call in the SAME case; substitute the actual value and list it in meta.yaml dynamic_fields",
+      "<catalog model>": "pick a model id from GET /v0/management/model-definitions/antigravity at recording time (catalog is remote-refreshed; record the chosen id in meta.yaml)"
+    },
+    "notes": [
+      "Every response carries the standard CORS block; record it but it is not case-specific.",
+      "Go marshals gin.H maps with ALPHABETICAL keys; fixture bytes will show e.g. {\"state\":..,\"status\":\"ok\",\"url\":..} - do not 'fix' the order.",
+      "Sessions live 30 min; the forwarder lives while its session is pending (>=5 min). Record the forwarder probes immediately after the auth-url call.",
+      "After each case that starts a session, DELETE /v0/management/oauth-session?state=<state> (expect cancelled true/false) or restart the container between case-groups to keep state clean. Prefer container restart per case-group.",
+      "For curl: use -v, do NOT auto-follow redirects (-no Location-follow), keep request bytes exact."
+    ]
+  },
+  "cases": [
+    {
+      "id": "S2d10-auth-url-json",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "Pin the 200 shape of GET /v0/management/antigravity-auth-url and the exact Google authorization URL: fixed client_id, redirect_uri http://localhost:51121/oauth-callback, prompt=consent, access_type=offline, response_type=code, five scopes in fixed order, params alphabetically encoded.",
+      "requests": [
+        {
+          "order": 1,
+          "method": "GET",
+          "url": "http://127.0.0.1:18317/v0/management/antigravity-auth-url",
+          "headers": {
+            "Authorization": "Bearer <mgmt-key>"
+          },
+          "body": null
+        }
+      ],
+      "record": "status + response headers + body. Assertable: JSON keys exactly {state,status,url}; status='ok'; state matches ^[0-9a-f]{32}$; url starts with https://accounts.google.com/o/oauth2/v2/auth? and contains access_type=offline, client_id=1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com, prompt=consent, redirect_uri=http%3A%2F%2Flocalhost%3A51121%2Foauth-callback, response_type=code, scope=<five space-separated scopes>, state=<state>.",
+      "mock_upstream_mode": null,
+      "dynamic_fields": [
+        "Date",
+        "state (in JSON body and inside url query param)"
+      ]
+    },
+    {
+      "id": "S2d10-auth-url-auth-failures",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "401 error family on antigravity-auth-url: missing management key and invalid management key.",
+      "requests": [
+        {
+          "order": 1,
+          "method": "GET",
+          "url": "http://127.0.0.1:18317/v0/management/antigravity-auth-url",
+          "headers": {},
+          "body": null
+        },
+        {
+          "order": 2,
+          "method": "GET",
+          "url": "http://127.0.0.1:18317/v0/management/antigravity-auth-url",
+          "headers": {
+            "Authorization": "Bearer wrong-key"
+          },
+          "body": null
+        }
+      ],
+      "record": "Both: status 401, body {\"error\":\"missing management key\"} / {\"error\":\"invalid management key\"}.",
+      "mock_upstream_mode": null,
+      "dynamic_fields": [
+        "Date"
+      ]
+    },
+    {
+      "id": "S2d10-forwarder-302",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "The 302 redirect contract of the loopback forwarder started by is_webui=1: Location = http://127.0.0.1:18317/antigravity/callback with the raw incoming query, Cache-Control: no-store, plus the follow-up hop to the main-port callback returning the success HTML.",
+      "requests": [
+        {
+          "order": 1,
+          "method": "GET",
+          "url": "http://127.0.0.1:18317/v0/management/antigravity-auth-url?is_webui=1",
+          "headers": {
+            "Authorization": "Bearer <mgmt-key>"
+          },
+          "body": null,
+          "note": "capture <state> from the response JSON"
+        },
+        {
+          "order": 2,
+          "method": "GET",
+          "url": "http://127.0.0.1:51121/oauth-callback?code=ac_test_code&state=<state>",
+          "headers": {},
+          "body": null,
+          "note": "loopback forwarder; expect 302 Found; DO NOT let curl auto-follow; record status, Cache-Control, Location"
+        },
+        {
+          "order": 3,
+          "method": "GET",
+          "url": "http://127.0.0.1:18317/antigravity/callback?code=ac_test_code&state=<state>",
+          "headers": {},
+          "body": null,
+          "note": "the Location target followed manually; expect 200 + success HTML"
+        }
+      ],
+      "record": "Step 2: full 302 exchange (status line, Cache-Control: no-store, Location: http://127.0.0.1:18317/antigravity/callback?code=ac_test_code&state=<state>, Go redirect HTML body). Step 3: 200 + exact oauthCallbackSuccessHTML bytes.",
+      "mock_upstream_mode": null,
+      "dynamic_fields": [
+        "Date",
+        "state"
+      ]
+    },
+    {
+      "id": "S2d10-forwarder-any-path",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "Forwarder path-rewrite rule: ANY path is redirected to /antigravity/callback; incoming path discarded; raw query preserved (multi-param, ordering preserved).",
+      "requests": [
+        {
+          "order": 1,
+          "method": "GET",
+          "url": "http://127.0.0.1:18317/v0/management/antigravity-auth-url?is_webui=1",
+          "headers": {
+            "Authorization": "Bearer <mgmt-key>"
+          },
+          "body": null,
+          "note": "capture <state>"
+        },
+        {
+          "order": 2,
+          "method": "GET",
+          "url": "http://127.0.0.1:51121/some/deep/path/that/is/not/oauth-callback?z=1&code=ac2&state=<state>&x=abc",
+          "headers": {},
+          "body": null,
+          "note": "expect 302 Location http://127.0.0.1:18317/antigravity/callback?z=1&code=ac2&state=<state>&x=abc"
+        }
+      ],
+      "record": "Step 2 full 302 exchange incl. Location byte-exact.",
+      "mock_upstream_mode": null,
+      "dynamic_fields": [
+        "Date",
+        "state"
+      ]
+    },
+    {
+      "id": "S2d10-forwarder-replace",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "A second is_webui flow replaces the existing forwarder: the same loopback port now redirects with the NEW session state (no error, single listener).",
+      "requests": [
+        {
+          "order": 1,
+          "method": "GET",
+          "url": "http://127.0.0.1:18317/v0/management/antigravity-auth-url?is_webui=1",
+          "headers": {
+            "Authorization": "Bearer <mgmt-key>"
+          },
+          "body": null,
+          "note": "capture <state1>"
+        },
+        {
+          "order": 2,
+          "method": "GET",
+          "url": "http://127.0.0.1:18317/v0/management/antigravity-auth-url?is_webui=1",
+          "headers": {
+            "Authorization": "Bearer <mgmt-key>"
+          },
+          "body": null,
+          "note": "capture <state2>"
+        },
+        {
+          "order": 3,
+          "method": "GET",
+          "url": "http://127.0.0.1:51121/oauth-callback?code=cc&state=<state2>",
+          "headers": {},
+          "body": null,
+          "note": "expect 302 with state2 in Location"
+        }
+      ],
+      "record": "Step 3: 302 exchange; Location contains <state2>.",
+      "mock_upstream_mode": null,
+      "dynamic_fields": [
+        "Date",
+        "state1",
+        "state2"
+      ]
+    },
+    {
+      "id": "S2d10-main-callback-html",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "Main-port GET /antigravity/callback with an UNKNOWN (well-formed) state: 200 + success HTML, no auth required, write silently ignored.",
+      "requests": [
+        {
+          "order": 1,
+          "method": "GET",
+          "url": "http://127.0.0.1:18317/antigravity/callback?code=c&state=0123456789abcdef0123456789abcdef",
+          "headers": {},
+          "body": null
+        }
+      ],
+      "record": "200, Content-Type: text/html; charset=utf-8, exact oauthCallbackSuccessHTML body, CORS block present.",
+      "mock_upstream_mode": null,
+      "dynamic_fields": [
+        "Date"
+      ]
+    },
+    {
+      "id": "S2d10-main-callback-variants",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "Main-port callback variants: no query, error param present, OPTIONS (204+CORS), wrong method POST (404 empty per R-404).",
+      "requests": [
+        {
+          "order": 1,
+          "method": "GET",
+          "url": "http://127.0.0.1:18317/antigravity/callback",
+          "headers": {},
+          "body": null
+        },
+        {
+          "order": 2,
+          "method": "GET",
+          "url": "http://127.0.0.1:18317/antigravity/callback?error=access_denied&error_description=user+balked&state=0123456789abcdef0123456789abcdef",
+          "headers": {},
+          "body": null
+        },
+        {
+          "order": 3,
+          "method": "OPTIONS",
+          "url": "http://127.0.0.1:18317/antigravity/callback",
+          "headers": {},
+          "body": null
+        },
+        {
+          "order": 4,
+          "method": "POST",
+          "url": "http://127.0.0.1:18317/antigravity/callback",
+          "headers": {},
+          "body": null
+        }
+      ],
+      "record": "1-2: 200 success HTML (identical bytes both times). 3: 204 No Content + CORS. 4: 404 with EMPTY body.",
+      "mock_upstream_mode": null,
+      "dynamic_fields": [
+        "Date"
+      ]
+    },
+    {
+      "id": "S2d10-oauth-callback-errors",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "GET/POST /v0/management/oauth-callback validation family (no management key needed): invalid body, state required, invalid state, code-or-error required, unknown state 404, unsupported provider, provider mismatch against a live antigravity session, and alias normalization.",
+      "requests": [
+        {
+          "order": 1,
+          "method": "POST",
+          "url": "http://127.0.0.1:18317/v0/management/oauth-callback",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": "not-json{",
+          "note": "400 {\"error\":\"invalid body\",\"status\":\"error\"}"
+        },
+        {
+          "order": 2,
+          "method": "POST",
+          "url": "http://127.0.0.1:18317/v0/management/oauth-callback",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": "{\"code\":\"c\"}",
+          "note": "400 state is required"
+        },
+        {
+          "order": 3,
+          "method": "POST",
+          "url": "http://127.0.0.1:18317/v0/management/oauth-callback",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": "{\"code\":\"c\",\"state\":\"bad/state!\"}",
+          "note": "400 invalid state"
+        },
+        {
+          "order": 4,
+          "method": "POST",
+          "url": "http://127.0.0.1:18317/v0/management/oauth-callback",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": "{\"state\":\"0123456789abcdef0123456789abcdef\"}",
+          "note": "400 code or error is required"
+        },
+        {
+          "order": 5,
+          "method": "POST",
+          "url": "http://127.0.0.1:18317/v0/management/oauth-callback",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": "{\"code\":\"c\",\"state\":\"0123456789abcdef0123456789abcdef\"}",
+          "note": "404 unknown or expired state"
+        },
+        {
+          "order": 6,
+          "method": "POST",
+          "url": "http://127.0.0.1:18317/v0/management/oauth-callback",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": "{\"code\":\"c\",\"state\":\"0123456789abcdef0123456789abcdef\",\"provider\":\"not-a-provider\"}",
+          "note": "404 unknown or expired state (session lookup precedes provider normalization)"
+        },
+        {
+          "order": 7,
+          "method": "GET",
+          "url": "http://127.0.0.1:18317/v0/management/antigravity-auth-url",
+          "headers": {
+            "Authorization": "Bearer <mgmt-key>"
+          },
+          "body": null,
+          "note": "capture <state>; creates pending antigravity session"
+        },
+        {
+          "order": 8,
+          "method": "POST",
+          "url": "http://127.0.0.1:18317/v0/management/oauth-callback",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": "{\"code\":\"c\",\"state\":\"<state>\",\"provider\":\"bogus\"}",
+          "note": "400 unsupported provider"
+        },
+        {
+          "order": 9,
+          "method": "POST",
+          "url": "http://127.0.0.1:18317/v0/management/oauth-callback",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": "{\"code\":\"c\",\"state\":\"<state>\",\"provider\":\"codex\"}",
+          "note": "400 provider does not match state"
+        },
+        {
+          "order": 10,
+          "method": "GET",
+          "url": "http://127.0.0.1:18317/v0/management/oauth-callback?code=c&state=<state>&provider=ANTI-GRAVITY",
+          "headers": {},
+          "body": null,
+          "note": "provider alias normalization: expect 200 {\"status\":\"ok\"} (writes callback file with fake code; session fails exchange later - restart container after this case)"
+        }
+      ],
+      "record": "All statuses + bodies; step 10 proves alias normalization (ANTI-GRAVITY -> antigravity).",
+      "mock_upstream_mode": null,
+      "dynamic_fields": [
+        "Date",
+        "state"
+      ]
+    },
+    {
+      "id": "S2d10-session-lifecycle",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "Full session lifecycle without Google: pending wait -> cancel -> unknown -> re-cancel -> main-port callback after cancel.",
+      "requests": [
+        {
+          "order": 1,
+          "method": "GET",
+          "url": "http://127.0.0.1:18317/v0/management/antigravity-auth-url",
+          "headers": {
+            "Authorization": "Bearer <mgmt-key>"
+          },
+          "body": null,
+          "note": "capture <state>"
+        },
+        {
+          "order": 2,
+          "method": "GET",
+          "url": "http://127.0.0.1:18317/v0/management/get-auth-status?state=<state>",
+          "headers": {
+            "Authorization": "Bearer <mgmt-key>"
+          },
+          "body": null,
+          "note": "200 {\"status\":\"wait\"}"
+        },
+        {
+          "order": 3,
+          "method": "DELETE",
+          "url": "http://127.0.0.1:18317/v0/management/oauth-session?state=<state>",
+          "headers": {
+            "Authorization": "Bearer <mgmt-key>"
+          },
+          "body": null,
+          "note": "200 {\"cancelled\":true,\"status\":\"ok\"}"
+        },
+        {
+          "order": 4,
+          "method": "GET",
+          "url": "http://127.0.0.1:18317/v0/management/get-auth-status?state=<state>",
+          "headers": {
+            "Authorization": "Bearer <mgmt-key>"
+          },
+          "body": null,
+          "note": "200 {\"error\":\"unknown or expired state\",\"status\":\"error\"}"
+        },
+        {
+          "order": 5,
+          "method": "DELETE",
+          "url": "http://127.0.0.1:18317/v0/management/oauth-session?state=<state>",
+          "headers": {
+            "Authorization": "Bearer <mgmt-key>"
+          },
+          "body": null,
+          "note": "200 {\"cancelled\":false,\"status\":\"ok\"}"
+        },
+        {
+          "order": 6,
+          "method": "GET",
+          "url": "http://127.0.0.1:18317/antigravity/callback?code=late&state=<state>",
+          "headers": {},
+          "body": null,
+          "note": "still 200 success HTML (write silently skipped)"
+        },
+        {
+          "order": 7,
+          "method": "POST",
+          "url": "http://127.0.0.1:18317/v0/management/oauth-callback",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": "{\"code\":\"late\",\"state\":\"<state>\",\"provider\":\"antigravity\"}",
+          "note": "404 unknown or expired state"
+        }
+      ],
+      "record": "All 7 exchanges in order.",
+      "mock_upstream_mode": null,
+      "dynamic_fields": [
+        "Date",
+        "state"
+      ]
+    },
+    {
+      "id": "S2d10-callback-error-session",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "Browser-deny path end-to-end without Google: main-port callback with error param against a pending session sets session status 'Authentication failed' (no upstream call happens).",
+      "requests": [
+        {
+          "order": 1,
+          "method": "GET",
+          "url": "http://127.0.0.1:18317/v0/management/antigravity-auth-url",
+          "headers": {
+            "Authorization": "Bearer <mgmt-key>"
+          },
+          "body": null,
+          "note": "capture <state>"
+        },
+        {
+          "order": 2,
+          "method": "GET",
+          "url": "http://127.0.0.1:18317/antigravity/callback?error=access_denied&error_description=consent+denied&state=<state>",
+          "headers": {},
+          "body": null,
+          "note": "200 success HTML"
+        },
+        {
+          "order": 3,
+          "method": "GET",
+          "url": "http://127.0.0.1:18317/v0/management/get-auth-status?state=<state>",
+          "headers": {
+            "Authorization": "Bearer <mgmt-key>"
+          },
+          "body": null,
+          "note": "poll every 500ms until status != 'wait' (waiter polls at 500ms); final value must be 200 {\"error\":\"Authentication failed\",\"status\":\"error\"}"
+        }
+      ],
+      "record": "Step 3 final response only (note settle time in meta.yaml).",
+      "mock_upstream_mode": null,
+      "dynamic_fields": [
+        "Date",
+        "state",
+        "settle delay (up to ~1-2s; assert final value only)"
+      ]
+    },
+    {
+      "id": "S2d10-post-callback-exchange-fail",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "JSON handoff success + deterministic exchange failure: POST oauth-callback with a fake code returns 200 ok; the waiter then fails the exchange (bogus code and/or unreachable Google) and marks the session 'Failed to exchange token' regardless of failure cause.",
+      "requests": [
+        {
+          "order": 1,
+          "method": "GET",
+          "url": "http://127.0.0.1:18317/v0/management/antigravity-auth-url",
+          "headers": {
+            "Authorization": "Bearer <mgmt-key>"
+          },
+          "body": null,
+          "note": "capture <state>"
+        },
+        {
+          "order": 2,
+          "method": "POST",
+          "url": "http://127.0.0.1:18317/v0/management/oauth-callback",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": "{\"provider\":\"antigravity\",\"code\":\"4/0FakeCodeCannotBeExchanged\",\"state\":\"<state>\"}",
+          "note": "200 {\"status\":\"ok\"}"
+        },
+        {
+          "order": 3,
+          "method": "GET",
+          "url": "http://127.0.0.1:18317/v0/management/get-auth-status?state=<state>",
+          "headers": {
+            "Authorization": "Bearer <mgmt-key>"
+          },
+          "body": null,
+          "note": "poll until status != 'wait' (max 60s); final: 200 {\"error\":\"Failed to exchange token\",\"status\":\"error\"}. Works with or without internet since any exchange error maps to the same message."
+        }
+      ],
+      "record": "Steps 1-3; record final value of step 3 only.",
+      "mock_upstream_mode": null,
+      "dynamic_fields": [
+        "Date",
+        "state",
+        "settle time (assert final value only)"
+      ]
+    },
+    {
+      "id": "S2d10-get-auth-status-variants",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "get-auth-status degenerate inputs: no state param, empty state, invalid state characters.",
+      "requests": [
+        {
+          "order": 1,
+          "method": "GET",
+          "url": "http://127.0.0.1:18317/v0/management/get-auth-status",
+          "headers": {
+            "Authorization": "Bearer <mgmt-key>"
+          },
+          "body": null,
+          "note": "200 {\"status\":\"ok\"}"
+        },
+        {
+          "order": 2,
+          "method": "GET",
+          "url": "http://127.0.0.1:18317/v0/management/get-auth-status?state=",
+          "headers": {
+            "Authorization": "Bearer <mgmt-key>"
+          },
+          "body": null,
+          "note": "200 {\"status\":\"ok\"}"
+        },
+        {
+          "order": 3,
+          "method": "GET",
+          "url": "http://127.0.0.1:18317/v0/management/get-auth-status?state=has%20space",
+          "headers": {
+            "Authorization": "Bearer <mgmt-key>"
+          },
+          "body": null,
+          "note": "400 {\"error\":\"invalid state\",\"status\":\"error\"}"
+        }
+      ],
+      "record": "All three exchanges.",
+      "mock_upstream_mode": null,
+      "dynamic_fields": [
+        "Date"
+      ]
+    },
+    {
+      "id": "S2d10-cancel-errors",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "DELETE oauth-session validation: missing state, invalid state.",
+      "requests": [
+        {
+          "order": 1,
+          "method": "DELETE",
+          "url": "http://127.0.0.1:18317/v0/management/oauth-session",
+          "headers": {
+            "Authorization": "Bearer <mgmt-key>"
+          },
+          "body": null,
+          "note": "400 {\"error\":\"missing state\",\"status\":\"error\"}"
+        },
+        {
+          "order": 2,
+          "method": "DELETE",
+          "url": "http://127.0.0.1:18317/v0/management/oauth-session?state=../../etc",
+          "headers": {
+            "Authorization": "Bearer <mgmt-key>"
+          },
+          "body": null,
+          "note": "400 {\"error\":\"invalid state\",\"status\":\"error\"}"
+        }
+      ],
+      "record": "Both exchanges.",
+      "mock_upstream_mode": null,
+      "dynamic_fields": [
+        "Date"
+      ]
+    },
+    {
+      "id": "S2d10-forwarder-port-busy",
+      "classification": "FIXTURE-DEFERRED (error-path recordable in principle; blocked by container netns - attempt only if a runtime that can occupy in-container port 51121 is available, e.g. docker exec into a non-scratch image or --network host)",
+      "purpose": "Forwarder bind failure: with 51121 already bound inside the container, is_webui=1 auth-url returns 500 {\"error\":\"failed to start callback server\"}.",
+      "requests": [
+        {
+          "order": 0,
+          "method": "PRE",
+          "url": "hold a TCP listener on 127.0.0.1:51121 INSIDE the container netns for the duration of this case",
+          "headers": null,
+          "body": null
+        },
+        {
+          "order": 1,
+          "method": "GET",
+          "url": "http://127.0.0.1:18317/v0/management/antigravity-auth-url?is_webui=1",
+          "headers": {
+            "Authorization": "Bearer <mgmt-key>"
+          },
+          "body": null,
+          "note": "expect 500 {\"error\":\"failed to start callback server\"}"
+        }
+      ],
+      "record": "500 exchange. If the runtime cannot bind in-container, mark deferred with reason 'needs in-container port conflict'.",
+      "mock_upstream_mode": null,
+      "dynamic_fields": [
+        "Date"
+      ]
+    },
+    {
+      "id": "S2d10-executor-request-shape",
+      "classification": "RECORDABLE-ATTEMPT (synthetic credential + base_url override; if the reference rejects the synthetic antigravity auth file or the model does not route, fall back to FIXTURE-DEFERRED)",
+      "purpose": "Pin the v1internal generateContent request envelope with a local antigravity mock: URL {base}/v1internal:generateContent, headers (Authorization Bearer fake, User-Agent antigravity/hub/<ver> darwin/arm64, Content-Type application/json), body {model, userAgent:'antigravity', project, requestType:'agent', requestId:'agent-<uuid>', request:{sessionId:'-<int64>', contents, systemInstruction, generationConfig...}} with request.safetySettings deleted and toolConfig moved into request.toolConfig.",
+      "setup": [
+        "NEW mock type 'antigravity' on port 19121 speaking: POST /v1internal:generateContent -> 200 {\"response\":{\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"hello\"}]}},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":1,\"candidatesTokenCount\":1,\"totalTokenCount\":2}}; POST /v1internal:streamGenerateContent?alt=sse -> SSE data: chunks of the same shape; POST /v1internal:countTokens -> {\"totalTokens\":7}; log all incoming requests to upstream.jsonl like the other mocks.",
+        "Upload synthetic credential via POST /v0/management/auth-files (multipart or raw per S5 upload contract) with filename antigravity-oracle@synth.json and JSON {\"type\":\"antigravity\",\"email\":\"oracle@synth\",\"project_id\":\"synth-project\",\"access_token\":\"fake-token\",\"refresh_token\":\"fake-refresh\",\"expires_in\":3600,\"expired\":\"2030-01-01T00:00:00Z\",\"base_url\":\"http://host.docker.internal:19121\"}."
+      ],
+      "requests": [
+        {
+          "order": 1,
+          "method": "POST",
+          "url": "http://127.0.0.1:18317/v0/management/auth-files",
+          "headers": {
+            "Authorization": "Bearer <mgmt-key>",
+            "Content-Type": "application/octet-stream"
+          },
+          "body": "<synthetic credential JSON from setup>",
+          "note": "capture the upload response; if it fails (validation), mark this case FIXTURE-DEFERRED and stop"
+        },
+        {
+          "order": 2,
+          "method": "POST",
+          "url": "http://127.0.0.1:18317/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer <api-key>",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"model\":\"<catalog model>\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}",
+          "note": "expect 200 translated chat completion; the mock upstream.jsonl is the real deliverable"
+        },
+        {
+          "order": 3,
+          "method": "POST",
+          "url": "http://127.0.0.1:18317/v1/messages/count_tokens",
+          "headers": {
+            "Authorization": "Bearer <api-key>",
+            "Content-Type": "application/json",
+            "anthropic-version": "2023-06-01"
+          },
+          "body": "{\"model\":\"<catalog model>\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}",
+          "note": "drives :countTokens; upstream body must NOT contain model/project/request.sessionId/request.safetySettings/request.toolConfig/request.labels"
+        }
+      ],
+      "record": "upstream.jsonl for each upstream call (method, path incl. query, headers with Authorization redacted, full body) + downstream.md per client response + mock-response.json. The upstream request bodies are the golden.",
+      "mock_upstream_mode": "happy",
+      "dynamic_fields": [
+        "Date",
+        "requestId",
+        "sessionId",
+        "X-Cpa-Trace-Id",
+        "created",
+        "id",
+        "modelVersion/responseId",
+        "UA hub version"
+      ]
+    },
+    {
+      "id": "S2d10-executor-stream-usage",
+      "classification": "RECORDABLE-ATTEMPT (same synthetic setup as S2d10-executor-request-shape)",
+      "purpose": "Pin the stream contract through the mock: upstream URL .../v1internal:streamGenerateContent?alt=sse; SSE chunk translation; usageMetadata filter (non-terminal chunks renamed cpaUsageMetadata and not surfaced client-side); terminal chunk keeps usage; OpenAI client sees SSE with [DONE].",
+      "requests": [
+        {
+          "order": 1,
+          "method": "POST",
+          "url": "http://127.0.0.1:18317/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer <api-key>",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"model\":\"<catalog model>\",\"stream\":true,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}",
+          "note": "mock returns 3 SSE data: chunks: two non-terminal each carrying usageMetadata (must be stripped client-side) + one terminal with finishReason STOP and usageMetadata (kept)"
+        }
+      ],
+      "record": "Full downstream SSE byte stream + upstream.jsonl (incl. query string alt=sse) + mock-response.json.",
+      "mock_upstream_mode": "happy (SSE); optional second pass with slow-chunks to observe framing",
+      "dynamic_fields": [
+        "Date",
+        "requestId",
+        "sessionId",
+        "created",
+        "id fields",
+        "UA hub version"
+      ]
+    },
+    {
+      "id": "S2d10-executor-429-cooldown",
+      "classification": "RECORDABLE-ATTEMPT (same synthetic setup)",
+      "purpose": "Pin the antigravity 429 taxonomy via the mock: 429 body {\"error\":{\"code\":429,\"message\":\"...\",\"status\":\"RESOURCE_EXHAUSTED\",\"details\":[{\"@type\":\"type.googleapis.com/google.rpc.ErrorInfo\",\"reason\":\"RATE_LIMIT_EXCEEDED\"},{\"@type\":\"type.googleapis.com/google.rpc.RetryInfo\",\"retryDelay\":\"30s\"}]}} -> short per-credential cooldown; an immediate second request with the same model hits the cooldown path (auth switch / model_cooldown error family per S4). Note: oracle config transient-error-cooldown-seconds:-1 does NOT disable this provider-local cooldown.",
+      "requests": [
+        {
+          "order": 1,
+          "method": "POST",
+          "url": "http://127.0.0.1:18317/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer <api-key>",
+            "Content-Type": "application/json",
+            "X-Mock-Mode": "error",
+            "X-Mock-Status": "429"
+          },
+          "body": "{\"model\":\"<catalog model>\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}",
+          "note": "mock scripted to return the Google-shaped 429 body"
+        },
+        {
+          "order": 2,
+          "method": "POST",
+          "url": "http://127.0.0.1:18317/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer <api-key>",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"model\":\"<catalog model>\",\"messages\":[{\"role\":\"user\",\"content\":\"hi again\"}]}",
+          "note": "immediately after; with a single credential the cooldown surfaces the model_cooldown/auth_unavailable error family (S4) - record exact shape; if request-retry/cooldown config interferes, note config used"
+        }
+      ],
+      "record": "Both downstream exchanges + mock control files used.",
+      "mock_upstream_mode": "error (status 429, Google-shaped body)",
+      "dynamic_fields": [
+        "Date",
+        "requestId",
+        "cooldown timestamps/durations inside error messages"
+      ]
+    },
+    {
+      "id": "S2d10-live-oauth-success",
+      "classification": "FIXTURE-DEFERRED",
+      "deferred_reason": "CREDENTIALED-ONLY per R-FIXTURE: requires a real Google account for consent + code exchange + userinfo + loadCodeAssist/onboardUser; state and url are per-request random.",
+      "purpose": "Full success path: auth-url -> browser consent -> code -> callback file -> exchange -> userinfo email -> project discovery -> antigravity-<email>.json credential with metadata {type, access_token, refresh_token, expires_in, timestamp, expired, email, project_id} -> session completed (get-auth-status ok).",
+      "requests": [],
+      "record": "none (specified in section 2.2/2.6/2.7)",
+      "mock_upstream_mode": null
+    },
+    {
+      "id": "S2d10-live-executor-responses",
+      "classification": "FIXTURE-DEFERRED",
+      "deferred_reason": "CREDENTIALED-ONLY: real upstream responses from daily-cloudcode-pa.googleapis.com v1internal (gemini-family non-stream + stream, claude-family stream-aggregation, :fetchAvailableModels webSearchModelIds, token refresh) need a live Google OAuth token.",
+      "purpose": "Real upstream response envelopes for both model families, refresh flow, model capability probe.",
+      "requests": [],
+      "record": "none (specified in section 3.4/3.5/4)",
+      "mock_upstream_mode": null
+    },
+    {
+      "id": "S2d10-cli-loopback-server",
+      "classification": "FIXTURE-DEFERRED",
+      "deferred_reason": "The CLI-mode :51121 /oauth-callback server (Login successful / Login failed HTML, ServeMux 404 on other paths) is served by the login command process, not the server binary; not reachable from the oracle harness.",
+      "purpose": "CLI login loopback responses.",
+      "requests": [],
+      "record": "none (specified in section 2.8)",
+      "mock_upstream_mode": null
+    }
+  ]
+}

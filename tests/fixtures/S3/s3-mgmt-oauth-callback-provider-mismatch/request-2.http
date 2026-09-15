@@ -1,0 +1,10 @@
+POST /v0/management/oauth-callback HTTP/1.1
+Host: 127.0.0.1:8387
+X-Management-Key: oracle-mgmt-key-1
+Content-Type: application/json
+User-Agent: oracle-s3-probe/1.0
+Accept: */*
+Connection: close
+Content-Length: 78
+
+{"provider":"anthropic","state":"1774e0d37069b7069e1ca1c184361d7d","code":"x"}

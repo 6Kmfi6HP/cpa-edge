@@ -1,0 +1,11 @@
+POST /v1/responses HTTP/1.1
+Host: 127.0.0.1:18317
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-local-key-1
+Content-Type: application/json
+X-OpenAI-Internal-Codex-Responses-Lite: true
+Content-Length: 128
+
+
+{"model": "codex-mock", "instructions": "Native instructions here.", "input": "Hi", "parallel_tool_calls": true, "stream": true}

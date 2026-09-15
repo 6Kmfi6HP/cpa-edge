@@ -1,0 +1,2251 @@
+{
+  "step": "S5",
+  "title": "Management API (/v0/management full surface) — golden recording request",
+  "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+  "target_fixture_dir": "tests/fixtures/S5/",
+  "baseline_state": "Fresh container from oracle-runner-2's derived S5 baseline config (fleet template from _cpa_edge_ref/run/config.yaml with base-urls re-pointed to the 19999-20007 mock ports and server port 8387) (all 8 mock providers wired, api-keys [oracle-local-key-1], usage-statistics-enabled false, request-retry 0, transient-error-cooldown-seconds -1, logging-to-file absent=false, secret-key bcrypt-hashed in file; management key plaintext oracle-mgmt-key-1). No mock traffic driven through the gateway before the usage/telemetry case so counters are zero. Each case is self-contained and restores its own state; run stateful cases on a freshly started container or after restoring run/config.yaml.",
+  "conventions": {
+    "base_url": "http://127.0.0.1:8387",
+    "management_key": "Management key literal 'oracle-mgmt-key-1' is the oracle env value documented in reports/oracle/BOOTSTRAP.md §3 (not a real secret). Use it verbatim in recordings. Both header styles are exercised: Authorization: Bearer and X-Management-Key.",
+    "record": "For every request record status + response headers + body (exact bytes). Cases that involve the mock upstream also save mock/logs/openai.jsonl lines produced during the case as upstream.jsonl.",
+    "dynamic_fields_global": [
+      "Date response header",
+      "X-Cpa-* values (build metadata)",
+      "Content-Length recomputed after masking",
+      "port numbers (8387 / 19999-20007) when the contract harness substitutes ports"
+    ],
+    "port_substitution": "Case bodies below are drafted against the oracle-runner-2 stack (base_url 127.0.0.1:8387; mocks 19999 openai, 20001 gemini, 20002 claude, 20003 codex, 20004 xai, 20005 meta, 20006 interactions, 20007 vertex). The assigned recording worker oracle-runner-4 executes them with the mechanical port map 8387->8407, 19999->21999, 20001->22001, 20002->22002, 20003->22003, 20004->22004, 20005->22005, 20006->22006, 20007->22007. Port numbers anywhere in a transcript are masked dynamic fields for contract replay; everything else is compared byte-exactly."
+  },
+  "cases": [
+    {
+      "id": "S5-auth-missing-key",
+      "purpose": "401 with exact body {\"error\":\"missing management key\"}; X-CPA-* + CORS header contract on an auth failure",
+      "mock_upstream": null,
+      "requests": [
+        {
+          "seq": 1,
+          "method": "GET",
+          "path": "/v0/management/config",
+          "headers": []
+        }
+      ],
+      "record": "status+headers+body for the single request",
+      "expect": {
+        "status": 401,
+        "body": "{\"error\":\"missing management key\"}"
+      },
+      "dynamic_fields": [
+        "Date",
+        "port numbers in URLs/paths"
+      ],
+      "classification": "RECORDABLE"
+    },
+    {
+      "id": "S5-auth-invalid-key",
+      "purpose": "401 with exact body {\"error\":\"invalid management key\"} (Bearer style, wrong value)",
+      "mock_upstream": null,
+      "requests": [
+        {
+          "seq": 1,
+          "method": "GET",
+          "path": "/v0/management/config",
+          "headers": [
+            "Authorization: Bearer wrong-mgmt-key"
+          ]
+        }
+      ],
+      "record": "status+headers+body",
+      "expect": {
+        "status": 401,
+        "body": "{\"error\":\"invalid management key\"}"
+      },
+      "dynamic_fields": [
+        "Date",
+        "port numbers in URLs/paths"
+      ],
+      "classification": "RECORDABLE"
+    },
+    {
+      "id": "S5-auth-header-styles",
+      "purpose": "X-Management-Key style accepted -> 200 {\"api-keys\":[\"oracle-local-key-1\"]}",
+      "mock_upstream": null,
+      "requests": [
+        {
+          "seq": 1,
+          "method": "GET",
+          "path": "/v0/management/api-keys",
+          "headers": [
+            "X-Management-Key: oracle-mgmt-key-1"
+          ]
+        }
+      ],
+      "record": "status+headers+body",
+      "expect": {
+        "status": 200,
+        "body": "{\"api-keys\":[\"oracle-local-key-1\"]}"
+      },
+      "dynamic_fields": [
+        "Date",
+        "port numbers in URLs/paths"
+      ],
+      "classification": "RECORDABLE"
+    },
+    {
+      "id": "S5-unknown-route",
+      "purpose": "Unknown management sub-route with a valid key -> 404 with EMPTY body (ruling R-404)",
+      "mock_upstream": null,
+      "requests": [
+        {
+          "seq": 1,
+          "method": "GET",
+          "path": "/v0/management/definitely-not-a-route",
+          "headers": [
+            "X-Management-Key: oracle-mgmt-key-1"
+          ]
+        }
+      ],
+      "record": "status+headers+body (body must be captured as empty)",
+      "expect": {
+        "status": 404,
+        "body": ""
+      },
+      "dynamic_fields": [
+        "Date",
+        "port numbers in URLs/paths"
+      ],
+      "classification": "RECORDABLE"
+    },
+    {
+      "id": "S5-config-get",
+      "purpose": "GET /config returns the full effective config JSON of the fleet template (field names + hidden keys remote-management/host/port/auth-dir absent)",
+      "mock_upstream": null,
+      "requests": [
+        {
+          "seq": 1,
+          "method": "GET",
+          "path": "/v0/management/config",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        }
+      ],
+      "record": "status+headers+body",
+      "expect": {
+        "status": 200,
+        "body_contains": [
+          "\"api-keys\":[\"oracle-local-key-1\"]",
+          "\"openai-compatibility\":[",
+          "\"gemini-api-key\":["
+        ],
+        "body_absent": [
+          "\"remote-management\"",
+          "\"auth-dir\"",
+          "\"host\"",
+          "\"port\""
+        ]
+      },
+      "dynamic_fields": [
+        "Date",
+        "port numbers in URLs/paths"
+      ],
+      "classification": "RECORDABLE"
+    },
+    {
+      "id": "S5-scalar-toggle",
+      "purpose": "Scalar toggle round trip (debug): GET false, PUT true, GET true, PATCH alias, invalid body 400, restore",
+      "mock_upstream": null,
+      "requests": [
+        {
+          "seq": 1,
+          "method": "GET",
+          "path": "/v0/management/debug",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 2,
+          "method": "PUT",
+          "path": "/v0/management/debug",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"value\":true}"
+        },
+        {
+          "seq": 3,
+          "method": "GET",
+          "path": "/v0/management/debug",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 4,
+          "method": "PATCH",
+          "path": "/v0/management/debug",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"value\":true}",
+          "note": "PATCH is a PUT alias for scalars"
+        },
+        {
+          "seq": 5,
+          "method": "PUT",
+          "path": "/v0/management/debug",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"value\":\"yes\"}",
+          "note": "wrong JSON type"
+        },
+        {
+          "seq": 6,
+          "method": "PUT",
+          "path": "/v0/management/debug",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{}"
+        },
+        {
+          "seq": 7,
+          "method": "PUT",
+          "path": "/v0/management/debug",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"value\":false}",
+          "note": "restore"
+        },
+        {
+          "seq": 8,
+          "method": "GET",
+          "path": "/v0/management/debug",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        }
+      ],
+      "record": "status+headers+body for all 8",
+      "expect": {
+        "statuses": [
+          200,
+          200,
+          200,
+          200,
+          400,
+          400,
+          200,
+          200
+        ],
+        "bodies": [
+          "{\"debug\":false}",
+          "{\"status\":\"ok\"}",
+          "{\"debug\":true}",
+          "{\"status\":\"ok\"}",
+          "{\"error\":\"invalid body\"}",
+          "{\"error\":\"invalid body\"}",
+          "{\"status\":\"ok\"}",
+          "{\"debug\":false}"
+        ]
+      },
+      "dynamic_fields": [
+        "Date",
+        "port numbers in URLs/paths"
+      ],
+      "classification": "RECORDABLE"
+    },
+    {
+      "id": "S5-api-keys-crud",
+      "purpose": "api-keys list CRUD round trip: PUT/GET/PATCH(index,old-new)/DELETE(index)/validation errors; restores baseline",
+      "mock_upstream": null,
+      "requests": [
+        {
+          "seq": 1,
+          "method": "PUT",
+          "path": "/v0/management/api-keys",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "[\"oracle-local-key-1\",\"s5-extra-key\"]"
+        },
+        {
+          "seq": 2,
+          "method": "GET",
+          "path": "/v0/management/api-keys",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 3,
+          "method": "PATCH",
+          "path": "/v0/management/api-keys",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"index\":1,\"value\":\"s5-renamed\"}"
+        },
+        {
+          "seq": 4,
+          "method": "GET",
+          "path": "/v0/management/api-keys",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 5,
+          "method": "PATCH",
+          "path": "/v0/management/api-keys",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"old\":\"s5-renamed\",\"new\":\"s5-extra\"}"
+        },
+        {
+          "seq": 6,
+          "method": "GET",
+          "path": "/v0/management/api-keys",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 7,
+          "method": "DELETE",
+          "path": "/v0/management/api-keys?index=1",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 8,
+          "method": "GET",
+          "path": "/v0/management/api-keys",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 9,
+          "method": "PUT",
+          "path": "/v0/management/api-keys",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "not json",
+          "note": "invalid JSON body"
+        },
+        {
+          "seq": 10,
+          "method": "PUT",
+          "path": "/v0/management/api-keys",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"items\":[]}",
+          "note": "wrapper with empty items"
+        },
+        {
+          "seq": 11,
+          "method": "PATCH",
+          "path": "/v0/management/api-keys",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"index\":9,\"value\":\"x\"}",
+          "note": "index out of range falls through"
+        },
+        {
+          "seq": 12,
+          "method": "PATCH",
+          "path": "/v0/management/api-keys",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{}"
+        },
+        {
+          "seq": 13,
+          "method": "DELETE",
+          "path": "/v0/management/api-keys",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "note": "no index/value query"
+        },
+        {
+          "seq": 14,
+          "method": "DELETE",
+          "path": "/v0/management/api-keys?value=ghost",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "note": "value not present is a no-op that still persists"
+        },
+        {
+          "seq": 15,
+          "method": "PUT",
+          "path": "/v0/management/api-keys",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "[\"oracle-local-key-1\"]",
+          "note": "restore baseline"
+        }
+      ],
+      "record": "status+headers+body for all 15",
+      "expect": {
+        "statuses": [
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          400,
+          400,
+          400,
+          400,
+          400,
+          200,
+          200
+        ],
+        "body_notes": [
+          "step 4 body is {\"api-keys\":[\"oracle-local-key-1\",\"s5-renamed\"]}",
+          "step 6: s5-extra",
+          "step 8 back to [\"oracle-local-key-1\"]"
+        ]
+      },
+      "dynamic_fields": [
+        "Date",
+        "port numbers in URLs/paths"
+      ],
+      "classification": "RECORDABLE"
+    },
+    {
+      "id": "S5-routing-strategy",
+      "purpose": "routing strategy: default read normalizes to round-robin, alias accepted, invalid value 400, restore",
+      "mock_upstream": null,
+      "requests": [
+        {
+          "seq": 1,
+          "method": "GET",
+          "path": "/v0/management/routing/strategy",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 2,
+          "method": "PUT",
+          "path": "/v0/management/routing/strategy",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"value\":\"roundrobin\"}",
+          "note": "alias form"
+        },
+        {
+          "seq": 3,
+          "method": "GET",
+          "path": "/v0/management/routing/strategy",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 4,
+          "method": "PUT",
+          "path": "/v0/management/routing/strategy",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"value\":\"bogus\"}"
+        },
+        {
+          "seq": 5,
+          "method": "PUT",
+          "path": "/v0/management/routing/strategy",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"value\":\"ff\"}"
+        },
+        {
+          "seq": 6,
+          "method": "GET",
+          "path": "/v0/management/routing/strategy",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 7,
+          "method": "PUT",
+          "path": "/v0/management/routing/strategy",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"value\":\"round-robin\"}",
+          "note": "restore"
+        }
+      ],
+      "record": "status+headers+body for all 7",
+      "expect": {
+        "statuses": [
+          200,
+          200,
+          200,
+          400,
+          200,
+          200,
+          200
+        ],
+        "bodies": [
+          "{\"strategy\":\"round-robin\"}",
+          "{\"status\":\"ok\"}",
+          "{\"strategy\":\"round-robin\"}",
+          "{\"error\":\"invalid strategy\"}",
+          "{\"status\":\"ok\"}",
+          "{\"strategy\":\"fill-first\"}",
+          "{\"status\":\"ok\"}"
+        ]
+      },
+      "dynamic_fields": [
+        "Date",
+        "port numbers in URLs/paths"
+      ],
+      "classification": "RECORDABLE"
+    },
+    {
+      "id": "S5-openai-compat-crud",
+      "purpose": "openai-compatibility provider CRUD: PUT/GET(with auth-index)/PATCH by name/404/DELETE by name; restores fleet entry",
+      "mock_upstream": null,
+      "requests": [
+        {
+          "seq": 1,
+          "method": "GET",
+          "path": "/v0/management/openai-compatibility",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 2,
+          "method": "PUT",
+          "path": "/v0/management/openai-compatibility",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "[{\"name\":\"s5-mock\",\"base-url\":\"http://host.docker.internal:19999/v1\",\"api-key-entries\":[{\"api-key\":\"s5-mock-key\"}],\"models\":[{\"name\":\"mock-gpt-model\",\"alias\":\"s5-alias\"}]}]"
+        },
+        {
+          "seq": 3,
+          "method": "GET",
+          "path": "/v0/management/openai-compatibility",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 4,
+          "method": "PATCH",
+          "path": "/v0/management/openai-compatibility",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"name\":\"s5-mock\",\"value\":{\"prefix\":\"s5pfx\"}}"
+        },
+        {
+          "seq": 5,
+          "method": "GET",
+          "path": "/v0/management/openai-compatibility",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 6,
+          "method": "PATCH",
+          "path": "/v0/management/openai-compatibility",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"name\":\"nope\",\"value\":{\"prefix\":\"x\"}}"
+        },
+        {
+          "seq": 7,
+          "method": "DELETE",
+          "path": "/v0/management/openai-compatibility?name=s5-mock",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 8,
+          "method": "GET",
+          "path": "/v0/management/openai-compatibility",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 9,
+          "method": "DELETE",
+          "path": "/v0/management/openai-compatibility",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "note": "missing name or index"
+        },
+        {
+          "seq": 10,
+          "method": "PUT",
+          "path": "/v0/management/openai-compatibility",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"items\":[]}",
+          "note": "wrapper with empty items"
+        },
+        {
+          "seq": 11,
+          "method": "PUT",
+          "path": "/v0/management/openai-compatibility",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "[{\"name\":\"mock-openai\",\"base-url\":\"http://host.docker.internal:19999/v1\",\"api-key-entries\":[{\"api-key\":\"mock-upstream-key\"}],\"models\":[{\"name\":\"mock-gpt-model\",\"alias\":\"mock-model\"}]}]",
+          "note": "restore fleet baseline"
+        }
+      ],
+      "record": "status+headers+body for all 11",
+      "expect": {
+        "statuses": [
+          200,
+          200,
+          200,
+          200,
+          200,
+          404,
+          200,
+          200,
+          400,
+          400,
+          200
+        ],
+        "body_notes": [
+          "steps 1/3/5/8 contain auth-index values (dynamic)",
+          "step 8 body {\"openai-compatibility\":[]}"
+        ]
+      },
+      "dynamic_fields": [
+        "Date",
+        "auth-index values in list responses",
+        "port numbers in URLs/paths"
+      ],
+      "classification": "RECORDABLE"
+    },
+    {
+      "id": "S5-gemini-key-crud",
+      "purpose": "gemini-api-key CRUD + weight validation (PUT scoped, PATCH bare) + delete selector errors; restores fleet entry",
+      "mock_upstream": null,
+      "requests": [
+        {
+          "seq": 1,
+          "method": "GET",
+          "path": "/v0/management/gemini-api-key",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 2,
+          "method": "PUT",
+          "path": "/v0/management/gemini-api-key",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "[{\"api-key\":\"s5-gem-key\",\"base-url\":\"http://host.docker.internal:20001\"}]"
+        },
+        {
+          "seq": 3,
+          "method": "GET",
+          "path": "/v0/management/gemini-api-key",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 4,
+          "method": "PATCH",
+          "path": "/v0/management/gemini-api-key",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"index\":0,\"value\":{\"weight\":2000000}}"
+        },
+        {
+          "seq": 5,
+          "method": "PATCH",
+          "path": "/v0/management/gemini-api-key",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"index\":0,\"value\":{\"weight\":\"abc\"}}"
+        },
+        {
+          "seq": 6,
+          "method": "PATCH",
+          "path": "/v0/management/gemini-api-key",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"index\":0,\"value\":{\"weight\":5}}"
+        },
+        {
+          "seq": 7,
+          "method": "GET",
+          "path": "/v0/management/gemini-api-key",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 8,
+          "method": "PATCH",
+          "path": "/v0/management/gemini-api-key",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"index\":0,\"value\":{\"weight\":null}}"
+        },
+        {
+          "seq": 9,
+          "method": "PUT",
+          "path": "/v0/management/gemini-api-key",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "[{\"api-key\":\"s5-gem-key2\",\"weight\":2000000}]",
+          "note": "PUT-scoped weight error"
+        },
+        {
+          "seq": 10,
+          "method": "PUT",
+          "path": "/v0/management/gemini-api-key",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "[{\"api-key\":\"s5-gem-key\",\"base-url\":\"http://host.docker.internal:20001\"}]",
+          "note": "re-put valid"
+        },
+        {
+          "seq": 11,
+          "method": "DELETE",
+          "path": "/v0/management/gemini-api-key?api-key=ghost",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "note": "no match"
+        },
+        {
+          "seq": 12,
+          "method": "DELETE",
+          "path": "/v0/management/gemini-api-key",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "note": "missing api-key or index"
+        },
+        {
+          "seq": 13,
+          "method": "DELETE",
+          "path": "/v0/management/gemini-api-key?api-key=s5-gem-key",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 14,
+          "method": "GET",
+          "path": "/v0/management/gemini-api-key",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 15,
+          "method": "PUT",
+          "path": "/v0/management/gemini-api-key",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "[{\"api-key\":\"mock-gem-key\",\"base-url\":\"http://host.docker.internal:20001\",\"models\":[{\"name\":\"gemini-mock-model\",\"alias\":\"gm\"}]}]",
+          "note": "restore fleet baseline"
+        }
+      ],
+      "record": "status+headers+body for all 15",
+      "expect": {
+        "statuses": [
+          200,
+          200,
+          200,
+          400,
+          400,
+          200,
+          200,
+          200,
+          400,
+          200,
+          404,
+          400,
+          200,
+          200,
+          200
+        ],
+        "body_notes": [
+          "step 4: {\"error\":\"weight must not exceed 1000000\"}",
+          "step 5: {\"error\":\"weight must be an integer\"}",
+          "step 9: {\"error\":\"gemini-api-key[0].weight: weight must not exceed 1000000\"}",
+          "step 11: {\"error\":\"item not found\"}",
+          "step 12: {\"error\":\"missing api-key or index\"}",
+          "step 14: {\"gemini-api-key\":[]}"
+        ]
+      },
+      "dynamic_fields": [
+        "Date",
+        "auth-index values in list responses",
+        "port numbers in URLs/paths"
+      ],
+      "classification": "RECORDABLE"
+    },
+    {
+      "id": "S5-vertex-key-validation",
+      "purpose": "vertex-api-key: PUT without api-key is a 400 with index-scoped message; valid round trip; restore",
+      "mock_upstream": null,
+      "requests": [
+        {
+          "seq": 1,
+          "method": "PUT",
+          "path": "/v0/management/vertex-api-key",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "[{\"base-url\":\"http://host.docker.internal:20007\"}]",
+          "note": "missing api-key"
+        },
+        {
+          "seq": 2,
+          "method": "PUT",
+          "path": "/v0/management/vertex-api-key",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "[{\"api-key\":\"s5-vertex-key\",\"base-url\":\"http://host.docker.internal:20007\",\"models\":[{\"name\":\"vertex-mock-model\",\"alias\":\"s5-vm\"}]}]"
+        },
+        {
+          "seq": 3,
+          "method": "GET",
+          "path": "/v0/management/vertex-api-key",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 4,
+          "method": "PATCH",
+          "path": "/v0/management/vertex-api-key",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"index\":0,\"value\":{\"api-key\":\"\"}}",
+          "note": "empty api-key removes the entry"
+        },
+        {
+          "seq": 5,
+          "method": "GET",
+          "path": "/v0/management/vertex-api-key",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 6,
+          "method": "PUT",
+          "path": "/v0/management/vertex-api-key",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "[{\"api-key\":\"mock-vertex-key\",\"base-url\":\"http://host.docker.internal:20007\",\"models\":[{\"name\":\"vertex-mock-model\",\"alias\":\"vm\"}]}]",
+          "note": "restore fleet baseline"
+        }
+      ],
+      "record": "status+headers+body for all 6",
+      "expect": {
+        "statuses": [
+          400,
+          200,
+          200,
+          200,
+          200,
+          200
+        ],
+        "body_notes": [
+          "step 1: {\"error\":\"vertex-api-key[0].api-key is required\"}",
+          "step 5: {\"vertex-api-key\":[]}"
+        ]
+      },
+      "dynamic_fields": [
+        "Date",
+        "auth-index values in list responses",
+        "port numbers in URLs/paths"
+      ],
+      "classification": "RECORDABLE"
+    },
+    {
+      "id": "S5-auth-files-roundtrip",
+      "purpose": "auth-files full round trip with a synthetic file-backed credential: empty list, upload, list entry shape, models, status toggle, fields patch, download, delete, empty again",
+      "mock_upstream": null,
+      "requests": [
+        {
+          "seq": 1,
+          "method": "GET",
+          "path": "/v0/management/auth-files",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 2,
+          "method": "POST",
+          "path": "/v0/management/auth-files?name=s5-kimi.json",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1",
+            "Content-Type: application/json"
+          ],
+          "body": "{\"type\":\"kimi\",\"email\":\"s5@example.com\"}"
+        },
+        {
+          "seq": 3,
+          "method": "GET",
+          "path": "/v0/management/auth-files",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 4,
+          "method": "GET",
+          "path": "/v0/management/auth-files/models?name=s5-kimi.json",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "note": "models registered for this client; record actual (possibly empty)"
+        },
+        {
+          "seq": 5,
+          "method": "PATCH",
+          "path": "/v0/management/auth-files/status",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"name\":\"s5-kimi.json\",\"disabled\":true}"
+        },
+        {
+          "seq": 6,
+          "method": "GET",
+          "path": "/v0/management/auth-files",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "note": "entry now disabled"
+        },
+        {
+          "seq": 7,
+          "method": "PATCH",
+          "path": "/v0/management/auth-files/status",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"name\":\"s5-kimi.json\",\"disabled\":false}"
+        },
+        {
+          "seq": 8,
+          "method": "PATCH",
+          "path": "/v0/management/auth-files/fields",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"name\":\"s5-kimi.json\",\"note\":\"s5-note-value\",\"priority\":7}"
+        },
+        {
+          "seq": 9,
+          "method": "GET",
+          "path": "/v0/management/auth-files",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "note": "entry carries note + priority"
+        },
+        {
+          "seq": 10,
+          "method": "GET",
+          "path": "/v0/management/auth-files/download?name=s5-kimi.json",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 11,
+          "method": "DELETE",
+          "path": "/v0/management/auth-files?name=s5-kimi.json",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 12,
+          "method": "GET",
+          "path": "/v0/management/auth-files",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        }
+      ],
+      "record": "status+headers+body for all 12; for step 10 also record the downloaded bytes",
+      "expect": {
+        "statuses": [
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200
+        ],
+        "body_notes": [
+          "step 1/12: {\"observed_at\":..,\"files\":[]}",
+          "step 2/5/7/8/11: {\"status\":\"ok\"} (5/7 add \"disabled\":true/false)",
+          "step 10: Content-Disposition attachment; filename=\"s5-kimi.json\""
+        ]
+      },
+      "dynamic_fields": [
+        "Date",
+        "observed_at",
+        "auth_index",
+        "id",
+        "created_at",
+        "modtime",
+        "updated_at",
+        "recent_requests bucket timestamps",
+        "quota.observed_at",
+        "cooldowns",
+        "path (container paths)",
+        "port numbers in URLs/paths"
+      ],
+      "classification": "RECORDABLE"
+    },
+    {
+      "id": "S5-auth-files-errors",
+      "purpose": "auth-files validation/404 error family (self-contained: uploads its own file, cleans up)",
+      "mock_upstream": null,
+      "requests": [
+        {
+          "seq": 1,
+          "method": "POST",
+          "path": "/v0/management/auth-files?name=s5.txt",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1",
+            "Content-Type: application/json"
+          ],
+          "body": "{}",
+          "note": "non-.json name"
+        },
+        {
+          "seq": 2,
+          "method": "POST",
+          "path": "/v0/management/auth-files?name=../evil.json",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1",
+            "Content-Type: application/json"
+          ],
+          "body": "{}",
+          "note": "path in name"
+        },
+        {
+          "seq": 3,
+          "method": "POST",
+          "path": "/v0/management/auth-files",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1",
+            "Content-Type: multipart/form-data; boundary=X"
+          ],
+          "body": "multipart with one plain (non-file) form field and NO files",
+          "note": "expect {\"error\":\"no files uploaded\"}"
+        },
+        {
+          "seq": 4,
+          "method": "DELETE",
+          "path": "/v0/management/auth-files?name=missing.json",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 5,
+          "method": "DELETE",
+          "path": "/v0/management/auth-files",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "note": "no params at all"
+        },
+        {
+          "seq": 6,
+          "method": "PATCH",
+          "path": "/v0/management/auth-files/status",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{}"
+        },
+        {
+          "seq": 7,
+          "method": "PATCH",
+          "path": "/v0/management/auth-files/status",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"name\":\"s5-kimi.json\"}",
+          "note": "disabled missing"
+        },
+        {
+          "seq": 8,
+          "method": "PATCH",
+          "path": "/v0/management/auth-files/status",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"name\":\"ghost.json\",\"disabled\":true}"
+        },
+        {
+          "seq": 9,
+          "method": "POST",
+          "path": "/v0/management/auth-files?name=s5-kimi.json",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1",
+            "Content-Type: application/json"
+          ],
+          "body": "{\"type\":\"kimi\",\"email\":\"s5@example.com\"}",
+          "note": "create the file for the remaining steps"
+        },
+        {
+          "seq": 10,
+          "method": "PATCH",
+          "path": "/v0/management/auth-files/fields",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"name\":\"s5-kimi.json\"}",
+          "note": "no fields"
+        },
+        {
+          "seq": 11,
+          "method": "PATCH",
+          "path": "/v0/management/auth-files/fields",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"name\":\"ghost.json\",\"note\":\"x\"}"
+        },
+        {
+          "seq": 12,
+          "method": "PATCH",
+          "path": "/v0/management/auth-files/fields",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"name\":\"s5-kimi.json\",\"weight\":\"abc\"}",
+          "note": "non-integer weight"
+        },
+        {
+          "seq": 13,
+          "method": "POST",
+          "path": "/v0/management/auth-files/refresh",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{}"
+        },
+        {
+          "seq": 14,
+          "method": "POST",
+          "path": "/v0/management/auth-files/refresh",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"name\":\"ghost.json\"}"
+        },
+        {
+          "seq": 15,
+          "method": "GET",
+          "path": "/v0/management/auth-files/models",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "note": "missing name"
+        },
+        {
+          "seq": 16,
+          "method": "GET",
+          "path": "/v0/management/auth-files/download?name=s5.txt",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "note": "non-.json"
+        },
+        {
+          "seq": 17,
+          "method": "DELETE",
+          "path": "/v0/management/auth-files?name=s5-kimi.json",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "note": "cleanup"
+        }
+      ],
+      "record": "status+headers+body for all 17",
+      "expect": {
+        "statuses": [
+          400,
+          400,
+          400,
+          404,
+          400,
+          400,
+          400,
+          404,
+          200,
+          400,
+          404,
+          400,
+          400,
+          404,
+          400,
+          400,
+          200
+        ],
+        "body_notes": [
+          "step 1/16: {\"error\":\"name must end with .json\"}",
+          "step 2: {\"error\":\"invalid name\"}",
+          "step 3: {\"error\":\"no files uploaded\"}",
+          "step 4: {\"error\":\"auth file not found\"}",
+          "step 5: {\"error\":\"invalid name\"}",
+          "step 6: {\"error\":\"name is required\"}",
+          "step 7: {\"error\":\"disabled is required\"}",
+          "step 8: {\"error\":\"auth file not found\"}",
+          "step 10: {\"error\":\"no fields to update\"}",
+          "step 11: {\"error\":\"auth file not found\"}",
+          "step 12: {\"error\":\"weight must be an integer\"}",
+          "step 13: {\"error\":\"name or all=true is required\"}",
+          "step 14: {\"error\":\"auth file not found\"}",
+          "step 15: {\"error\":\"name is required\"}"
+        ]
+      },
+      "dynamic_fields": [
+        "Date",
+        "port numbers in URLs/paths"
+      ],
+      "classification": "RECORDABLE"
+    },
+    {
+      "id": "S5-usage-telemetry",
+      "purpose": "usage/telemetry read endpoints on the untouched fleet state: api-key-usage grouped map, usage-queue destructive pop + count validation",
+      "mock_upstream": null,
+      "requests": [
+        {
+          "seq": 1,
+          "method": "GET",
+          "path": "/v0/management/api-key-usage",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 2,
+          "method": "GET",
+          "path": "/v0/management/usage-queue",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 3,
+          "method": "GET",
+          "path": "/v0/management/usage-queue?count=abc",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 4,
+          "method": "GET",
+          "path": "/v0/management/usage-queue?count=0",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 5,
+          "method": "GET",
+          "path": "/v0/management/usage-queue?count=3",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        }
+      ],
+      "record": "status+headers+body for all 5",
+      "expect": {
+        "statuses": [
+          200,
+          200,
+          400,
+          400,
+          200
+        ],
+        "body_notes": [
+          "run BEFORE any mock traffic so all counters are zero; step 1: object keyed by provider -> '<base_url>|<api_key>' -> {success,failed,recent_requests}",
+          "step 2/5: []",
+          "step 3/4: {\"error\":\"count must be a positive integer\"}"
+        ]
+      },
+      "dynamic_fields": [
+        "Date",
+        "recent_requests bucket timestamps",
+        "observed_at-like fields",
+        "port numbers in URLs/paths"
+      ],
+      "classification": "RECORDABLE"
+    },
+    {
+      "id": "S5-quota-endpoints",
+      "purpose": "quota endpoints on empty quota-provider state + auth_index validation",
+      "mock_upstream": null,
+      "requests": [
+        {
+          "seq": 1,
+          "method": "GET",
+          "path": "/v0/management/quota/providers",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 2,
+          "method": "POST",
+          "path": "/v0/management/quota/fetch",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{}"
+        },
+        {
+          "seq": 3,
+          "method": "POST",
+          "path": "/v0/management/quota/fetch",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"auth_index\":\"nope\"}"
+        },
+        {
+          "seq": 4,
+          "method": "POST",
+          "path": "/v0/management/quota/fetch",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"auth_index\":\"x\",\"plugin_id\":\"nope\"}",
+          "note": "unknown plugin id but auth must resolve first; use auth_index of a real provider list entry to expose the quota-provider-not-found family if convenient",
+          "optional": true
+        },
+        {
+          "seq": 5,
+          "method": "POST",
+          "path": "/v0/management/quota/reset",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"auth_index\":\"nope\"}"
+        },
+        {
+          "seq": 6,
+          "method": "POST",
+          "path": "/v0/management/reset-quota",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{}"
+        },
+        {
+          "seq": 7,
+          "method": "POST",
+          "path": "/v0/management/reset-quota",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"auth_index\":\"nope\"}"
+        }
+      ],
+      "record": "status+headers+body for all executed",
+      "expect": {
+        "statuses": [
+          200,
+          400,
+          404,
+          "see-note",
+          501,
+          400,
+          404
+        ],
+        "body_notes": [
+          "step 1: {\"providers\":[]}",
+          "step 2: {\"error\":\"auth_index is required\"}",
+          "step 3/5/7: {\"error\":\"auth not found\"}",
+          "step 6: {\"error\":\"auth_index is required\"}",
+          "step 4 optional: with a real auth_index (from a provider list GET) expect 501 {\"error\":\"no quota provider available for credential\"} (plugin host absent in the oracle env, no quota_probe metadata)"
+        ]
+      },
+      "dynamic_fields": [
+        "Date",
+        "port numbers in URLs/paths"
+      ],
+      "classification": "RECORDABLE"
+    },
+    {
+      "id": "S5-logs-disabled",
+      "purpose": "log endpoints in the logging-disabled state + request-log toggle round trip",
+      "mock_upstream": null,
+      "requests": [
+        {
+          "seq": 1,
+          "method": "GET",
+          "path": "/v0/management/logs",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 2,
+          "method": "DELETE",
+          "path": "/v0/management/logs",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 3,
+          "method": "GET",
+          "path": "/v0/management/request-error-logs",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 4,
+          "method": "GET",
+          "path": "/v0/management/request-log",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 5,
+          "method": "PUT",
+          "path": "/v0/management/request-log",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"value\":true}"
+        },
+        {
+          "seq": 6,
+          "method": "GET",
+          "path": "/v0/management/request-log",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 7,
+          "method": "GET",
+          "path": "/v0/management/request-error-logs",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "note": "with request-log enabled files list is forced to []"
+        },
+        {
+          "seq": 8,
+          "method": "PUT",
+          "path": "/v0/management/request-log",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"value\":false}",
+          "note": "restore"
+        },
+        {
+          "seq": 9,
+          "method": "GET",
+          "path": "/v0/management/request-log",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 10,
+          "method": "GET",
+          "path": "/v0/management/request-error-logs/whatever.log",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 11,
+          "method": "GET",
+          "path": "/v0/management/request-log-by-id/abc123",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        }
+      ],
+      "record": "status+headers+body for all 11",
+      "expect": {
+        "statuses": [
+          400,
+          400,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          404,
+          404
+        ],
+        "body_notes": [
+          "step 1/2: {\"error\":\"logging to file disabled\"}",
+          "step 3/7: {\"files\":[]}",
+          "step 4: {\"request-log\":false} step 6: true step 9: false",
+          "step 10: {\"error\":\"log file not found\"}",
+          "step 11: {\"error\":\"log file not found for the given request ID\"} OR {\"error\":\"log directory not found\"} — record whichever the binary returns"
+        ]
+      },
+      "dynamic_fields": [
+        "Date",
+        "port numbers in URLs/paths"
+      ],
+      "classification": "RECORDABLE"
+    },
+    {
+      "id": "S5-model-definitions",
+      "purpose": "static model definition catalog per channel + unknown/missing channel errors (kimi channel is compiled-in static)",
+      "mock_upstream": null,
+      "requests": [
+        {
+          "seq": 1,
+          "method": "GET",
+          "path": "/v0/management/model-definitions",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 2,
+          "method": "GET",
+          "path": "/v0/management/model-definitions?channel=unknown",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 3,
+          "method": "GET",
+          "path": "/v0/management/model-definitions/kimi",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 4,
+          "method": "GET",
+          "path": "/v0/management/model-definitions/KIMI",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "note": "channel is case-normalized in the response"
+        }
+      ],
+      "record": "status+headers+body for all 4",
+      "expect": {
+        "statuses": [
+          400,
+          400,
+          200,
+          200
+        ],
+        "body_notes": [
+          "step 1: {\"error\":\"channel is required\"}",
+          "step 2: {\"error\":\"unknown channel\",\"channel\":\"unknown\"}",
+          "step 3/4: {\"channel\":\"kimi\",\"models\":[...static kimi catalog...]}; step 4 body channel value is lowercased"
+        ]
+      },
+      "dynamic_fields": [
+        "Date",
+        "port numbers in URLs/paths"
+      ],
+      "classification": "RECORDABLE"
+    },
+    {
+      "id": "S5-oauth-session",
+      "purpose": "oauth session endpoints: get-auth-status (empty/unknown state), oauth-session cancel (missing/unknown), management oauth-callback errors — oauth-callback needs NO management key",
+      "mock_upstream": null,
+      "requests": [
+        {
+          "seq": 1,
+          "method": "GET",
+          "path": "/v0/management/get-auth-status",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 2,
+          "method": "GET",
+          "path": "/v0/management/get-auth-status?state=abc",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "note": "valid-charset unknown state"
+        },
+        {
+          "seq": 3,
+          "method": "GET",
+          "path": "/v0/management/get-auth-status?state=bad/state",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "note": "path separator -> invalid state"
+        },
+        {
+          "seq": 4,
+          "method": "GET",
+          "path": "/v0/management/get-auth-status?state=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "note": "too long -> invalid state"
+        },
+        {
+          "seq": 5,
+          "method": "DELETE",
+          "path": "/v0/management/oauth-session",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 6,
+          "method": "DELETE",
+          "path": "/v0/management/oauth-session?state=unknown123",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 7,
+          "method": "GET",
+          "path": "/v0/management/oauth-callback?state=abc&code=x",
+          "headers": [],
+          "note": "no management key sent"
+        },
+        {
+          "seq": 8,
+          "method": "POST",
+          "path": "/v0/management/oauth-callback",
+          "headers": [],
+          "body": "{}"
+        },
+        {
+          "seq": 9,
+          "method": "POST",
+          "path": "/v0/management/oauth-callback",
+          "headers": [],
+          "body": "{\"code\":\"x\"}"
+        },
+        {
+          "seq": 10,
+          "method": "POST",
+          "path": "/v0/management/oauth-callback",
+          "headers": [],
+          "body": "{\"state\":\"bad/state\",\"code\":\"x\"}"
+        },
+        {
+          "seq": 11,
+          "method": "POST",
+          "path": "/v0/management/oauth-callback",
+          "headers": [],
+          "body": "{\"state\":\"abc\"}",
+          "note": "state but no code and no error"
+        }
+      ],
+      "record": "status+headers+body for all 11",
+      "expect": {
+        "statuses": [
+          200,
+          200,
+          400,
+          400,
+          400,
+          200,
+          404,
+          400,
+          400,
+          400,
+          400
+        ],
+        "body_notes": [
+          "step 1: {\"status\":\"ok\"}",
+          "step 2: {\"status\":\"error\",\"error\":\"unknown or expired state\"} (HTTP 200)",
+          "step 3/4: {\"status\":\"error\",\"error\":\"invalid state\"}",
+          "step 5: {\"status\":\"error\",\"error\":\"missing state\"}",
+          "step 6: {\"status\":\"ok\",\"cancelled\":false}",
+          "step 7: {\"status\":\"error\",\"error\":\"unknown or expired state\"} (404)",
+          "step 8: {\"status\":\"error\",\"error\":\"invalid body\"}",
+          "step 9: {\"status\":\"error\",\"error\":\"state is required\"}",
+          "step 10: {\"status\":\"error\",\"error\":\"invalid state\"}",
+          "step 11: {\"status\":\"error\",\"error\":\"code or error is required\"}"
+        ]
+      },
+      "dynamic_fields": [
+        "Date",
+        "port numbers in URLs/paths"
+      ],
+      "classification": "RECORDABLE"
+    },
+    {
+      "id": "S5-api-call-mock",
+      "purpose": "POST /api-call through the local openai mock: passthrough of status/body/headers, $TOKEN$ left verbatim without a credential, mock error mode reflected in status_code, request validation errors",
+      "mock_upstream": {
+        "type": "openai",
+        "port": 19999,
+        "script": "_cpa_edge_ref/mock/mock_openai.py",
+        "mode": "happy",
+        "notes": "start the mock fresh so mock/logs/openai.jsonl only contains this case; save the produced lines as upstream.jsonl"
+      },
+      "requests": [
+        {
+          "seq": 1,
+          "method": "POST",
+          "path": "/v0/management/api-call",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"method\":\"GET\",\"url\":\"http://host.docker.internal:19999/v1/models\"}"
+        },
+        {
+          "seq": 2,
+          "method": "POST",
+          "path": "/v0/management/api-call",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"method\":\"GET\",\"url\":\"http://host.docker.internal:19999/v1/models\",\"header\":{\"X-S5-Token\":\"Bearer $TOKEN$\"}}",
+          "note": "no auth_index -> $TOKEN$ passes through verbatim; mock wire log shows X-S5-Token: Bearer $TOKEN$"
+        },
+        {
+          "seq": 3,
+          "method": "POST",
+          "path": "/v0/management/api-call",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"method\":\"POST\",\"url\":\"http://host.docker.internal:19999/v1/chat/completions\",\"header\":{\"Content-Type\":\"application/json\"},\"data\":\"{\\\"model\\\":\\\"mock-gpt-model\\\",\\\"messages\\\":[{\\\"role\\\":\\\"user\\\",\\\"content\\\":\\\"hi\\\"}]}\"}",
+          "note": "canned non-stream reply; created field is fixed 1770000000"
+        },
+        {
+          "seq": 4,
+          "method": "POST",
+          "path": "/v0/management/api-call",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"method\":\"POST\",\"url\":\"http://host.docker.internal:19999/v1/chat/completions\",\"header\":{\"X-Mock-Mode\":\"error\",\"X-Mock-Status\":\"500\",\"Content-Type\":\"application/json\"},\"data\":\"{}\"}",
+          "note": "mock error mode: status_code 500 + wire-shaped openai error body inside the 200 envelope"
+        },
+        {
+          "seq": 5,
+          "method": "POST",
+          "path": "/v0/management/api-call",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"url\":\"http://example.com\"}"
+        },
+        {
+          "seq": 6,
+          "method": "POST",
+          "path": "/v0/management/api-call",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"method\":\"GET\"}"
+        },
+        {
+          "seq": 7,
+          "method": "POST",
+          "path": "/v0/management/api-call",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"method\":\"GET\",\"url\":\"not a url\"}"
+        },
+        {
+          "seq": 8,
+          "method": "POST",
+          "path": "/v0/management/api-call",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "not json"
+        }
+      ],
+      "record": "status+headers+body for all 8; upstream.jsonl = mock/logs/openai.jsonl lines for requests 1-4",
+      "expect": {
+        "statuses": [
+          200,
+          200,
+          200,
+          200,
+          400,
+          400,
+          400,
+          400
+        ],
+        "body_notes": [
+          "steps 1-4: 200 {\"status_code\":..,\"header\":{..},\"body\":\"..\"}; step 1 body string is the mock /v1/models JSON; step 4 status_code=500 and body is the mock error JSON",
+          "step 5: {\"error\":\"missing method\"}",
+          "step 6: {\"error\":\"missing url\"}",
+          "step 7: {\"error\":\"invalid url\"}",
+          "step 8: {\"error\":\"invalid body\"}"
+        ]
+      },
+      "dynamic_fields": [
+        "Date",
+        "header map values inside api-call response (mock Server/Date)",
+        "ts field in upstream.jsonl",
+        "port numbers in URLs/paths"
+      ],
+      "classification": "RECORDABLE"
+    },
+    {
+      "id": "S5-vertex-import",
+      "purpose": "POST /vertex/import: synthetic service account import (multipart), error paths, cleanup",
+      "mock_upstream": null,
+      "requests": [
+        {
+          "seq": 1,
+          "method": "POST",
+          "path": "/v0/management/vertex/import",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1",
+            "Content-Type: multipart/form-data; boundary=X"
+          ],
+          "body": "multipart/form-data; field 'file' = file part 'sa.json' with content {\"type\":\"service_account\",\"project_id\":\"s5-project\",\"client_email\":\"s5@fixture.iam.gserviceaccount.com\",\"private_key\":\"mock\"}",
+          "note": "import"
+        },
+        {
+          "seq": 2,
+          "method": "GET",
+          "path": "/v0/management/auth-files",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "note": "entry vertex-s5-project.json present"
+        },
+        {
+          "seq": 3,
+          "method": "POST",
+          "path": "/v0/management/vertex/import",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1",
+            "Content-Type: multipart/form-data; boundary=X"
+          ],
+          "body": "multipart with NO file field",
+          "note": "file required"
+        },
+        {
+          "seq": 4,
+          "method": "POST",
+          "path": "/v0/management/vertex/import",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1",
+            "Content-Type: multipart/form-data; boundary=X"
+          ],
+          "body": "multipart field 'file' = file part 'sa.json' with content 'not json'",
+          "note": "invalid json"
+        },
+        {
+          "seq": 5,
+          "method": "POST",
+          "path": "/v0/management/vertex/import",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1",
+            "Content-Type: multipart/form-data; boundary=X"
+          ],
+          "body": "multipart field 'file' = file part 'sa.json' with content {\"type\":\"service_account\",\"client_email\":\"x\"}",
+          "note": "project_id missing"
+        },
+        {
+          "seq": 6,
+          "method": "POST",
+          "path": "/v0/management/vertex/import",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1",
+            "Content-Type: multipart/form-data; boundary=X"
+          ],
+          "body": "same as step 1 but with an additional form field location=us-east1",
+          "note": "location override"
+        },
+        {
+          "seq": 7,
+          "method": "DELETE",
+          "path": "/v0/management/auth-files?name=vertex-s5-project.json",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "note": "cleanup"
+        },
+        {
+          "seq": 8,
+          "method": "DELETE",
+          "path": "/v0/management/auth-files?name=vertex-s5-project.json",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "note": "second delete -> 404"
+        }
+      ],
+      "record": "status+headers+body for all 8",
+      "expect": {
+        "statuses": [
+          200,
+          200,
+          400,
+          400,
+          400,
+          200,
+          200,
+          404
+        ],
+        "body_notes": [
+          "step 1/6: {\"status\":\"ok\",\"auth-file\":\"<path>\",\"project_id\":\"s5-project\",\"email\":\"...\",\"location\":\"us-central1\"/\"us-east1\"}",
+          "step 3: {\"error\":\"file required\"}",
+          "step 4: {\"error\":\"invalid json\",\"message\":\"...\"}",
+          "step 5: {\"error\":\"project_id missing\"}"
+        ]
+      },
+      "dynamic_fields": [
+        "Date",
+        "auth-file path",
+        "observed_at/auth_index/created_at/modtime/updated_at/recent_requests/quota/cooldowns/path in step 2 list body",
+        "port numbers in URLs/paths"
+      ],
+      "classification": "RECORDABLE"
+    },
+    {
+      "id": "S5-config-yaml",
+      "purpose": "GET /config.yaml raw bytes + PUT /config.yaml validation (invalid YAML 400, invalid config 422) and round trip via request-retry",
+      "mock_upstream": null,
+      "requests": [
+        {
+          "seq": 1,
+          "method": "GET",
+          "path": "/v0/management/config.yaml",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 2,
+          "method": "PUT",
+          "path": "/v0/management/config.yaml",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1",
+            "Content-Type: application/yaml"
+          ],
+          "body": ": :\n{{{not yaml",
+          "note": "invalid YAML"
+        },
+        {
+          "seq": 3,
+          "method": "PUT",
+          "path": "/v0/management/config.yaml",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1",
+            "Content-Type: application/yaml"
+          ],
+          "body": "port: 8387\nremote-management:\n  allow-remote: true\n  secret-key: oracle-mgmt-key-1\n  disable-control-panel: true\ngemini-api-key:\n  - api-key: bad-weight\n    weight: 2000000\n",
+          "note": "parses but fails weight validation -> 422"
+        },
+        {
+          "seq": 4,
+          "method": "PUT",
+          "path": "/v0/management/config.yaml",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1",
+            "Content-Type: application/yaml"
+          ],
+          "body": "port: 8387\nremote-management:\n  allow-remote: true\n  secret-key: oracle-mgmt-key-1\n  disable-control-panel: true\nauth-dir: /root/.cli-proxy-api\napi-keys:\n  - \"oracle-local-key-1\"\nrequest-retry: 2\ntransient-error-cooldown-seconds: -1\nusage-statistics-enabled: false\nopenai-compatibility:\n  - name: \"mock-openai\"\n    base-url: \"http://host.docker.internal:19999/v1\"\n    api-key-entries:\n      - api-key: \"mock-upstream-key\"\n    models:\n      - name: \"mock-gpt-model\"\n        alias: \"mock-model\"\ngemini-api-key:\n  - api-key: \"mock-gem-key\"\n    base-url: \"http://host.docker.internal:20001\"\n    models:\n      - name: \"gemini-mock-model\"\n        alias: \"gm\"\nclaude-api-key:\n  - api-key: \"mock-claude-key\"\n    base-url: \"http://host.docker.internal:20002\"\n    models:\n      - name: \"claude-mock-model\"\n        alias: \"cm\"\ncodex-api-key:\n  - api-key: \"mock-codex-key\"\n    base-url: \"http://host.docker.internal:20003\"\n    models:\n      - name: \"gpt-mock-codex\"\n        alias: \"cx\"\nxai-api-key:\n  - api-key: \"mock-xai-key\"\n    base-url: \"http://host.docker.internal:20004\"\n    models:\n      - name: \"grok-mock\"\n        alias: \"xg\"\nmeta-api-key:\n  - api-key: \"mock-meta-key\"\n    base-url: \"http://host.docker.internal:20005\"\n    models:\n      - name: \"muse-mock\"\n        alias: \"mm\"\ninteractions-api-key:\n  - api-key: \"mock-int-key\"\n    base-url: \"http://host.docker.internal:20006\"\n    models:\n      - name: \"gemini-mock-model\"\n        alias: \"im\"\nvertex-api-key:\n  - api-key: \"mock-vertex-key\"\n    base-url: \"http://host.docker.internal:20007\"\n    models:\n      - name: \"vertex-mock-model\"\n        alias: \"vm\"\n",
+          "note": "valid full fleet config with request-retry: 2 (secret-key plaintext is re-hashed on reload)"
+        },
+        {
+          "seq": 5,
+          "method": "GET",
+          "path": "/v0/management/request-retry",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 6,
+          "method": "PUT",
+          "path": "/v0/management/config.yaml",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1",
+            "Content-Type: application/yaml"
+          ],
+          "body": "same as step 4 but request-retry: 0",
+          "note": "restore"
+        },
+        {
+          "seq": 7,
+          "method": "GET",
+          "path": "/v0/management/request-retry",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        }
+      ],
+      "record": "status+headers+body for all 7",
+      "expect": {
+        "statuses": [
+          200,
+          400,
+          422,
+          200,
+          200,
+          200,
+          200
+        ],
+        "body_notes": [
+          "step 1: raw YAML bytes, headers application/yaml + no-store + nosniff (contains the bcrypt hash)",
+          "step 2: {\"error\":\"invalid_yaml\",\"message\":\"...\"}",
+          "step 3: {\"error\":\"invalid_config\",\"message\":\"gemini-api-key[0].weight: weight must not exceed 1000000\"}",
+          "step 4: {\"ok\":true,\"changed\":[\"config\"]}",
+          "step 5: {\"request-retry\":2} step 7: {\"request-retry\":0}"
+        ]
+      },
+      "dynamic_fields": [
+        "Date",
+        "bcrypt secret-key hash string in YAML bytes (step 1; steps 4/6 bodies are the request bytes as sent)",
+        "port numbers in URLs/paths"
+      ],
+      "classification": "RECORDABLE"
+    },
+    {
+      "id": "S5-plugins-list",
+      "purpose": "plugins list on the no-plugins state + plugin id/enabled validation",
+      "mock_upstream": null,
+      "requests": [
+        {
+          "seq": 1,
+          "method": "GET",
+          "path": "/v0/management/plugins",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 2,
+          "method": "GET",
+          "path": "/v0/management/plugins/nope/config",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 3,
+          "method": "PATCH",
+          "path": "/v0/management/plugins/nope/enabled",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{}"
+        },
+        {
+          "seq": 4,
+          "method": "PATCH",
+          "path": "/v0/management/plugins/bad%20id/enabled",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "body": "{\"enabled\":true}",
+          "note": "space in id -> invalid plugin id"
+        },
+        {
+          "seq": 5,
+          "method": "DELETE",
+          "path": "/v0/management/plugins/nope",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ]
+        },
+        {
+          "seq": 6,
+          "method": "GET",
+          "path": "/v0/management/plugins/nope/quota?auth_index=x",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "note": "quota endpoints on unknown plugin/auth; record actual"
+        },
+        {
+          "seq": 7,
+          "method": "GET",
+          "path": "/v0/management/quota/providers",
+          "headers": [
+            "Authorization: Bearer oracle-mgmt-key-1"
+          ],
+          "note": "cross-check empty provider list"
+        }
+      ],
+      "record": "status+headers+body for all 7",
+      "expect": {
+        "statuses": [
+          200,
+          404,
+          400,
+          400,
+          404,
+          404,
+          200
+        ],
+        "body_notes": [
+          "step 1: {\"plugins_enabled\":false,\"plugins_dir\":\"plugins\",\"plugins\":[]}",
+          "step 2: {\"error\":\"plugin_not_found\",\"message\":\"plugin not found\"}",
+          "step 3: {\"error\":\"invalid_body\",\"message\":\"enabled is required\"}",
+          "step 4: {\"error\":\"invalid_plugin_id\",\"message\":\"invalid plugin id\"}",
+          "step 5: {\"error\":\"plugin_not_found\",\"message\":\"plugin not found\"}",
+          "step 6: {\"error\":\"auth not found\"} (auth_index resolved before the plugin quota-provider check)",
+          "step 7: {\"providers\":[]}"
+        ]
+      },
+      "dynamic_fields": [
+        "Date",
+        "plugins_dir resolved absolute path if the binary returns one",
+        "port numbers in URLs/paths"
+      ],
+      "classification": "RECORDABLE"
+    }
+  ],
+  "fixture_deferred": [
+    {
+      "id": "S5-oauth-provider-flows",
+      "covers": [
+        "GET /anthropic-auth-url",
+        "GET /codex-auth-url",
+        "GET /antigravity-auth-url",
+        "GET /kimi-auth-url",
+        "GET /xai-auth-url",
+        "GET /devin-auth-url",
+        "GET /meta-auth-url",
+        "GET /oauth-callback success",
+        "GET /get-auth-status pending->ok"
+      ],
+      "reason": "CREDENTIALED-ONLY per BOOTSTRAP §5: completing a vendor OAuth flow requires real vendor accounts (Anthropic/OpenAI/Google/xAI/Devin/Meta). The auth-url response itself (200 {\"status\":\"ok\",\"url\":\"<vendor authorize URL>\",\"state\":\"<random>\"}) is also per-request random (PKCE + state), so no byte-deterministic golden exists. Error envelopes of the sibling endpoints ARE recorded in S5-oauth-session. Success shape is specified in spec/sections/S5-management-api.md §2.3/§3.6 from upstream source (internal/api/handlers/management/auth_files_provider_oauth.go, oauth_callback.go, oauth_sessions.go)."
+    },
+    {
+      "id": "S5-auth-refresh-success",
+      "covers": [
+        "POST /auth-files/refresh success shapes"
+      ],
+      "reason": "ForceRefreshAuth performs real vendor token refresh over the network for file-backed OAuth credentials; no local mock exists for vendor auth servers. The validation errors (400 name or all=true is required; 404 auth file not found) are recorded in S5-auth-files-errors. Success shape {\"ok\":true,\"auth\":{...}} / {\"ok\":true,\"results\":[...]} is specified from upstream source (auth_files_refresh.go)."
+    },
+    {
+      "id": "S5-latest-version",
+      "covers": [
+        "GET /latest-version"
+      ],
+      "reason": "The endpoint queries the live GitHub releases API (api.github.com/repos/router-for-me/CLIProxyAPI/releases/latest); the response changes with every upstream release, so no stable golden exists. Shape {\"latest-version\":\"<tag>\"} and the 500/502 error shapes are specified from upstream source (config_basic.go GetLatestVersion)."
+    },
+    {
+      "id": "S5-plugin-store",
+      "covers": [
+        "GET /plugin-store",
+        "POST /plugin-store/:id/install",
+        "plugin quota success paths"
+      ],
+      "reason": "The plugin store reaches an external plugin registry (GitHub-based) whose content changes over time; with plugins disabled in the oracle env the success paths also cannot be exercised. Local no-plugin envelopes are recorded in S5-plugins-list. Shapes specified from upstream source (plugin_store.go, plugins.go, plugin_quota.go)."
+    },
+    {
+      "id": "S5-logs-enabled",
+      "covers": [
+        "GET /logs success with lines/cursor",
+        "DELETE /logs success {\"success\":true,...,\"removed\":N}",
+        "GET /request-log-by-id/:id success",
+        "GET /request-error-logs/:name success"
+      ],
+      "reason": "These require logging-to-file:true plus a populated rotating log directory whose bytes are timestamps of the recording run; a byte-deterministic golden would need a seeded log dir fixture. The disabled-state envelopes are recorded in S5-logs-disabled. Success shapes are specified from upstream source (logs.go). OPTIONAL follow-up: the oracle may seed a deterministic log dir and record this later."
+    },
+    {
+      "id": "S5-auth-files-live-credentials",
+      "covers": [
+        "GET /auth-files with live OAuth credentials (quota/id_token/last_refresh populated)",
+        "GET /api-key-usage after real traffic",
+        "POST /quota/fetch success"
+      ],
+      "reason": "Live quota/usage/id_token fields are populated only by real vendor traffic (CREDENTIALED-ONLY). The synthetic-file entry shape is recorded in S5-auth-files-roundtrip; zero-counter api-key-usage in S5-usage-telemetry."
+    }
+  ],
+  "spec_evidence": {
+    "route_registration": "internal/api/server_management.go (registerManagementRoutes, managementAvailabilityMiddleware, pluginManagementNoRoute, serveManagementControlPanel); internal/api/server.go (hasManagementSecret gate); internal/api/server_reload.go (secret add/remove reload)",
+    "auth_middleware": "internal/api/handlers/management/handler.go (Middleware, AuthenticateManagementKey, updateBoolField/updateIntField/updateStringField, persist/persistLocked)",
+    "config_get_yaml": "internal/api/handlers/management/config_basic.go (GetConfig, GetConfigYAML, PutConfigYAML, GetLatestVersion, scalar getters/putters, normalizeRoutingStrategy); internal/config/config_types.go (JSON tags incl. json:\"-\" on host/port/remote-management/auth-dir)",
+    "provider_lists": "internal/api/handlers/management/config_lists.go (api-keys, gemini/claude/codex/xai/meta/vertex/interactions, openai-compatibility, oauth-excluded-models, oauth-model-alias, oauth-request-scoped-errors, putStringList/patchStringList/deleteFromStringList, weight checks); internal/config/weight.go + internal/credentialweight/weight.go (weight bound 1,000,000)",
+    "auth_index": "internal/api/handlers/management/config_auth_index.go (auth-index decoration of list responses)",
+    "auth_files": "internal/api/handlers/management/auth_files.go (ListAuthFiles, GetAuthFileModels, buildAuthFileEntry); auth_files_crud.go (DownloadAuthFile, UploadAuthFile, DeleteAuthFile); auth_files_fields.go (PatchAuthFileStatus, PatchAuthFileFields); auth_files_refresh.go (RefreshAuthFiles); config_apikey_disable.go (config api-key disable via excluded-models '*')",
+    "oauth_sessions": "internal/api/handlers/management/oauth_sessions.go (state validation, session store, CancelAuthSession); oauth_callback.go (PostOAuthCallback/GetOAuthCallback); auth_files_provider_oauth.go (RequestAnthropicToken etc., GetAuthStatus)",
+    "usage_quota": "internal/api/handlers/management/api_key_usage.go (GetAPIKeyUsage); usage.go (GetUsageQueue); quota.go (GetSwitchProject, ResetQuota); plugin_quota.go (GetQuotaProviders, FetchCredentialQuota, ResetCredentialQuota)",
+    "logs": "internal/api/handlers/management/logs.go (GetLogs, DeleteLogs, GetRequestErrorLogs, DownloadRequestErrorLog, GetRequestLogByID, writeLogsResponse)",
+    "plugins": "internal/api/handlers/management/plugins.go (ListPlugins, Get/Put/PatchPluginConfig, PatchPluginEnabled, DeletePlugin); plugin_store.go; plugin_quota.go",
+    "api_call": "internal/api/handlers/management/api_tools.go (APICall, $TOKEN$ substitution, proxy precedence, authByIndex)",
+    "vertex_import": "internal/api/handlers/management/vertex_import.go (ImportVertexCredential); internal/config/vertex_compat.go (VertexCompatKey)",
+    "model_definitions": "internal/registry/model_definitions.go (GetStaticModelDefinitionsByChannel channel list); internal/api/handlers/management/model_definitions.go",
+    "recorded_probes": "reports/oracle/BOOTSTRAP.md §4 probes 11-15 (mgmt auth failures, api-keys GET, unknown sub-route 404 empty, config GET 200 body)"
+  }
+}

@@ -1,0 +1,25 @@
+# S1-20 / mgmt-header — downstream response (exact bytes)
+
+## Status + response headers (received order)
+```
+HTTP/1.1 200 OK
+Access-Control-Allow-Headers: *
+Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS
+Access-Control-Allow-Origin: *
+Access-Control-Expose-Headers: X-CPA-TRACE-ID, X-CPA-VERSION, X-CPA-COMMIT, X-CPA-BUILD-DATE, X-CPA-SUPPORT-PLUGIN, X-CPA-HOME-VERSION, X-CPA-HOME-BUILD-DATE, X-SERVER-VERSION, X-SERVER-BUILD-DATE, Location, Retry-After, X-Request-Id, OpenAI-Request-Id
+Content-Type: application/json; charset=utf-8
+X-Cpa-Build-Date: 2026-09-15T14:07:06Z
+X-Cpa-Commit: 8335eac
+X-Cpa-Support-Plugin: 1
+X-Cpa-Version: v7.3.4
+Date: Tue, 15 Sep 2026 16:46:48 GMT
+Transfer-Encoding: chunked
+
+```
+
+## Body (stdout)
+```
+{"proxy-url":"","disable-image-generation":false,"force-model-prefix":false,"request-log":false,"claude-code":{"disable-cloaking-model-list":false},"api-keys":["oracle-local-key-1"],"passthrough-headers":false,"streaming":{},"tls":{"enable":false,"cert":"","key":""},"credential-concurrency":{"lifecycle-config-revision":0,"observation-barrier-revision":0,"cpa-heartbeat-timeout":3000000000,"cpa-cancel-bound":5000000000,"reclaim-grace":5000000000,"cleanup-interval":5000000000,"release-flush-interval":250000000,"release-max-backoff":2000000000,"busy-retry-min":250000000,"busy-retry-max":1000000000,"max-limit":1000000},"credential-in-flight":{"snapshot-interval":"2s","stale-after":"10s","max-part-bytes":262144,"max-part-count":64,"max-revision-bytes":16777216,"max-aggregate-groups":100000,"max-details":10000,"max-string-bytes":256,"staging-retention":"1m"},"plugins":{"enabled":false,"dir":"plugins","configs":{}},"debug":false,"pprof":{"enable":false,"addr":"127.0.0.1:8316"},"discovery":{"enabled":false,"service-name":"","service-type":"_ai-gateway._tcp","subtypes":["_chat-completions","_responses","_messages","_generate-content","_interactions"],"interfaces":{"include":null,"exclude":null},"auth-required":null,"advertise-management":false},"commercial-mode":false,"logging-to-file":false,"logs-max-total-size-mb":0,"error-logs-max-files":10,"usage-statistics-enabled":false,"redis-usage-queue-retention-seconds":60,"disable-cooling":false,"save-cooldown-status":false,"transient-error-cooldown-seconds":-1,"auth-auto-refresh-workers":0,"request-retry":0,"max-retry-credentials":0,"max-retry-interval":0,"quota-exceeded":{"switch-project":false,"switch-preview-model":false,"antigravity-credits":false},"routing":{},"ws-auth":true,"antigravity":{"connection-pool":{}},"devin":{},"gemini-api-key":null,"interactions-api-key":null,"codex-api-key":null,"xai-api-key":null,"meta-api-key":null,"xai":{"inject-x-search":false},"codex":{"identity-confuse":false,"disable-codex-cloaking":false,"stream-bootstrap-buffering":false,"optimize-multi-agent-v2":false,"orphan-delegation-compatibility":false,"model-level-cooling":false,"live-media-relay":{"enabled":false,"max-sessions":0,"disable-private-remote-ips":false,"public-ip":"","udp-port-min":0,"udp-port-max":0,"ice-servers":null}},"codex-header-defaults":{"user-agent":"","beta-features":""},"claude-api-key":null,"claude-header-defaults":{"user-agent":"","package-version":"","runtime-version":"","os":"","arch":"","timeout":"","timezone":""},"disable-claude-cloak-mode":false,"openai-compatibility":null,"vertex-api-key":null,"payload":{"default":null,"default-raw":null,"override":null,"override-raw":null,"filter":null}}
+```
+
+HTTP status: 200

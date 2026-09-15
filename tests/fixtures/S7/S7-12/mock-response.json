@@ -1,0 +1,4 @@
+{
+  "mock_upstream_mode": "none",
+  "note": "no mock upstream involved; all exchanges are client -> reference binary"
+}

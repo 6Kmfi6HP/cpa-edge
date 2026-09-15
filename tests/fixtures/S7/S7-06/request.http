@@ -1,0 +1,49 @@
+# Exact downstream request bytes, in order (step dividers)
+
+### step 1: POST http://127.0.0.1:8397/v0/management/api-call (control: direct api-call hits mock)
+POST /v0/management/api-call HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Type: application/json
+Content-Length: 68
+
+
+{"method":"GET","url":"http://host.docker.internal:20999/v1/models"}
+
+### step 2: POST http://127.0.0.1:8397/v0/management/api-call (dead socks5 -> transport engaged)
+POST /v0/management/api-call HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Type: application/json
+Content-Length: 103
+
+
+{"method":"GET","url":"http://host.docker.internal:20999/v1/models","proxy_url":"socks5://127.0.0.1:9"}
+
+### step 3: POST http://127.0.0.1:8397/v0/management/api-call (ftp:// invalid proxy_url)
+POST /v0/management/api-call HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Type: application/json
+Content-Length: 101
+
+
+{"method":"GET","url":"http://host.docker.internal:20999/v1/models","proxy_url":"ftp://127.0.0.1:21"}
+
+### step 4: POST http://127.0.0.1:8397/v0/management/api-call (explicit direct bypass)
+POST /v0/management/api-call HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Type: application/json
+Content-Length: 89
+
+
+{"method":"GET","url":"http://host.docker.internal:20999/v1/models","proxy_url":"direct"}

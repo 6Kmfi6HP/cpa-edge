@@ -1,0 +1,10 @@
+# Exact downstream request bytes, in order (step dividers)
+
+### step 1: GET http://127.0.0.1:8397/v1/ws (plain GET, no upgrade headers)
+GET /v1/ws HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+
+
+

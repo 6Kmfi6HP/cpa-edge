@@ -1,0 +1,1005 @@
+{
+  "step_id": "S2d7",
+  "title": "Gemini client -> Claude upstream golden recordings",
+  "spec_section": "spec/sections/S2d7-gem2cla.md",
+  "reference_anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6; docker eceasy/cli-proxy-api:v7.3.4",
+  "client_protocol": "gemini",
+  "gateway": {
+    "base_url": "http://127.0.0.1:18317",
+    "api_key": "oracle-local-key-1",
+    "auth_header": "x-goog-api-key"
+  },
+  "upstream": {
+    "provider_type": "claude-api-key",
+    "mock": "python3 _cpa_edge_ref/mock/mock_claude.py 19002",
+    "base_url": "http://host.docker.internal:19002",
+    "model": "claude-mock-model",
+    "alias": "cm",
+    "mock_key": "mock-claude-key",
+    "wire_log": "_cpa_edge_ref/mock/logs/claude.jsonl"
+  },
+  "mock_control": "mock/control/claude.json (re-read per request). X-Mock-* headers do NOT traverse the gateway; use the control file.",
+  "mock_extensions_required": [
+    "variant 'tool': tool_use SSE block (see S2d7-13 variant_events)",
+    "variant 'errstream': message_start + text delta + type:error event (see S2d7-14 variant_events)",
+    "variant 'maxtokens': happy events with message_delta stop_reason max_tokens (see S2d7-15)"
+  ],
+  "ordering_constraints": "Run S2d7-10 then S2d7-19 back-to-back (<1s gap), then wait >=1s. All other cases are order-independent; reset control file to happy (or delete it) between cases.",
+  "dynamic_fields_masked": [
+    "Date",
+    "X-Cpa-Trace-Id",
+    "createTime",
+    "Content-Length"
+  ],
+  "fixture_target_dir": "tests/fixtures/S2d7/",
+  "fixture_layout": "meta.yaml, request.http, downstream.md, upstream.jsonl, mock-response.json (BOOTSTRAP §7)",
+  "deferred": [
+    {
+      "id": "claude-oauth-upstream",
+      "reason": "CREDENTIALED-ONLY per R-FIXTURE: Claude OAuth targets fixed api.anthropic.com; x-api-key auth, CLI fingerprint headers, anthropic-beta baselines, CCH billing, cloaking, adaptive-effort registry models and thinking signature replay are specified from source only."
+    }
+  ],
+  "cases": [
+    {
+      "id": "S2d7-00-auth-401",
+      "purpose": "Gateway auth on the /v1beta generation surface: missing API key yields 401 with the string-error body and no upstream request.",
+      "client_protocol": "gemini",
+      "upstream_provider_type": "claude-api-key",
+      "stream": false,
+      "mock": {
+        "mode": "happy"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/cm:generateContent",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": "{\"contents\": [{\"role\": \"user\", \"parts\": [{\"text\": \"Say hello\"}]}]}",
+          "curl": "curl -sS -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/cm:generateContent' -H 'Content-Type: application/json' -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}'"
+        }
+      ],
+      "record": "downstream status+headers+body (verbose + body); confirm mock wire log line count UNCHANGED (no upstream request)",
+      "expect_downstream": {
+        "status": 401,
+        "body": "{\"error\":\"Missing API key\"}"
+      },
+      "deterministic": "static body, no upstream dependency",
+      "fixture": "tests/fixtures/S2d7/S2d7-00-auth-401/"
+    },
+    {
+      "id": "S2d7-01-nonstream-minimal",
+      "purpose": "Minimal non-stream request. Pins upstream wire body (always stream:true, max_tokens 32000, metadata.user_id, cache_control on last user part, Bearer+Anthropic-Version, ?beta=true) and the aggregated Gemini response skeleton incl. promptTokenCount=0 from message_delta-only usage.",
+      "client_protocol": "gemini",
+      "upstream_provider_type": "claude-api-key",
+      "stream": false,
+      "mock": {
+        "mode": "happy"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/cm:generateContent",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json",
+            "User-Agent": "curl/8.7.1"
+          },
+          "body": "{\"contents\": [{\"role\": \"user\", \"parts\": [{\"text\": \"Say hello\"}]}]}",
+          "curl": "curl -sS -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/cm:generateContent' -H 'x-goog-api-key: oracle-local-key-1' -H 'Content-Type: application/json' -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}'"
+        }
+      ],
+      "record": "downstream status+headers+body; full upstream wire request (method, path, headers redacted, body) from mock/logs/claude.jsonl",
+      "expect_upstream": {
+        "method": "POST",
+        "path": "/v1/messages?beta=true",
+        "headers": {
+          "User-Agent": "curl/8.7.1",
+          "Anthropic-Version": "2023-06-01",
+          "Accept": "*/*",
+          "Accept-Encoding": "identity",
+          "Content-Type": "application/json"
+        },
+        "body_hint": "{\"model\":\"claude-mock-model\",\"max_tokens\":32000,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Say hello\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"metadata\":{\"user_id\":\"120226d8c5cb65e3acdd1f5e56fb3cf04f8bf909fe34ece9118dcc2d0e8b6c46\"},\"stream\":true}"
+      },
+      "expect_downstream": {
+        "status": 200,
+        "body_hint": "{\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"Hello from mock claude upstream more\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":0,\"candidatesTokenCount\":6,\"totalTokenCount\":6,\"trafficType\":\"PROVISIONED_THROUGHPUT\"},\"modelVersion\":\"claude-mock-model\",\"createTime\":\"<DYNAMIC RFC3339Nano>\",\"responseId\":\"msg_mock_01\"}"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "createTime"
+      ],
+      "deterministic": "fixed mock SSE; user_id precomputed (sha256 of 'content:Say hello')",
+      "fixture": "tests/fixtures/S2d7/S2d7-01-nonstream-minimal/"
+    },
+    {
+      "id": "S2d7-02-stream-sse",
+      "purpose": "Stream request with alt=sse. Pins the exact 3-frame SSE sequence, frame framing (data: ...\\n\\n), SSE headers, no event names, no [DONE].",
+      "client_protocol": "gemini",
+      "upstream_provider_type": "claude-api-key",
+      "stream": true,
+      "mock": {
+        "mode": "happy"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/cm:streamGenerateContent?alt=sse",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json",
+            "User-Agent": "curl/8.7.1"
+          },
+          "body": "{\"contents\": [{\"role\": \"user\", \"parts\": [{\"text\": \"Say hello\"}]}]}",
+          "curl": "curl -sS -N -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/cm:streamGenerateContent?alt=sse' -H 'x-goog-api-key: oracle-local-key-1' -H 'Content-Type: application/json' -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}'"
+        }
+      ],
+      "record": "downstream verbose + full SSE bytes (use --raw if needed); upstream wire request",
+      "expect_downstream": {
+        "status": 200,
+        "headers_hint": [
+          "Content-Type: text/event-stream",
+          "Cache-Control: no-cache",
+          "Connection: keep-alive",
+          "Access-Control-Allow-Origin: *"
+        ],
+        "body_hint": "exactly three 'data: {...}\\n\\n' frames per spec section S2d7 §4.3 (2 text-part chunks + final STOP+usage chunk), nothing else, stream ends cleanly"
+      },
+      "expect_upstream": {
+        "body_hint": "identical to S2d7-01 upstream body"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "createTime"
+      ],
+      "deterministic": "fixed mock SSE",
+      "fixture": "tests/fixtures/S2d7/S2d7-02-stream-sse/"
+    },
+    {
+      "id": "S2d7-03-stream-noalt",
+      "purpose": "Stream request with NO alt parameter must produce byte-identical output to alt=sse (GetAlt maps both to SSE framing).",
+      "client_protocol": "gemini",
+      "upstream_provider_type": "claude-api-key",
+      "stream": true,
+      "mock": {
+        "mode": "happy"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/cm:streamGenerateContent",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json",
+            "User-Agent": "curl/8.7.1"
+          },
+          "body": "{\"contents\": [{\"role\": \"user\", \"parts\": [{\"text\": \"Say hello\"}]}]}",
+          "curl": "curl -sS -N -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/cm:streamGenerateContent' -H 'x-goog-api-key: oracle-local-key-1' -H 'Content-Type: application/json' -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}'"
+        }
+      ],
+      "record": "downstream verbose + full SSE bytes; upstream wire request",
+      "expect_downstream": {
+        "status": 200,
+        "body_hint": "byte-identical frames to S2d7-02 (modulo dynamic createTime)"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "createTime"
+      ],
+      "deterministic": "fixed mock SSE",
+      "fixture": "tests/fixtures/S2d7/S2d7-03-stream-noalt/"
+    },
+    {
+      "id": "S2d7-04-system-snake",
+      "purpose": "snake_case system_instruction becomes the FIRST Claude message as a user turn (own message, not merged, not top-level system).",
+      "client_protocol": "gemini",
+      "upstream_provider_type": "claude-api-key",
+      "stream": false,
+      "mock": {
+        "mode": "happy"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/cm:generateContent",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"system_instruction\": {\"parts\": [{\"text\": \"Be terse.\"}]}, \"contents\": [{\"role\": \"user\", \"parts\": [{\"text\": \"Say hello\"}]}]}",
+          "curl": "curl -sS -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/cm:generateContent' -H 'x-goog-api-key: oracle-local-key-1' -H 'Content-Type: application/json' -d '{\"system_instruction\":{\"parts\":[{\"text\":\"Be terse.\"}]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}'"
+        }
+      ],
+      "record": "downstream status+headers+body; upstream wire body",
+      "expect_upstream": {
+        "body_hint": "{\"model\":\"claude-mock-model\",\"max_tokens\":32000,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Be terse.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Say hello\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"metadata\":{\"user_id\":\"120226d8c5cb65e3acdd1f5e56fb3cf04f8bf909fe34ece9118dcc2d0e8b6c46\"},\"stream\":true}"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "createTime"
+      ],
+      "deterministic": "fixed inputs",
+      "fixture": "tests/fixtures/S2d7/S2d7-04-system-snake/"
+    },
+    {
+      "id": "S2d7-05-system-camel",
+      "purpose": "camelCase systemInstruction is NOT read by this direction: upstream body has no system-derived message; the user turn is the only message.",
+      "client_protocol": "gemini",
+      "upstream_provider_type": "claude-api-key",
+      "stream": false,
+      "mock": {
+        "mode": "happy"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/cm:generateContent",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"systemInstruction\": {\"parts\": [{\"text\": \"Be terse.\"}]}, \"contents\": [{\"role\": \"user\", \"parts\": [{\"text\": \"Say hello\"}]}]}",
+          "curl": "curl -sS -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/cm:generateContent' -H 'x-goog-api-key: oracle-local-key-1' -H 'Content-Type: application/json' -d '{\"systemInstruction\":{\"parts\":[{\"text\":\"Be terse.\"}]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}'"
+        }
+      ],
+      "record": "downstream status+headers+body; upstream wire body",
+      "expect_upstream": {
+        "body_hint": "{\"model\":\"claude-mock-model\",\"max_tokens\":32000,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Say hello\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"metadata\":{\"user_id\":\"120226d8c5cb65e3acdd1f5e56fb3cf04f8bf909fe34ece9118dcc2d0e8b6c46\"},\"stream\":true}"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "createTime"
+      ],
+      "deterministic": "fixed inputs",
+      "fixture": "tests/fixtures/S2d7/S2d7-05-system-camel/"
+    },
+    {
+      "id": "S2d7-06-tools-roundtrip",
+      "purpose": "functionDeclarations -> Claude tools (schema normalization: additionalProperties false + $schema draft-07), toolConfig ANY+1 name -> tool_choice tool, functionCall part -> tool_use with generated id, functionResponse -> tool_result with FIFO pairing; cache_control lands on last tool AND last message part.",
+      "client_protocol": "gemini",
+      "upstream_provider_type": "claude-api-key",
+      "stream": false,
+      "mock": {
+        "mode": "happy"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/cm:generateContent",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"contents\": [{\"role\": \"user\", \"parts\": [{\"text\": \"What is the weather in Paris?\"}]}, {\"role\": \"model\", \"parts\": [{\"functionCall\": {\"name\": \"get_weather\", \"args\": {\"city\": \"Paris\"}}}]}, {\"role\": \"user\", \"parts\": [{\"functionResponse\": {\"name\": \"get_weather\", \"response\": {\"result\": \"sunny\"}}}]}], \"tools\": [{\"functionDeclarations\": [{\"name\": \"get_weather\", \"description\": \"Get current weather for a city\", \"parameters\": {\"type\": \"object\", \"properties\": {\"city\": {\"type\": \"string\"}}, \"required\": [\"city\"]}}]}], \"toolConfig\": {\"functionCallingConfig\": {\"mode\": \"ANY\", \"allowedFunctionNames\": [\"get_weather\"]}}}",
+          "curl": "curl -sS -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/cm:generateContent' -H 'x-goog-api-key: oracle-local-key-1' -H 'Content-Type: application/json' -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"What is the weather in Paris?\"}]},{\"role\":\"model\",\"parts\":[{\"functionCall\":{\"name\":\"get_weather\",\"args\":{\"city\":\"Paris\"}}}]},{\"role\":\"user\",\"parts\":[{\"functionResponse\":{\"name\":\"get_weather\",\"response\":{\"result\":\"sunny\"}}}]}],\"tools\":[{\"functionDeclarations\":[{\"name\":\"get_weather\",\"description\":\"Get current weather for a city\",\"parameters\":{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\"}},\"required\":[\"city\"]}}]}],\"toolConfig\":{\"functionCallingConfig\":{\"mode\":\"ANY\",\"allowedFunctionNames\":[\"get_weather\"]}}}'"
+        }
+      ],
+      "record": "downstream status+headers+body; upstream wire body",
+      "expect_upstream": {
+        "body_hint": "{\"model\":\"claude-mock-model\",\"max_tokens\":32000,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"What is the weather in Paris?\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_gemini_0000000000000001\",\"name\":\"get_weather\",\"input\":{\"city\":\"Paris\"}}]},{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_gemini_0000000000000001\",\"content\":\"sunny\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"metadata\":{\"user_id\":\"9812614c93f1fa851b3d0f72b7b284944d46ba61ee24ee868cfd79dc61b548e0\"},\"tools\":[{\"name\":\"get_weather\",\"description\":\"Get current weather for a city\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\"}},\"required\":[\"city\"],\"additionalProperties\":false,\"$schema\":\"http://json-schema.org/draft-07/schema#\"},\"cache_control\":{\"type\":\"ephemeral\"}}],\"tool_choice\":{\"type\":\"tool\",\"name\":\"get_weather\"},\"stream\":true}"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "createTime"
+      ],
+      "deterministic": "tool id counter is request-local and starts at 1",
+      "fixture": "tests/fixtures/S2d7/S2d7-06-tools-roundtrip/"
+    },
+    {
+      "id": "S2d7-07-genconfig-sampling",
+      "purpose": "generationConfig mapping: maxOutputTokens overrides max_tokens (512), stopSequences forwarded, temperature/topP/topK stripped from the upstream body.",
+      "client_protocol": "gemini",
+      "upstream_provider_type": "claude-api-key",
+      "stream": false,
+      "mock": {
+        "mode": "happy"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/cm:generateContent",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"contents\": [{\"role\": \"user\", \"parts\": [{\"text\": \"Say hello\"}]}], \"generationConfig\": {\"temperature\": 0.7, \"topP\": 0.9, \"topK\": 40, \"maxOutputTokens\": 512, \"stopSequences\": [\"END\"]}}",
+          "curl": "curl -sS -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/cm:generateContent' -H 'x-goog-api-key: oracle-local-key-1' -H 'Content-Type: application/json' -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}],\"generationConfig\":{\"temperature\":0.7,\"topP\":0.9,\"topK\":40,\"maxOutputTokens\":512,\"stopSequences\":[\"END\"]}}'"
+        }
+      ],
+      "record": "downstream status+headers+body; upstream wire body",
+      "expect_upstream": {
+        "body_hint": "{\"model\":\"claude-mock-model\",\"max_tokens\":512,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Say hello\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"metadata\":{\"user_id\":\"120226d8c5cb65e3acdd1f5e56fb3cf04f8bf909fe34ece9118dcc2d0e8b6c46\"},\"stop_sequences\":[\"END\"],\"stream\":true}"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "createTime"
+      ],
+      "deterministic": "fixed inputs",
+      "fixture": "tests/fixtures/S2d7/S2d7-07-genconfig-sampling/"
+    },
+    {
+      "id": "S2d7-08-thinking-level",
+      "purpose": "thinkingLevel 'low' maps to Claude thinking {type:enabled,budget_tokens:1024} for a registry-unknown (user-defined) upstream model.",
+      "client_protocol": "gemini",
+      "upstream_provider_type": "claude-api-key",
+      "stream": false,
+      "mock": {
+        "mode": "happy"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/cm:generateContent",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"contents\": [{\"role\": \"user\", \"parts\": [{\"text\": \"Think step by step\"}]}], \"generationConfig\": {\"thinkingConfig\": {\"thinkingLevel\": \"low\"}}}",
+          "curl": "curl -sS -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/cm:generateContent' -H 'x-goog-api-key: oracle-local-key-1' -H 'Content-Type: application/json' -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Think step by step\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"thinkingLevel\":\"low\"}}}'"
+        }
+      ],
+      "record": "downstream status+headers+body; upstream wire body (thinking block is the point of this case)",
+      "expect_upstream": {
+        "body_hint": "{\"model\":\"claude-mock-model\",\"max_tokens\":32000,\"messages\":[...],\"metadata\":{\"user_id\":\"9a19117208fd83c6449c837e5b98e63a92a09a2ff8712a4cf46d5235f4d71b7f\"},\"thinking\":{\"type\":\"enabled\",\"budget_tokens\":1024},\"stream\":true} — NON-NORMATIVE HINT: the thinking application layer may rewrite the block; the fixture is authoritative"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "createTime"
+      ],
+      "deterministic": "fixed inputs",
+      "fixture": "tests/fixtures/S2d7/S2d7-08-thinking-level/"
+    },
+    {
+      "id": "S2d7-09-inline-media",
+      "purpose": "inlineData mapping: image/* -> {type:image, source base64}, application/* -> {type:document, source base64}; part order preserved; cache_control on last part.",
+      "client_protocol": "gemini",
+      "upstream_provider_type": "claude-api-key",
+      "stream": false,
+      "mock": {
+        "mode": "happy"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/cm:generateContent",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"contents\": [{\"role\": \"user\", \"parts\": [{\"text\": \"Describe this image.\"}, {\"inlineData\": {\"mimeType\": \"image/png\", \"data\": \"aGVsbG8=\"}}, {\"inlineData\": {\"mimeType\": \"application/pdf\", \"data\": \"aGVsbG8=\"}}]}]}",
+          "curl": "curl -sS -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/cm:generateContent' -H 'x-goog-api-key: oracle-local-key-1' -H 'Content-Type: application/json' -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Describe this image.\"},{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"aGVsbG8=\"}},{\"inlineData\":{\"mimeType\":\"application/pdf\",\"data\":\"aGVsbG8=\"}}]}]}'"
+        }
+      ],
+      "record": "downstream status+headers+body; upstream wire body",
+      "expect_upstream": {
+        "body_hint": "{\"model\":\"claude-mock-model\",\"max_tokens\":32000,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Describe this image.\"},{\"type\":\"image\",\"source\":{\"type\":\"base64\",\"media_type\":\"image/png\",\"data\":\"aGVsbG8=\"}},{\"type\":\"document\",\"source\":{\"type\":\"base64\",\"media_type\":\"application/pdf\",\"data\":\"aGVsbG8=\"},\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"metadata\":{\"user_id\":\"d6079b1dae8f99463d32c10bc26190948aec4e8549ec01a0452a07f9767120e7\"},\"stream\":true}"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "createTime"
+      ],
+      "deterministic": "fixed inputs (base64 of 'hello')",
+      "fixture": "tests/fixtures/S2d7/S2d7-09-inline-media/"
+    },
+    {
+      "id": "S2d7-10-upstream-429",
+      "purpose": "Upstream 429: status+body pass downstream VERBATIM (claude wire error shape), Content-Type application/json. Run this BEFORE S2d7-19 and leave >=1s gap after it.",
+      "client_protocol": "gemini",
+      "upstream_provider_type": "claude-api-key",
+      "stream": true,
+      "mock": {
+        "mode": "error",
+        "status": 429,
+        "control_file": {
+          "mode": "error",
+          "status": 429
+        }
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/cm:streamGenerateContent?alt=sse",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"contents\": [{\"role\": \"user\", \"parts\": [{\"text\": \"Say hello\"}]}]}",
+          "curl": "curl -sS -N -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/cm:streamGenerateContent?alt=sse' -H 'x-goog-api-key: oracle-local-key-1' -H 'Content-Type: application/json' -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}'"
+        }
+      ],
+      "record": "downstream verbose + body; upstream wire request + the 429 the mock returned (mock-response.json)",
+      "expect_downstream": {
+        "status": 429,
+        "body_hint": "{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"mock rate limit\"}} — byte-identical to the mock error body"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id"
+      ],
+      "deterministic": "mock error mode via control file mock/control/claude.json (X-Mock-* headers do not traverse the gateway)",
+      "ordering": "immediately follow with S2d7-19; then wait >=1s before any further case",
+      "fixture": "tests/fixtures/S2d7/S2d7-10-upstream-429/"
+    },
+    {
+      "id": "S2d7-11-disconnect",
+      "purpose": "Upstream hard-close mid-stream: client gets the 2 translated text chunks, HTTP stays 200, then one terminal 'event: error\\ndata: {unexpected EOF}' frame; stream ends.",
+      "client_protocol": "gemini",
+      "upstream_provider_type": "claude-api-key",
+      "stream": true,
+      "mock": {
+        "mode": "disconnect",
+        "after": 4,
+        "control_file": {
+          "mode": "disconnect",
+          "after": 4
+        }
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/cm:streamGenerateContent?alt=sse",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"contents\": [{\"role\": \"user\", \"parts\": [{\"text\": \"Say hello\"}]}]}",
+          "curl": "curl -sS -N -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/cm:streamGenerateContent?alt=sse' -H 'x-goog-api-key: oracle-local-key-1' -H 'Content-Type: application/json' -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}'"
+        }
+      ],
+      "record": "downstream verbose + full SSE bytes including the terminal frame",
+      "expect_downstream": {
+        "status": 200,
+        "body_hint": "two 'data: {text part}' frames, then 'event: error\\ndata: {\"error\":{\"message\":\"unexpected EOF\",\"type\":\"server_error\",\"code\":\"internal_server_error\"}}\\n\\n', stream ends"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "createTime"
+      ],
+      "deterministic": "after=4 events = message_start, content_block_start, 2x content_block_delta, then close",
+      "fixture": "tests/fixtures/S2d7/S2d7-11-disconnect/"
+    },
+    {
+      "id": "S2d7-12-counttokens",
+      "purpose": "countTokens on a custom-base claude upstream is computed LOCALLY (O200k over the translated Claude body): Gemini shape {totalTokens, promptTokensDetails}; NO upstream request (verify wire log line count unchanged).",
+      "client_protocol": "gemini",
+      "upstream_provider_type": "claude-api-key",
+      "stream": false,
+      "mock": {
+        "mode": "happy"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/cm:countTokens",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"contents\": [{\"role\": \"user\", \"parts\": [{\"text\": \"Say hello\"}]}]}",
+          "curl": "curl -sS -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/cm:countTokens' -H 'x-goog-api-key: oracle-local-key-1' -H 'Content-Type: application/json' -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}'"
+        }
+      ],
+      "record": "downstream status+headers+body; mock wire log line count before/after (must be unchanged)",
+      "expect_downstream": {
+        "status": 200,
+        "body_hint": "{\"totalTokens\":N,\"promptTokensDetails\":[{\"modality\":\"TEXT\",\"tokenCount\":N}]} with N = reference O200kBase count for segments [user, Say hello]; record the exact integer"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id"
+      ],
+      "deterministic": "local estimator, fixed inputs",
+      "fixture": "tests/fixtures/S2d7/S2d7-12-counttokens/"
+    },
+    {
+      "id": "S2d7-13-tool-stream",
+      "purpose": "Claude tool_use SSE -> Gemini functionCall chunk: one frame with parts[{functionCall{name,args,id}}] AND finishReason STOP, then a second frame with empty parts + STOP + usage. REQUIRES mock variant 'tool'.",
+      "client_protocol": "gemini",
+      "upstream_provider_type": "claude-api-key",
+      "stream": true,
+      "mock": {
+        "mode": "happy",
+        "variant": "tool",
+        "control_file": {
+          "mode": "happy",
+          "variant": "tool"
+        },
+        "variant_events": [
+          [
+            "message_start",
+            {
+              "type": "message_start",
+              "message": {
+                "id": "msg_mock_02",
+                "type": "message",
+                "role": "assistant",
+                "model": "<echo body model>",
+                "content": [],
+                "stop_reason": null,
+                "stop_sequence": null,
+                "usage": {
+                  "input_tokens": 11,
+                  "output_tokens": 1
+                }
+              }
+            }
+          ],
+          [
+            "content_block_start",
+            {
+              "type": "content_block_start",
+              "index": 0,
+              "content_block": {
+                "type": "tool_use",
+                "id": "toolu_mock01",
+                "name": "get_weather",
+                "input": {}
+              }
+            }
+          ],
+          [
+            "content_block_delta",
+            {
+              "type": "content_block_delta",
+              "index": 0,
+              "delta": {
+                "type": "input_json_delta",
+                "partial_json": "{\"city\":\"Par\""
+              }
+            }
+          ],
+          [
+            "content_block_delta",
+            {
+              "type": "content_block_delta",
+              "index": 0,
+              "delta": {
+                "type": "input_json_delta",
+                "partial_json": "is\"}"
+              }
+            }
+          ],
+          [
+            "content_block_stop",
+            {
+              "type": "content_block_stop",
+              "index": 0
+            }
+          ],
+          [
+            "message_delta",
+            {
+              "type": "message_delta",
+              "delta": {
+                "stop_reason": "tool_use",
+                "stop_sequence": null
+              },
+              "usage": {
+                "output_tokens": 12
+              }
+            }
+          ],
+          [
+            "message_stop",
+            {
+              "type": "message_stop"
+            }
+          ]
+        ]
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/cm:streamGenerateContent?alt=sse",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"contents\": [{\"role\": \"user\", \"parts\": [{\"text\": \"Call the get_weather tool for Paris\"}]}]}",
+          "curl": "curl -sS -N -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/cm:streamGenerateContent?alt=sse' -H 'x-goog-api-key: oracle-local-key-1' -H 'Content-Type: application/json' -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Call the get_weather tool for Paris\"}]}]}'"
+        }
+      ],
+      "record": "downstream verbose + full SSE bytes; upstream wire request; mock variant script as mock-response.json",
+      "expect_downstream": {
+        "status": 200,
+        "body_hint": "frame 1: data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"functionCall\":{\"name\":\"get_weather\",\"args\":{\"city\":\"Paris\"},\"id\":\"toolu_mock01\"}}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"trafficType\":\"PROVISIONED_THROUGHPUT\"},\"modelVersion\":\"claude-mock-model\",\"createTime\":\"<DYNAMIC>\",\"responseId\":\"msg_mock_02\"}\\n\\n frame 2: data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"trafficType\":\"PROVISIONED_THROUGHPUT\",\"promptTokenCount\":0,\"candidatesTokenCount\":12,\"totalTokenCount\":12},...}\\n\\n"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "createTime"
+      ],
+      "deterministic": "fixed variant SSE",
+      "fixture": "tests/fixtures/S2d7/S2d7-13-tool-stream/"
+    },
+    {
+      "id": "S2d7-14-errstream",
+      "purpose": "Claude in-stream error EVENT translates to a normal data frame with Gemini error shape (fixed 400/INVALID_ARGUMENT), stream then ends cleanly. REQUIRES mock variant 'errstream'.",
+      "client_protocol": "gemini",
+      "upstream_provider_type": "claude-api-key",
+      "stream": true,
+      "mock": {
+        "mode": "happy",
+        "variant": "errstream",
+        "control_file": {
+          "mode": "happy",
+          "variant": "errstream"
+        },
+        "variant_events": [
+          [
+            "message_start",
+            {
+              "type": "message_start",
+              "message": {
+                "id": "msg_mock_03",
+                "type": "message",
+                "role": "assistant",
+                "model": "<echo body model>",
+                "content": [],
+                "stop_reason": null,
+                "stop_sequence": null,
+                "usage": {
+                  "input_tokens": 5,
+                  "output_tokens": 1
+                }
+              }
+            }
+          ],
+          [
+            "content_block_start",
+            {
+              "type": "content_block_start",
+              "index": 0,
+              "content_block": {
+                "type": "text",
+                "text": ""
+              }
+            }
+          ],
+          [
+            "content_block_delta",
+            {
+              "type": "content_block_delta",
+              "index": 0,
+              "delta": {
+                "type": "text_delta",
+                "text": "Partial "
+              }
+            }
+          ],
+          [
+            "error",
+            {
+              "type": "error",
+              "error": {
+                "type": "overloaded_error",
+                "message": "mock overloaded"
+              }
+            }
+          ]
+        ]
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/cm:streamGenerateContent?alt=sse",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"contents\": [{\"role\": \"user\", \"parts\": [{\"text\": \"Hi\"}]}]}",
+          "curl": "curl -sS -N -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/cm:streamGenerateContent?alt=sse' -H 'x-goog-api-key: oracle-local-key-1' -H 'Content-Type: application/json' -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Hi\"}]}]}'"
+        }
+      ],
+      "record": "downstream verbose + full SSE bytes; mock variant script",
+      "expect_downstream": {
+        "status": 200,
+        "body_hint": "frame 1: text part chunk for 'Partial '; frame 2: data: {\"error\":{\"code\":400,\"message\":\"mock overloaded\",\"status\":\"INVALID_ARGUMENT\"}}\\n\\n; stream ends (no terminal error frame, HTTP 200)"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "createTime"
+      ],
+      "deterministic": "fixed variant SSE",
+      "fixture": "tests/fixtures/S2d7/S2d7-14-errstream/"
+    },
+    {
+      "id": "S2d7-15-maxtokens",
+      "purpose": "stop_reason 'max_tokens' still yields finishReason STOP in stream chunks (the MAX_TOKENS mapping is overwritten by an unconditional STOP set). REQUIRES mock variant 'maxtokens' (happy events with stop_reason max_tokens).",
+      "client_protocol": "gemini",
+      "upstream_provider_type": "claude-api-key",
+      "stream": true,
+      "mock": {
+        "mode": "happy",
+        "variant": "maxtokens",
+        "control_file": {
+          "mode": "happy",
+          "variant": "maxtokens"
+        },
+        "variant_events": "same as happy but message_delta.delta.stop_reason = \"max_tokens\""
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/cm:streamGenerateContent?alt=sse",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"contents\": [{\"role\": \"user\", \"parts\": [{\"text\": \"Write a long essay\"}]}]}",
+          "curl": "curl -sS -N -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/cm:streamGenerateContent?alt=sse' -H 'x-goog-api-key: oracle-local-key-1' -H 'Content-Type: application/json' -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Write a long essay\"}]}]}'"
+        }
+      ],
+      "record": "downstream verbose + full SSE bytes; mock variant script",
+      "expect_downstream": {
+        "status": 200,
+        "body_hint": "final frame has \"finishReason\":\"STOP\" (NOT MAX_TOKENS) — pins the override quirk"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "createTime"
+      ],
+      "deterministic": "fixed variant SSE",
+      "fixture": "tests/fixtures/S2d7/S2d7-15-maxtokens/"
+    },
+    {
+      "id": "S2d7-16-roleless-dropped",
+      "purpose": "A contents turn WITHOUT role is dropped by this direction: upstream body has messages:[] (and no cache_control injection). user_id is still derived (role-less counts as user for the seed).",
+      "client_protocol": "gemini",
+      "upstream_provider_type": "claude-api-key",
+      "stream": false,
+      "mock": {
+        "mode": "happy"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/cm:generateContent",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"contents\": [{\"parts\": [{\"text\": \"Say hello\"}]}]}",
+          "curl": "curl -sS -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/cm:generateContent' -H 'x-goog-api-key: oracle-local-key-1' -H 'Content-Type: application/json' -d '{\"contents\":[{\"parts\":[{\"text\":\"Say hello\"}]}]}'"
+        }
+      ],
+      "record": "downstream status+headers+body; upstream wire body",
+      "expect_upstream": {
+        "body_hint": "{\"model\":\"claude-mock-model\",\"max_tokens\":32000,\"messages\":[],\"metadata\":{\"user_id\":\"120226d8c5cb65e3acdd1f5e56fb3cf04f8bf909fe34ece9118dcc2d0e8b6c46\"},\"stream\":true}"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "createTime"
+      ],
+      "deterministic": "fixed inputs",
+      "fixture": "tests/fixtures/S2d7/S2d7-16-roleless-dropped/"
+    },
+    {
+      "id": "S2d7-17-role-merge",
+      "purpose": "Consecutive same-role turns merge into ONE Claude message (parts concatenated); assistant turn stays separate; cache_control lands on the LAST message's last part only.",
+      "client_protocol": "gemini",
+      "upstream_provider_type": "claude-api-key",
+      "stream": false,
+      "mock": {
+        "mode": "happy"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/cm:generateContent",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"contents\": [{\"role\": \"user\", \"parts\": [{\"text\": \"Part one.\"}]}, {\"role\": \"user\", \"parts\": [{\"text\": \"Part two.\"}]}, {\"role\": \"model\", \"parts\": [{\"text\": \"I heard you.\"}]}, {\"role\": \"user\", \"parts\": [{\"text\": \"Continue.\"}]}]}",
+          "curl": "curl -sS -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/cm:generateContent' -H 'x-goog-api-key: oracle-local-key-1' -H 'Content-Type: application/json' -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Part one.\"}]},{\"role\":\"user\",\"parts\":[{\"text\":\"Part two.\"}]},{\"role\":\"model\",\"parts\":[{\"text\":\"I heard you.\"}]},{\"role\":\"user\",\"parts\":[{\"text\":\"Continue.\"}]}]}'"
+        }
+      ],
+      "record": "downstream status+headers+body; upstream wire body",
+      "expect_upstream": {
+        "body_hint": "{\"model\":\"claude-mock-model\",\"max_tokens\":32000,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Part one.\"},{\"type\":\"text\",\"text\":\"Part two.\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"I heard you.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Continue.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"metadata\":{\"user_id\":\"1c291ea6503c9c70da600d719225585c169f1d330b277a74ccf684c36b7cf58f\"},\"stream\":true}"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "createTime"
+      ],
+      "deterministic": "fixed inputs",
+      "fixture": "tests/fixtures/S2d7/S2d7-17-role-merge/"
+    },
+    {
+      "id": "S2d7-18-alt-json",
+      "purpose": "alt=json (any alt value other than sse) yields RAW CONCATENATED translated chunks with no 'data: ' framing and no SSE headers from the gateway; Content-Type comes from the upstream response.",
+      "client_protocol": "gemini",
+      "upstream_provider_type": "claude-api-key",
+      "stream": true,
+      "mock": {
+        "mode": "happy"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/cm:streamGenerateContent?alt=json",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"contents\": [{\"role\": \"user\", \"parts\": [{\"text\": \"Say hello\"}]}]}",
+          "curl": "curl -sS -N -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/cm:streamGenerateContent?alt=json' -H 'x-goog-api-key: oracle-local-key-1' -H 'Content-Type: application/json' -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}'"
+        }
+      ],
+      "record": "downstream verbose + full body bytes",
+      "expect_downstream": {
+        "status": 200,
+        "body_hint": "the 3 Gemini JSON objects concatenated with NO separator and no data:/event: framing; Content-Type: text/event-stream (from upstream mock)"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "createTime"
+      ],
+      "deterministic": "fixed mock SSE",
+      "fixture": "tests/fixtures/S2d7/S2d7-18-alt-json/"
+    },
+    {
+      "id": "S2d7-19-cooldown-after-429",
+      "purpose": "Immediately after S2d7-10's 429 (same credential, <1s): the credential is in rate-limit cooldown; request fails with HTTP 500 and the model_cooldown body carrying the VERBATIM last upstream error. Pins cooldown shape on the gemini surface.",
+      "client_protocol": "gemini",
+      "upstream_provider_type": "claude-api-key",
+      "stream": true,
+      "mock": {
+        "mode": "happy",
+        "note": "control file can already be reset to happy — the cooldown fires before any upstream call"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/cm:streamGenerateContent?alt=sse",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"contents\": [{\"role\": \"user\", \"parts\": [{\"text\": \"Say hello\"}]}]}",
+          "curl": "curl -sS -N -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/cm:streamGenerateContent?alt=sse' -H 'x-goog-api-key: oracle-local-key-1' -H 'Content-Type: application/json' -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}'"
+        }
+      ],
+      "record": "downstream verbose + body",
+      "expect_downstream": {
+        "status": 500,
+        "body_hint": "{\"error\":{\"code\":\"model_cooldown\",\"message\":\"All credentials for model <m> are cooling down via provider claude (last error: <summary>)\",\"model\":\"<m>\",\"reset_time\":\"1s\",\"reset_seconds\":1,\"provider\":\"claude\",\"last_upstream_error\":\"<summary of the 429 body>\"}} — exact field set/order and the model string pinned by fixture (source: sdk/cliproxy/auth/selector.go modelCooldownError)"
+      },
+      "ordering": "MUST run immediately (<1s) after S2d7-10; after this case wait >=1s for the cooldown to clear",
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id"
+      ],
+      "deterministic": "cooldown window is 1s; back-to-back curls are deterministic enough — if the request lands after cooldown cleared, re-run the pair",
+      "fixture": "tests/fixtures/S2d7/S2d7-19-cooldown-after-429/"
+    },
+    {
+      "id": "S2d7-20-errstream-nonstream",
+      "purpose": "Aggregation path validation: an upstream error EVENT in the aggregated stream fails the whole request with HTTP 502 and the validator message wrap. REQUIRES mock variant 'errstream'.",
+      "client_protocol": "gemini",
+      "upstream_provider_type": "claude-api-key",
+      "stream": false,
+      "mock": {
+        "mode": "happy",
+        "variant": "errstream",
+        "control_file": {
+          "mode": "happy",
+          "variant": "errstream"
+        }
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/cm:generateContent",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"contents\": [{\"role\": \"user\", \"parts\": [{\"text\": \"Hi\"}]}]}",
+          "curl": "curl -sS -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/cm:generateContent' -H 'x-goog-api-key: oracle-local-key-1' -H 'Content-Type: application/json' -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Hi\"}]}]}'"
+        }
+      ],
+      "record": "downstream verbose + body",
+      "expect_downstream": {
+        "status": 502,
+        "body_hint": "{\"error\":{\"message\":\"claude executor: upstream returned error event: mock overloaded\",\"type\":\"server_error\",\"code\":\"internal_server_error\"}} — exact wrap pinned by fixture"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id"
+      ],
+      "deterministic": "fixed variant SSE",
+      "fixture": "tests/fixtures/S2d7/S2d7-20-errstream-nonstream/"
+    },
+    {
+      "id": "S2d7-21-tool-nonstream",
+      "purpose": "Tool-call assembly in the non-stream response: single Gemini JSON with parts[{functionCall{...}}] and finishReason STOP. REQUIRES mock variant 'tool'.",
+      "client_protocol": "gemini",
+      "upstream_provider_type": "claude-api-key",
+      "stream": false,
+      "mock": {
+        "mode": "happy",
+        "variant": "tool",
+        "control_file": {
+          "mode": "happy",
+          "variant": "tool"
+        }
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/cm:generateContent",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"contents\": [{\"role\": \"user\", \"parts\": [{\"text\": \"Call the get_weather tool for Paris\"}]}]}",
+          "curl": "curl -sS -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/cm:generateContent' -H 'x-goog-api-key: oracle-local-key-1' -H 'Content-Type: application/json' -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Call the get_weather tool for Paris\"}]}]}'"
+        }
+      ],
+      "record": "downstream status+headers+body",
+      "expect_downstream": {
+        "status": 200,
+        "body_hint": "{\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"functionCall\":{\"name\":\"get_weather\",\"args\":{\"city\":\"Paris\"},\"id\":\"toolu_mock01\"}}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":0,\"candidatesTokenCount\":12,\"totalTokenCount\":12,\"trafficType\":\"PROVISIONED_THROUGHPUT\"},\"modelVersion\":\"claude-mock-model\",\"createTime\":\"<DYNAMIC>\",\"responseId\":\"msg_mock_02\"}"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "createTime"
+      ],
+      "deterministic": "fixed variant SSE",
+      "fixture": "tests/fixtures/S2d7/S2d7-21-tool-nonstream/"
+    },
+    {
+      "id": "S2d7-22-verbatim-model",
+      "purpose": "Using the verbatim provider model name (claude-mock-model) instead of the alias resolves identically: upstream body model is claude-mock-model.",
+      "client_protocol": "gemini",
+      "upstream_provider_type": "claude-api-key",
+      "stream": false,
+      "mock": {
+        "mode": "happy"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/claude-mock-model:generateContent",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"contents\": [{\"role\": \"user\", \"parts\": [{\"text\": \"Say hello\"}]}]}",
+          "curl": "curl -sS -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/claude-mock-model:generateContent' -H 'x-goog-api-key: oracle-local-key-1' -H 'Content-Type: application/json' -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}'"
+        }
+      ],
+      "record": "downstream status+headers+body; upstream wire body",
+      "expect_upstream": {
+        "body_hint": "identical to S2d7-01 upstream body"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "createTime"
+      ],
+      "deterministic": "fixed inputs",
+      "fixture": "tests/fixtures/S2d7/S2d7-22-verbatim-model/"
+    }
+  ]
+}

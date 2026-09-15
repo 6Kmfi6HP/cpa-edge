@@ -1,0 +1,63 @@
+# Exact downstream request bytes, in order (step dividers)
+
+### step 1: PUT http://127.0.0.1:8397/v0/management/ws-auth (enable ws-auth via management)
+PUT /v0/management/ws-auth HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Type: application/json
+Content-Length: 14
+
+
+{"value":true}
+
+### step 2: GET http://127.0.0.1:8397/v1/ws (no auth now required)
+GET /v1/ws HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+
+
+
+
+### step 3: GET http://127.0.0.1:8397/v1/ws (wrong key)
+GET /v1/ws HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer wrong-key
+
+
+
+
+### step 4: GET http://127.0.0.1:8397/v1/ws (valid key, upgrade still fails)
+GET /v1/ws HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-local-key-1
+
+
+
+
+### step 5: PUT http://127.0.0.1:8397/v0/management/ws-auth (disable ws-auth)
+PUT /v0/management/ws-auth HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Type: application/json
+Content-Length: 15
+
+
+{"value":false}
+
+### step 6: GET http://127.0.0.1:8397/v1/ws (no auth required again)
+GET /v1/ws HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+
+
+

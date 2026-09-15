@@ -1,0 +1,51 @@
+{
+ "id": "S1-18",
+ "purpose": "Responses endpoints: non-stream 200, SSE stream 200, compact route 400 when stream:true.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+ "recorded_at": "2026-09-15T23:47:09",
+ "record_kind": "response+upstream",
+ "mock_upstream_mode": "happy",
+ "config": "baseline+openai-compat(mock-openai,mock-model)",
+ "dynamic_fields": [
+  "Date",
+  "X-Cpa-Trace-Id",
+  "created",
+  "created_at",
+  "Content-Length when body is dynamic"
+ ],
+ "requests": [
+  {
+   "name": "responses-nostream",
+   "method": "POST",
+   "path": "/v1/responses",
+   "request_file": "responses-nostream.request.http",
+   "downstream_file": "responses-nostream.downstream.md",
+   "http_status": "200"
+  },
+  {
+   "name": "responses-stream",
+   "method": "POST",
+   "path": "/v1/responses",
+   "request_file": "responses-stream.request.http",
+   "downstream_file": "responses-stream.downstream.md",
+   "http_status": "200"
+  },
+  {
+   "name": "compact-stream-true",
+   "method": "POST",
+   "path": "/v1/responses/compact",
+   "request_file": "compact-stream-true.request.http",
+   "downstream_file": "compact-stream-true.downstream.md",
+   "http_status": "400"
+  },
+  {
+   "name": "codex-alias",
+   "method": "POST",
+   "path": "/backend-api/codex/responses",
+   "request_file": "codex-alias.request.http",
+   "downstream_file": "codex-alias.downstream.md",
+   "http_status": "200"
+  }
+ ],
+ "upstream_file": "upstream.jsonl"
+}

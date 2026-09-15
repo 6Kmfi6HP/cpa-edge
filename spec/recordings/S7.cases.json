@@ -1,0 +1,957 @@
+{
+  "$schema": "cpa-edge/recordings-cases/1",
+  "section": "S7",
+  "title": "Platform degradation matrix — upstream probes (CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6)",
+  "target_fixture_dir": "tests/fixtures/S7/",
+  "version_anchor": "eceasy/cli-proxy-api:v7.3.4 (digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266)",
+  "notes": [
+    "All cases are RECORDABLE-LOCALLY unless marked FIXTURE-DEFERRED; none require real provider credentials.",
+    "Default base URL: http://127.0.0.1:18317 (oracle container; run/config.yaml template unchanged unless a case says otherwise).",
+    "Management key: 'oracle-mgmt-key-1' (Authorization: Bearer or X-Management-Key). Client API key: 'oracle-local-key-1'.",
+    "Sequence cases (S7-02, S7-08, S7-13, S7-14, S7-15) must run in order on one container; S7-08 continues from S7-07 state.",
+    "S7-13 additionally publishes container port 54545 (docker run -p 127.0.0.1:54545:54545).",
+    "Fixture layout per reports/oracle/BOOTSTRAP.md RECIPES: meta.yaml / request.http / downstream.md / upstream.jsonl / mock-response.json; for multi-step cases use downstream-<step>.md.",
+    "Dynamic fields must be listed in meta.yaml dynamic_fields (state values, PKCE code_challenge in URLs, log line contents, latest-timestamp, next-cursor, Sec-WebSocket-Key/Accept, UnixNano states, container paths)."
+  ],
+  "cases": [
+    {
+      "id": "S7-01",
+      "title": "ws-handshake-rejected-no-upgrade",
+      "feature": "inbound-websocket",
+      "purpose": "Demonstrate that upstream registers GET /v1/ws and rejects a plain GET with gorilla's 400 (the inbound WebSocket feature surface that vercel degrades).",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v1/ws",
+          "headers": {
+            "Host": "127.0.0.1:18317"
+          },
+          "body": "",
+          "note": "default oracle config: ws-auth unset => false, so no API key is required"
+        }
+      ],
+      "record": [
+        "status + response headers + exact body bytes (expect 400 text/plain 'Bad Request' + Sec-Websocket-Version: 13 + gin CORS block)"
+      ],
+      "mock_upstream_mode": "none",
+      "config_setup": "run/config.yaml as-is (no ws-auth key)",
+      "fixture_status": "RECORDABLE-LOCALLY",
+      "auxiliary_evidence": "docker logs: no ws-related lines expected"
+    },
+    {
+      "id": "S7-02",
+      "title": "ws-auth-gating-toggle",
+      "feature": "inbound-websocket+file-watcher",
+      "purpose": "Demonstrate the ws-auth switch: management key gates it; enabling it makes /v1/ws require an API key; disabling re-opens it. This is the observable used by the CPA-Edge degraded-runtime contract (auth errors precede the 501).",
+      "requests": [
+        {
+          "step": 1,
+          "method": "PUT",
+          "path": "/v0/management/ws-auth",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"value\":true}",
+          "expect": "200 {\"status\":\"ok\"}"
+        },
+        {
+          "step": 2,
+          "method": "GET",
+          "path": "/v1/ws",
+          "headers": {},
+          "body": "",
+          "expect": "401 {\"error\":\"Missing API key\"}"
+        },
+        {
+          "step": 3,
+          "method": "GET",
+          "path": "/v1/ws",
+          "headers": {
+            "Authorization": "Bearer wrong-key"
+          },
+          "body": "",
+          "expect": "401 {\"error\":\"Invalid API key\"}"
+        },
+        {
+          "step": 4,
+          "method": "GET",
+          "path": "/v1/ws",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1"
+          },
+          "body": "",
+          "expect": "400 gorilla 'Bad Request' (auth passes, upgrade fails)"
+        },
+        {
+          "step": 5,
+          "method": "PUT",
+          "path": "/v0/management/ws-auth",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"value\":false}",
+          "expect": "200 {\"status\":\"ok\"}"
+        },
+        {
+          "step": 6,
+          "method": "GET",
+          "path": "/v1/ws",
+          "headers": {},
+          "body": "",
+          "expect": "400 gorilla 'Bad Request' (no auth required again)"
+        }
+      ],
+      "record": [
+        "each numbered exchange: status + headers + body; also capture docker logs around the toggle (ws-auth reload / session termination lines if any)"
+      ],
+      "mock_upstream_mode": "none",
+      "config_setup": "run/config.yaml as-is",
+      "fixture_status": "RECORDABLE-LOCALLY"
+    },
+    {
+      "id": "S7-03",
+      "title": "ws-wrong-method-404-and-options-cors",
+      "feature": "inbound-websocket",
+      "purpose": "Confirm R-404 semantics on the /v1/ws route: POST is 404 with empty body (only GET is registered), OPTIONS is auto-answered 204 with CORS.",
+      "requests": [
+        {
+          "step": 1,
+          "method": "POST",
+          "path": "/v1/ws",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1"
+          },
+          "body": "",
+          "expect": "404 empty body"
+        },
+        {
+          "step": 2,
+          "method": "OPTIONS",
+          "path": "/v1/ws",
+          "headers": {
+            "Origin": "http://localhost:3000"
+          },
+          "body": "",
+          "expect": "204 + CORS headers, no auth needed"
+        }
+      ],
+      "record": [
+        "both exchanges: status + headers + body bytes"
+      ],
+      "mock_upstream_mode": "none",
+      "config_setup": "run/config.yaml as-is",
+      "fixture_status": "RECORDABLE-LOCALLY"
+    },
+    {
+      "id": "S7-04",
+      "title": "ws-upgrade-101-handshake",
+      "feature": "inbound-websocket",
+      "purpose": "Prove the inbound upgrade path works upstream: a minimal stdlib WebSocket handshake (no session protocol use) returns 101 with a correct Sec-WebSocket-Accept; the server then registers a synthetic runtime-only aistudio credential. This is exactly the capability vercel lacks.",
+      "requests": [
+        {
+          "step": "script",
+          "detail": "python3 stdlib (socket+base64+hashlib): open TCP to 127.0.0.1:18317; send 'GET /v1/ws HTTP/1.1\\r\\nHost: 127.0.0.1:18317\\r\\nUpgrade: websocket\\r\\nConnection: Upgrade\\r\\nSec-WebSocket-Key: <base64 16 bytes>\\r\\nSec-WebSocket-Version: 13\\r\\n\\r\\n'; read full 101 response head; compute base64(SHA1(key+'258EAFA5-E914-47DA-95CA-C5AB0DC85B11')) and compare with Sec-WebSocket-Accept; then send a close frame (opcode 0x88, payload 2 bytes 03 E8) and close."
+        }
+      ],
+      "record": [
+        "full 101 response head bytes; computed accept value; note that the server sends no message before close (it waits for client JSON)"
+      ],
+      "mock_upstream_mode": "none",
+      "config_setup": "run/config.yaml as-is",
+      "fixture_status": "RECORDABLE-LOCALLY",
+      "auxiliary_evidence": "docker logs must show 'websocket provider connected: aistudio-<16 alnum chars>' during the probe window"
+    },
+    {
+      "id": "S7-05",
+      "title": "proxy-url-config-accepted-echo",
+      "feature": "socks5-proxy",
+      "purpose": "Demonstrate proxy-url config acceptance and visibility: management CRUD round-trip + config echo. No credential is used; the feature is visible through its config surface.",
+      "requests": [
+        {
+          "step": 1,
+          "method": "PUT",
+          "path": "/v0/management/proxy-url",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"value\":\"socks5://oracle-user:oracle-pass@127.0.0.1:1080\"}",
+          "expect": "200 {\"status\":\"ok\"}"
+        },
+        {
+          "step": 2,
+          "method": "GET",
+          "path": "/v0/management/proxy-url",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": "",
+          "expect": "200 {\"proxy-url\":\"socks5://oracle-user:oracle-pass@127.0.0.1:1080\"}"
+        },
+        {
+          "step": 3,
+          "method": "GET",
+          "path": "/v0/management/config",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": "",
+          "expect": "200; body contains \"proxy-url\":\"socks5://...\""
+        },
+        {
+          "step": 4,
+          "method": "PUT",
+          "path": "/v0/management/proxy-url",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"value\":\"direct\"}",
+          "expect": "200 {\"status\":\"ok\"}; GET now shows \"direct\""
+        },
+        {
+          "step": 5,
+          "method": "DELETE",
+          "path": "/v0/management/proxy-url",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": "",
+          "expect": "200 {\"status\":\"ok\"}"
+        },
+        {
+          "step": 6,
+          "method": "GET",
+          "path": "/v0/management/proxy-url",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": "",
+          "expect": "200 {\"proxy-url\":\"\"}"
+        }
+      ],
+      "record": [
+        "each exchange status+headers+body; for step 3 record the full config JSON once (dynamic fields: secret-key hash, model lists)"
+      ],
+      "mock_upstream_mode": "none",
+      "config_setup": "run/config.yaml as-is",
+      "fixture_status": "RECORDABLE-LOCALLY"
+    },
+    {
+      "id": "S7-06",
+      "title": "api-call-proxy-transport-engaged",
+      "feature": "socks5-proxy",
+      "purpose": "Prove the proxy transport is ENGAGED, not just stored: a management api-call through a dead socks5 port fails with 502 while the same URL direct succeeds; ftp:// is rejected as invalid proxy_url. This is the upstream behavior CPA-Edge degrades to 501 on serverless runtimes.",
+      "requests": [
+        {
+          "step": 1,
+          "method": "POST",
+          "path": "/v0/management/api-call",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"method\":\"GET\",\"url\":\"http://host.docker.internal:18999/v1/models\"}",
+          "expect": "200 {\"status_code\":200,\"header\":{...mock headers...},\"body\":\"<mock models JSON>\"} (control: direct works)"
+        },
+        {
+          "step": 2,
+          "method": "POST",
+          "path": "/v0/management/api-call",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"method\":\"GET\",\"url\":\"http://host.docker.internal:18999/v1/models\",\"proxy_url\":\"socks5://127.0.0.1:9\"}",
+          "expect": "502 {\"error\":\"request failed\"} (socks5 dial to dead port 9 fails; proves transport engaged)"
+        },
+        {
+          "step": 3,
+          "method": "POST",
+          "path": "/v0/management/api-call",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"method\":\"GET\",\"url\":\"http://host.docker.internal:18999/v1/models\",\"proxy_url\":\"ftp://127.0.0.1:21\"}",
+          "expect": "400 {\"error\":\"invalid proxy_url\"}"
+        },
+        {
+          "step": 4,
+          "method": "POST",
+          "path": "/v0/management/api-call",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"method\":\"GET\",\"url\":\"http://host.docker.internal:18999/v1/models\",\"proxy_url\":\"direct\"}",
+          "expect": "200 status_code 200 (explicit direct bypass works, same as control)"
+        }
+      ],
+      "record": [
+        "all four exchanges; upstream.jsonl = the two mock hits from steps 1 and 4 (mock logs each incoming request)"
+      ],
+      "mock_upstream_mode": "happy",
+      "config_setup": "mock_openai.py running on host port 18999; no config change needed",
+      "fixture_status": "RECORDABLE-LOCALLY"
+    },
+    {
+      "id": "S7-07",
+      "title": "plugins-config-accepted-visible",
+      "feature": "c-abi-plugins",
+      "purpose": "Demonstrate the plugins config surface is accepted and visible after an EXTERNAL config file edit (also exercises hot-reload): plugins.enabled=true + a configured instance show up in GET /v0/management/plugins with registered=false (no binary present).",
+      "requests": [
+        {
+          "step": "file-edit",
+          "detail": "append to run/config.yaml (host file edit, server NOT restarted):\nplugins:\n  enabled: true\n  dir: \"plugins\"\n  configs:\n    example:\n      enabled: true\n      priority: 1\n      mode: \"safe\"\nthen sleep 2s for the 150ms-debounced watcher"
+        },
+        {
+          "step": 2,
+          "method": "GET",
+          "path": "/v0/management/plugins",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": "",
+          "expect": "200 {\"plugins_enabled\":true,\"plugins_dir\":\"plugins\",\"plugins\":[{\"id\":\"example\",\"path\":..., \"configured\":true,\"registered\":false,\"enabled\":true,\"effective_enabled\":false,\"supports_oauth\":false,...}]}"
+        }
+      ],
+      "record": [
+        "plugins list JSON verbatim; docker logs: the config-reload lines (config file changed / config successfully reloaded)"
+      ],
+      "mock_upstream_mode": "none",
+      "config_setup": "file edit as described; note the server rewrites config.yaml (comment/format normalization) — record the post-reload file hash or a diff in meta",
+      "fixture_status": "RECORDABLE-LOCALLY"
+    },
+    {
+      "id": "S7-08",
+      "title": "plugins-config-ops-and-delete",
+      "feature": "c-abi-plugins",
+      "purpose": "Demonstrate the plugin config mutation surface that CPA-Edge keeps wire-compatible while never loading anything: PATCH enabled, GET/PUT config object, DELETE plugin. Also captures the 409 'plugin_delete_requires_restart' preconditions are unreachable without a loaded plugin.",
+      "requests": [
+        {
+          "step": 1,
+          "method": "PATCH",
+          "path": "/v0/management/plugins/example/enabled",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"enabled\":false}",
+          "expect": "200 {\"status\":\"ok\"}"
+        },
+        {
+          "step": 2,
+          "method": "GET",
+          "path": "/v0/management/plugins/example/config",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": "",
+          "expect": "200 config object with enabled:false (plus priority/mode preserved)"
+        },
+        {
+          "step": 3,
+          "method": "PUT",
+          "path": "/v0/management/plugins/example/config",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"enabled\":true,\"priority\":2,\"mode\":\"safe\"}",
+          "expect": "200 {\"status\":\"ok\"}"
+        },
+        {
+          "step": 4,
+          "method": "GET",
+          "path": "/v0/management/plugins/example/config",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": "",
+          "expect": "200 replaced object echo"
+        },
+        {
+          "step": 5,
+          "method": "GET",
+          "path": "/v0/management/plugins",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": "",
+          "expect": "200 list; example entry configured:true, registered:false, effective_enabled:false"
+        },
+        {
+          "step": 6,
+          "method": "DELETE",
+          "path": "/v0/management/plugins/example",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": "",
+          "expect": "200 {\"status\":\"deleted\",\"id\":\"example\",\"path\":\"\",\"file_deleted\":false,\"configured_removed\":true,\"restart_required\":false} (exact field set recorded)"
+        },
+        {
+          "step": 7,
+          "method": "GET",
+          "path": "/v0/management/plugins",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": "",
+          "expect": "200 {\"plugins_enabled\":true,...,\"plugins\":[]}"
+        },
+        {
+          "step": 8,
+          "method": "GET",
+          "path": "/v0/management/plugins/unknown/config",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": "",
+          "expect": "404 {\"error\":\"plugin_not_found\",\"message\":\"plugin not found\"}"
+        }
+      ],
+      "record": [
+        "all exchanges; config file final state (plugins block remains with empty configs)"
+      ],
+      "mock_upstream_mode": "none",
+      "config_setup": "requires S7-07 plugins block present first (sequence after S7-07 on same container)",
+      "fixture_status": "RECORDABLE-LOCALLY"
+    },
+    {
+      "id": "S7-09",
+      "title": "logs-endpoints-disabled-400",
+      "feature": "file-logging",
+      "purpose": "Demonstrate the logs API surface and its gating: with logging-to-file=false (default), GET and DELETE /v0/management/logs both return 400 {\"error\":\"logging to file disabled\"}. Size-limit config keys are accepted and echoed.",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v0/management/logs",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": "",
+          "expect": "400 {\"error\":\"logging to file disabled\"}"
+        },
+        {
+          "step": 2,
+          "method": "DELETE",
+          "path": "/v0/management/logs",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": "",
+          "expect": "400 {\"error\":\"logging to file disabled\"}"
+        },
+        {
+          "step": 3,
+          "method": "PUT",
+          "path": "/v0/management/logs-max-total-size-mb",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"value\":5}",
+          "expect": "200 {\"status\":\"ok\"}"
+        },
+        {
+          "step": 4,
+          "method": "GET",
+          "path": "/v0/management/logs-max-total-size-mb",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": "",
+          "expect": "200 {\"logs-max-total-size-mb\":5}"
+        },
+        {
+          "step": 5,
+          "method": "PUT",
+          "path": "/v0/management/error-logs-max-files",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"value\":3}",
+          "expect": "200 {\"status\":\"ok\"}"
+        },
+        {
+          "step": 6,
+          "method": "PUT",
+          "path": "/v0/management/logs-max-total-size-mb",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"value\":0}",
+          "expect": "200 {\"status\":\"ok\"} (restore)"
+        }
+      ],
+      "record": [
+        "all exchanges status+headers+body"
+      ],
+      "mock_upstream_mode": "none",
+      "config_setup": "run/config.yaml as-is (logging-to-file absent => false)",
+      "fixture_status": "RECORDABLE-LOCALLY"
+    },
+    {
+      "id": "S7-10",
+      "title": "logs-enabled-lines-and-clear",
+      "feature": "file-logging",
+      "purpose": "Demonstrate file logging enabled: the toggle persists, GET /v0/management/logs returns the rotating-file log content shape (lines/line-count/latest-timestamp/next-cursor), DELETE clears rotated files with a JSON success body.",
+      "requests": [
+        {
+          "step": 1,
+          "method": "PUT",
+          "path": "/v0/management/logging-to-file",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"value\":true}",
+          "expect": "200 {\"status\":\"ok\"}"
+        },
+        {
+          "step": 2,
+          "method": "GET",
+          "path": "/v0/management/logging-to-file",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": "",
+          "expect": "200 {\"logging-to-file\":true}"
+        },
+        {
+          "step": 3,
+          "method": "GET",
+          "path": "/v0/management/logs?limit=3",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": "",
+          "expect": "200 {\"lines\":[...up to 3 log lines...],\"line-count\":N,\"latest-timestamp\":<epoch>,\"next-cursor\":\"<string>\"} — record exact JSON shape; line CONTENTS are dynamic (timestamps, ports)"
+        },
+        {
+          "step": 4,
+          "method": "DELETE",
+          "path": "/v0/management/logs",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": "",
+          "expect": "200 {\"success\":true,\"message\":\"Logs cleared successfully\",\"removed\":<N>=number of rotated files removed; expect 0 on a fresh container>"
+        },
+        {
+          "step": 5,
+          "method": "PUT",
+          "path": "/v0/management/logging-to-file",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"value\":false}",
+          "expect": "200 {\"status\":\"ok\"} (restore)"
+        },
+        {
+          "step": 6,
+          "method": "GET",
+          "path": "/v0/management/logs",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": "",
+          "expect": "400 {\"error\":\"logging to file disabled\"} again"
+        }
+      ],
+      "record": [
+        "all exchanges; dynamic_fields: line contents, latest-timestamp, next-cursor"
+      ],
+      "mock_upstream_mode": "none",
+      "config_setup": "run/config.yaml; also record that a logs/main.log file appears next to config.yaml while enabled (docker exec ls or mounted volume inspection)",
+      "fixture_status": "RECORDABLE-LOCALLY"
+    },
+    {
+      "id": "S7-11",
+      "title": "oauth-callback-routes-static",
+      "feature": "local-callback-servers",
+      "purpose": "Demonstrate the provider-redirect callback routes served on the MAIN server port (these are plain HTTP and stay EQUIVALENT on every runtime): anthropic/codex/antigravity always answer 200 with a fixed HTML page; the devin variants validate parameters. No auth is required.",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/anthropic/callback",
+          "headers": {},
+          "body": "",
+          "expect": "200 text/html; charset=utf-8 with the exact fixed HTML page (title 'Authentication successful', auto-close script)"
+        },
+        {
+          "step": 2,
+          "method": "GET",
+          "path": "/anthropic/callback?code=demo-code&state=demo-state",
+          "headers": {},
+          "body": "",
+          "expect": "200 same fixed HTML (no pending session: file write is attempted only when state matches a pending session; response is identical)"
+        },
+        {
+          "step": 3,
+          "method": "GET",
+          "path": "/codex/callback",
+          "headers": {},
+          "body": "",
+          "expect": "200 same HTML"
+        },
+        {
+          "step": 4,
+          "method": "GET",
+          "path": "/antigravity/callback",
+          "headers": {},
+          "body": "",
+          "expect": "200 same HTML"
+        },
+        {
+          "step": 5,
+          "method": "GET",
+          "path": "/callback",
+          "headers": {},
+          "body": "",
+          "expect": "400 {\"error\":\"code or error is required\"}"
+        },
+        {
+          "step": 6,
+          "method": "GET",
+          "path": "/devin/callback?code=demo-code&state=demo-state",
+          "headers": {},
+          "body": "",
+          "expect": "400 {\"error\":\"invalid or expired OAuth callback\"} (no pending session)"
+        },
+        {
+          "step": 7,
+          "method": "POST",
+          "path": "/anthropic/callback",
+          "headers": {},
+          "body": "",
+          "expect": "404 empty body (R-404 wrong-method)"
+        }
+      ],
+      "record": [
+        "all exchanges with exact body bytes (the HTML is a fixed constant — byte-compare)"
+      ],
+      "mock_upstream_mode": "none",
+      "config_setup": "run/config.yaml as-is",
+      "fixture_status": "RECORDABLE-LOCALLY"
+    },
+    {
+      "id": "S7-12",
+      "title": "mgmt-oauth-session-surface-errors",
+      "feature": "local-callback-servers",
+      "purpose": "Demonstrate the OAuth session registry surface that stays EQUIVALENT on serverless (pure HTTP, state-based): /v0/management/oauth-callback GET+POST error ladder and /get-auth-status + DELETE /oauth-session for an unknown state. All paths deterministic without any credential.",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v0/management/oauth-callback",
+          "headers": {},
+          "body": "",
+          "expect": "400 {\"status\":\"error\",\"error\":\"state is required\"} (NO management key needed: route is outside the mgmt auth group)"
+        },
+        {
+          "step": 2,
+          "method": "GET",
+          "path": "/v0/management/oauth-callback?state=bad%2Fstate&code=c",
+          "headers": {},
+          "body": "",
+          "expect": "400 {\"status\":\"error\",\"error\":\"invalid state\"} (state contains a path separator)"
+        },
+        {
+          "step": 3,
+          "method": "GET",
+          "path": "/v0/management/oauth-callback?state=zz",
+          "headers": {},
+          "body": "",
+          "expect": "400 {\"status\":\"error\",\"error\":\"code or error is required\"}"
+        },
+        {
+          "step": 4,
+          "method": "GET",
+          "path": "/v0/management/oauth-callback?state=zz&code=c",
+          "headers": {},
+          "body": "",
+          "expect": "404 {\"status\":\"error\",\"error\":\"unknown or expired state\"}"
+        },
+        {
+          "step": 5,
+          "method": "POST",
+          "path": "/v0/management/oauth-callback",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": "not-json",
+          "expect": "400 {\"status\":\"error\",\"error\":\"invalid body\"}"
+        },
+        {
+          "step": 6,
+          "method": "POST",
+          "path": "/v0/management/oauth-callback",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": "{\"state\":\"zz\",\"code\":\"c\"}",
+          "expect": "404 {\"status\":\"error\",\"error\":\"unknown or expired state\"}"
+        },
+        {
+          "step": 7,
+          "method": "GET",
+          "path": "/v0/management/get-auth-status",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": "",
+          "expect": "200 {\"status\":\"ok\"} (empty state) — note: record BOTH with and without the management key to document auth requirements"
+        },
+        {
+          "step": 8,
+          "method": "GET",
+          "path": "/v0/management/get-auth-status?state=zz",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": "",
+          "expect": "200 {\"status\":\"error\",\"error\":\"unknown or expired state\"}"
+        },
+        {
+          "step": 9,
+          "method": "DELETE",
+          "path": "/v0/management/oauth-session?state=zz",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": "",
+          "expect": "200 {\"status\":\"ok\",\"cancelled\":false}"
+        },
+        {
+          "step": 10,
+          "method": "DELETE",
+          "path": "/v0/management/oauth-session",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": "",
+          "expect": "400 {\"status\":\"error\",\"error\":\"missing state\"}"
+        }
+      ],
+      "record": [
+        "all exchanges status+headers+body"
+      ],
+      "mock_upstream_mode": "none",
+      "config_setup": "run/config.yaml as-is",
+      "fixture_status": "RECORDABLE-LOCALLY"
+    },
+    {
+      "id": "S7-13",
+      "title": "anthropic-auth-url-forwarder",
+      "feature": "local-callback-servers",
+      "purpose": "Demonstrate the localhost callback forwarder — the exact serverless-impossible feature: GET anthropic-auth-url?is_webui=1 returns 200 with a URL whose redirect is localhost:54545, binds 0.0.0.0:54545, and that listener answers 302 -> http://127.0.0.1:18317/anthropic/callback forwarding query params. Deterministic: the redirect is NOT followed, so no code is delivered and no external call happens.",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v0/management/anthropic-auth-url?is_webui=1",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": "",
+          "expect": "200 {\"status\":\"ok\",\"url\":\"https://claude.ai/oauth/authorize?code=true&client_id=<fixed>&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A54545%2Fcallback&...&code_challenge=<dynamic>&state=<32-hex>\",\"state\":\"<32-hex>\"} — url/state/code_challenge dynamic"
+        },
+        {
+          "step": 2,
+          "method": "GET",
+          "path": "http://127.0.0.1:54545/callback?code=oracle-demo-code&state=<state from step 1>",
+          "headers": {},
+          "body": "",
+          "expect": "302 Found; Location: http://127.0.0.1:18317/anthropic/callback?code=oracle-demo-code&state=<state>; Cache-Control: no-store — curl WITHOUT -L so the redirect is not followed",
+          "note": "claude redirect_uri is http://localhost:54545/callback (internal/auth/claude/anthropic_auth.go); the forwarder answers ANY path with the 302. curl WITHOUT -L so the redirect is not followed. Requires container port publish: docker run ... -p 127.0.0.1:54545:54545"
+        },
+        {
+          "step": 3,
+          "method": "GET",
+          "path": "/v0/management/get-auth-status?state=<state>",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": "",
+          "expect": "200 {\"status\":\"wait\"} (session still pending: the forwarded callback target was never fetched)"
+        },
+        {
+          "step": 4,
+          "method": "DELETE",
+          "path": "/v0/management/oauth-session?state=<state>",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": "",
+          "expect": "200 {\"status\":\"ok\",\"cancelled\":true} (cancels the pending session; forwarder stops)"
+        }
+      ],
+      "record": [
+        "all exchanges; dynamic_fields: state (32 hex), url (PKCE code_challenge + state embedded)"
+      ],
+      "mock_upstream_mode": "none",
+      "config_setup": "container must publish 54545: docker run -p 127.0.0.1:18317:18317 -p 127.0.0.1:54545:54545 ...",
+      "fixture_status": "RECORDABLE-LOCALLY",
+      "auxiliary_evidence": "docker logs: 'callback forwarder for anthropic listening on 0.0.0.0:54545' and later 'callback forwarder on port 54545 stopped'; DO NOT follow the 302 (keeps the case offline-safe)"
+    },
+    {
+      "id": "S7-14",
+      "title": "config-hot-reload-external-edit",
+      "feature": "file-watcher",
+      "purpose": "Demonstrate the file-watcher feature vercel/cloudflare lose: an EXTERNAL edit of config.yaml (never via the API) is picked up live without restart. Add a second API key, observe it in the management echo, then remove it and observe removal.",
+      "requests": [
+        {
+          "step": "file-edit",
+          "detail": "on the host, edit run/config.yaml: change the api-keys list from ['oracle-local-key-1'] to ['oracle-local-key-1','oracle-hot-key-2'] (keep all other content identical); sleep 2s"
+        },
+        {
+          "step": 2,
+          "method": "GET",
+          "path": "/v0/management/api-keys",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": "",
+          "expect": "200 {\"api-keys\":[\"oracle-local-key-1\",\"oracle-hot-key-2\"]}"
+        },
+        {
+          "step": 3,
+          "method": "GET",
+          "path": "/v1/models",
+          "headers": {
+            "Authorization": "Bearer oracle-hot-key-2"
+          },
+          "body": "",
+          "expect": "200 {\"data\":[],\"object\":\"list\"} — the NEW key is accepted without restart"
+        },
+        {
+          "step": "file-edit",
+          "detail": "revert run/config.yaml api-keys to ['oracle-local-key-1']; sleep 2s"
+        },
+        {
+          "step": 4,
+          "method": "GET",
+          "path": "/v0/management/api-keys",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": "",
+          "expect": "200 {\"api-keys\":[\"oracle-local-key-1\"]}"
+        },
+        {
+          "step": 5,
+          "method": "GET",
+          "path": "/v1/models",
+          "headers": {
+            "Authorization": "Bearer oracle-hot-key-2"
+          },
+          "body": "",
+          "expect": "401 {\"error\":\"Invalid API key\"} — removal also live"
+        }
+      ],
+      "record": [
+        "all exchanges; docker logs: 'config file changed, reloading: /CLIProxyAPI/config.yaml' + 'config successfully reloaded' + config-change detail lines"
+      ],
+      "mock_upstream_mode": "none",
+      "config_setup": "run/config.yaml; fresh container recommended so the two file edits are the only mutations",
+      "fixture_status": "RECORDABLE-LOCALLY"
+    },
+    {
+      "id": "S7-15",
+      "title": "auth-dir-watcher-credential-file",
+      "feature": "file-watcher",
+      "purpose": "Demonstrate the auth-dir half of the watcher: dropping a syntactically valid (fake, non-functional) OAuth JSON file into the auth directory hot-registers a credential; deleting it hot-removes it. The transcript also documents upstream's parsing tolerance.",
+      "requests": [
+        {
+          "step": "file-write",
+          "detail": "create run/auths/oracle-fake-kimi.json (host-side, auth dir is mounted) with body: {\"type\":\"kimi\",\"access_token\":\"oracle-fake-token\",\"refresh_token\":\"oracle-fake-refresh\",\"token_type\":\"Bearer\",\"expired\":\"2030-01-01T00:00:00Z\"}; sleep 2s"
+        },
+        {
+          "step": 2,
+          "method": "GET",
+          "path": "/v0/management/auth-files",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": "",
+          "expect": "200; the list contains a kimi entry derived from the file (record actual shape; if the file is rejected, record that — the transcript is the evidence)"
+        },
+        {
+          "step": "file-delete",
+          "detail": "delete run/auths/oracle-fake-kimi.json; sleep 2s"
+        },
+        {
+          "step": 3,
+          "method": "GET",
+          "path": "/v0/management/auth-files",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": "",
+          "expect": "200; kimi entry gone"
+        }
+      ],
+      "record": [
+        "all exchanges + final auth-files list shape; docker logs: watcher auth add/remove lines (e.g. 'provider added'), and any 'skipping auth file' warning if the fake file is rejected"
+      ],
+      "mock_upstream_mode": "none",
+      "config_setup": "run/config.yaml as-is; auth dir mount already present",
+      "fixture_status": "RECORDABLE-LOCALLY"
+    },
+    {
+      "id": "S7-16",
+      "title": "device-flow-auth-url-shapes",
+      "feature": "local-callback-servers",
+      "purpose": "Document the device user-code flow UX surface that remains available on serverless (xai/meta/kimi-auth-url hit vendor device-authorize endpoints and return a URL + user_code without any inbound callback). Response shape from source: 200 {\"status\":\"ok\",\"url\":...,\"state\":\"<prefix>-<UnixNano>\",\"flow\":\"device\",\"user_code\":...,\"expires_in\":N}.",
+      "requests": [
+        {
+          "step": 1,
+          "method": "GET",
+          "path": "/v0/management/xai-auth-url",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": "",
+          "expect": "200 device-flow envelope (dynamic url/user_code/state)"
+        },
+        {
+          "step": 2,
+          "method": "GET",
+          "path": "/v0/management/meta-auth-url",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": "",
+          "expect": "same envelope; hits api.meta.ai"
+        },
+        {
+          "step": 3,
+          "method": "GET",
+          "path": "/v0/management/kimi-auth-url",
+          "headers": {
+            "Authorization": "Bearer oracle-mgmt-key-1"
+          },
+          "body": "",
+          "expect": "same envelope; hits api.kimi.com"
+        }
+      ],
+      "record": [
+        "full response bytes of each"
+      ],
+      "mock_upstream_mode": "none",
+      "fixture_status": "FIXTURE-DEFERRED",
+      "defer_reason": "CREDENTIALED-ONLY: starts REAL device authorizations at vendor endpoints (api.x.ai / api.meta.ai / api.kimi.com) with dynamic user_code/url/state; completion requires a live account. Specified from upstream source (internal/api/handlers/management/auth_files_provider_oauth.go); record only if the orchestrator explicitly authorizes live vendor probes. The 501-free classification (device flows are platform-independent) is source-based, not golden-based."
+    }
+  ]
+}

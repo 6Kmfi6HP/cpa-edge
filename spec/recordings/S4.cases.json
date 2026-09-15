@@ -1,0 +1,1798 @@
+{
+  "$schema": "cpa-edge/s4-recordings-request/1",
+  "step_id": "S4",
+  "section": "spec/sections/S4-scheduling.md",
+  "target_fixture_dir": "tests/fixtures/S4/",
+  "version_anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image eceasy/cli-proxy-api:v7.3.4 (digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266)",
+  "mission_note": "Credential scheduling: rotation order, strategies, cooldowns, retry rounds, session affinity, auth_index surfaces. 'Batch api-key rotation' = rotation across a provider's api-key-entries pool (and cross-provider pools). Every multi-credential case MUST be able to show WHICH credential served WHICH request from the wire log, so the mock extensions below are required.",
+  "secrets_used_in_recordings": {
+    "client_api_key": "oracle-local-key-1",
+    "management_key_plaintext": "oracle-mgmt-key-1",
+    "upstream_api_keys": [
+      "s4-oai-key-1",
+      "s4-oai-key-2",
+      "s4-oai-key-3",
+      "mock-gem-key"
+    ],
+    "note": "All synthetic, local-only. The upstream keys appear verbatim in fixtures (config fragment + wire log credential field) by design: they are the observable that distinguishes credentials."
+  },
+  "baseline_config": {
+    "base": "_cpa_edge_ref/run/config.yaml (fleet) with these S4 deltas; full replacement text below",
+    "yaml": "host: \"\"\nport: 18317\nremote-management:\n  allow-remote: true\n  secret-key: \"oracle-mgmt-key-1\"\n  disable-control-panel: true\nauth-dir: \"/root/.cli-proxy-api\"\napi-keys:\n  - \"oracle-local-key-1\"\ndebug: false\nrequest-retry: 0\nmax-retry-credentials: 0\nmax-retry-interval: 10\ntransient-error-cooldown-seconds: 2\nusage-statistics-enabled: false\nrouting:\n  strategy: \"round-robin\"\n  session-affinity: false\nopenai-compatibility:\n  - name: \"mock-openai\"\n    base-url: \"http://host.docker.internal:18999/v1\"\n    api-key-entries:\n      - api-key: \"s4-oai-key-1\"\n      - api-key: \"s4-oai-key-2\"\n      - api-key: \"s4-oai-key-3\"\n    models:\n      - name: \"mock-gpt-model\"\n        alias: \"mock-model\"\n      - name: \"mock-pool-1\"\n        alias: \"pool-model\"\n      - name: \"mock-pool-2\"\n        alias: \"pool-model\"\n      - name: \"mock-iso-1\"\n        alias: \"iso-model-1\"\n      - name: \"mock-iso-2\"\n        alias: \"iso-model-2\"\ngemini-api-key:\n  - api-key: \"mock-gem-key\"\n    base-url: \"http://host.docker.internal:19001\"\n    models:\n      - name: \"gemini-mock-model\"\n        alias: \"gm\"\n",
+    "kept_from_fleet": "claude-api-key / codex-api-key / xai-api-key / meta-api-key / interactions-api-key / vertex-api-key blocks stay as in run/config.yaml (irrelevant to S4 models; keep for parity).",
+    "deltas_note": "Per-case deltas are listed per case (routing.strategy, request-retry, transient-error-cooldown-seconds, weights, session-affinity, extra provider). Apply via config edit + hot-reload is fine for phases WITHIN a case ONLY where the case says hot-reload is part of the test; otherwise restart the container between cases (rotation cursors reset on restart; cooldown state cleared on restart)."
+  },
+  "mock_extensions": {
+    "needed_for": "identifying which credential served which request (all multi-credential cases) and asymmetric per-credential / per-model failures (S4-04, S4-16)",
+    "requests": [
+      "mock_openai.py / mocklib.py: append a \"credential\" field to each wire-log line = the Bearer api-key value from the Authorization header (keep Authorization itself redacted). Alternative: leave Authorization unredacted for S4 recordings only. Either way the fixture must show the serving key.",
+      "Control file may carry per-credential overrides: \"by_key\": {\"<bearer api-key>\": {\"mode\":\"error\",\"status\":500}} — matched against the request Authorization Bearer value; falls back to the file top-level mode, then DEFAULTS. Used by S4-04.",
+      "Control file may carry per-upstream-model overrides: \"by_model\": {\"<value of request body 'model'>\": {\"mode\":\"error\",\"status\":500}} — same precedence. Used by S4-16.",
+      "X-Mock-* per-request headers keep working; precedence X-Mock-* > by_key/by_model > top-level > defaults."
+    ],
+    "fallback_if_declined": "S4-04 alternative: two openai-compatibility providers each with one key, pointing at two mock_openai.py instances with independent control (needs a per-instance control path, e.g. control/<type>-<port>.json). S4-16 alternative: skip and keep the per-model isolation claim on S4-05/S4-06 model scoping only (weaker). The credential field has no alternative: without it rotation goldens cannot be verified — please include it."
+  },
+  "fixture_format_notes": [
+    "Per case: tests/fixtures/S4/<case-id>/ with meta.yaml, request.http, downstream.md, upstream.jsonl, mock-response.json exactly per BOOTSTRAP.md §7.",
+    "Multi-step cases: number requests/responses inside request.http / downstream.md (### 1, ### 2, ...) in execution order; upstream.jsonl keeps the full wire log for the case (mark the per-request split with comments or per-request files upstream-1.jsonl, upstream-2.jsonl if easier).",
+    "meta.yaml must list: config fragment used (exact YAML), control file contents at each step, mock mode at each step, sleeps applied, and the auth-ID -> api-key mapping for the recorded config (see determinism notes).",
+    "Wire-log 'ts' fields and inter-request gaps are dynamic; the ORDER and content of wire lines are the contract.",
+    "Mask ONLY listed dynamic_fields; cooldown durations appear as concrete numbers in fixtures (they are the contract under the pinned config)."
+  ],
+  "determinism_notes": [
+    "Credential order is defined by auth ID = '<kind>:<sha256[:12]>' where kind = 'openai-compatibility:mock-openai' and the hash covers NUL-joined [kind, api-key, base-url, proxy-url(''), ...]. Compute once per key to predict which key is 'first' (smallest ID): sha256(('openai-compatibility:mock-openai' + chr(0) + key + chr(0) + 'http://host.docker.internal:18999/v1' + chr(0)).encode()).hexdigest()[:12] — record the mapping in meta.yaml. The fixtures pin the observed order; CPA-Edge must reproduce the same order from the same config.",
+    "Fixed request body per step (given inline); identical bytes every replay. Cooldown waits use sleeps (given per step) so cooldown expiry is deterministic.",
+    "429 quota cooldown without Retry-After = 1 s (level 0 of the 1s*2^level ladder, cap 30 min); transient (500) with transient-error-cooldown-seconds: 2 = 2 s. Sleeps are sized with margin."
+  ],
+  "cases": [
+    {
+      "id": "S4-01-round-robin-rotation-order",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "Round-robin (default strategy) cycles the credential pool in ascending auth-ID order: first request is served by the smallest-ID credential; cursor advances only on pick; wrap-around after the largest ID.",
+      "config": "baseline (routing.strategy round-robin, 3 api-key-entries)",
+      "control": {
+        "openai": "delete control file (happy)"
+      },
+      "requests": [
+        {
+          "step": 1,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 2,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 3,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 4,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 5,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 6,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        }
+      ],
+      "record": "per request: status+headers+body (expect 200 + mock canned JSON each); upstream.jsonl: all 6 wire requests with serving credential",
+      "expected": "wire log credential sequence = [K_first, K_second, K_third, K_first, K_second, K_third] where K_* are the three keys in ascending auth-ID order (record mapping in meta.yaml). No cooldowns, no errors.",
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "created field in canned response if dynamic",
+        "wire-log ts"
+      ],
+      "mock_upstream_mode": "openai: happy",
+      "determinism": "Cursor + ID derivation fully deterministic for this config."
+    },
+    {
+      "id": "S4-02-fill-first-ordering",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "fill-first pins every request to the first (smallest-ID) ready credential; no rotation while it stays healthy.",
+      "config": "baseline + routing.strategy: \"fill-first\"",
+      "control": {
+        "openai": "happy"
+      },
+      "requests": [
+        {
+          "step": 1,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 2,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 3,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 4,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        }
+      ],
+      "record": "status+headers+body x4 (200 each); upstream.jsonl with credential per request",
+      "expected": "all 4 wire requests carry the SAME credential = smallest-ID key; the other two keys are never hit.",
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "created",
+        "wire-log ts"
+      ],
+      "mock_upstream_mode": "openai: happy"
+    },
+    {
+      "id": "S4-03-weighted-round-robin",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "weighted-round-robin: smooth weighted selection converges to the configured ratio; zero-weight credentials are excluded while this strategy is active.",
+      "config": "baseline + routing.strategy: \"weighted-round-robin\" + weights: s4-oai-key-1 weight 3, s4-oai-key-2 weight 1, s4-oai-key-3 weight 0 (api-key-entries[].weight)",
+      "control": {
+        "openai": "happy"
+      },
+      "requests": [
+        {
+          "step": 1,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 2,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 3,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 4,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 5,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 6,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 7,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 8,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        }
+      ],
+      "record": "status+headers+body x8 (200 each); upstream.jsonl with credential per request",
+      "expected": "8 requests: the weight-3 credential is picked first and 6 times total, the weight-1 credential 2 times (smooth WRR; exact interleaving depends on ID order and is pinned by the fixture); the weight-0 credential NEVER appears. meta.yaml records the computed ID order.",
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "created",
+        "wire-log ts"
+      ],
+      "mock_upstream_mode": "openai: happy"
+    },
+    {
+      "id": "S4-04-fill-first-failover-cooldown-recovery",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "Same-request failover + transient cooldown + recovery under fill-first: (1) a 500 from the first credential fails over within the same request; (2) next requests skip the cooling credential; (3) after the 2 s transient cooldown the first credential is picked again (fill-first returns to head).",
+      "config": "baseline + routing.strategy: \"fill-first\" (transient-error-cooldown-seconds: 2)",
+      "control": {
+        "openai": "{\"by_key\": {\"<key with smallest auth-ID>\": {\"mode\":\"error\",\"status\":500}}} — compute the smallest-ID key first (see determinism_notes); record which key it is in meta.yaml"
+      },
+      "requests": [
+        {
+          "step": 1,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 2,
+          "action": "sleep",
+          "seconds": 0.3,
+          "why": "let the 2s cooldown window start"
+        },
+        {
+          "step": 3,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 4,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 5,
+          "action": "sleep",
+          "seconds": 2.5,
+          "why": "outlast the 2s transient cooldown"
+        },
+        {
+          "step": 6,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        }
+      ],
+      "record": "per chat request: status+headers+body; full upstream.jsonl (with credential + status per hit)",
+      "expected": "R1 wire: [K1 -> 500, K2 -> 200], client gets 200 (failover hidden). R2/R3 wire: K2 only. R4 wire: K1 -> 200 (K1 recovered, fill-first returns to head).",
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "created",
+        "wire-log ts"
+      ],
+      "mock_upstream_mode": "openai: happy + by_key error 500 on smallest-ID key",
+      "needs": [
+        "by_key control",
+        "credential in wire log"
+      ]
+    },
+    {
+      "id": "S4-05-transient-all-blocked-503",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "When every credential is in a transient (non-quota) cooldown the next request returns HTTP 503 auth_unavailable with the enriched message (providers/model/last upstream error). Also proves the first request relays the last upstream error verbatim after failover exhaustion.",
+      "config": "baseline (round-robin, transient 2s)",
+      "control": {
+        "openai": "{\"mode\":\"error\",\"status\":500}"
+      },
+      "requests": [
+        {
+          "step": 1,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 2,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        }
+      ],
+      "record": "per request: status+headers+body; upstream.jsonl",
+      "expected": "R1: wire hits both keys with 500 (failover within round 0); downstream = HTTP 500 with the mock error body VERBATIM (relay of the last upstream attempt). R2: NO upstream hit; downstream = HTTP 503, body {\"error\":{\"message\":\"auth_unavailable: no auth available (providers=openai-compatibility-mock-openai, model=mock-model; last upstream error: rate_limit_exceeded: mock rate limit)\",\"type\":\"server_error\",\"code\":\"internal_server_error\"}}.",
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "wire-log ts"
+      ],
+      "mock_upstream_mode": "openai: error status 500",
+      "evidence_note": "Raw-transcript precedent: probes/bootstrap-run1/mock-recordings/03-chat-stream-* recorded this exact 503 shape (BS §6 called it 500; the verbose transcript is authoritative)."
+    },
+    {
+      "id": "S4-06-quota-429-cooldown-model-cooldown-recovery",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "429 quota cooldown: activation (1 s ladder level 0), the model_cooldown client shape while all credentials are quota-cooling, and automatic recovery after the window.",
+      "config": "baseline (round-robin)",
+      "control": {
+        "openai": "{\"mode\":\"error\",\"status\":429} (no Retry-After header)"
+      },
+      "requests": [
+        {
+          "step": 1,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 2,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 3,
+          "action": "sleep",
+          "seconds": 1.5,
+          "why": "outlast the 1s quota cooldown"
+        },
+        {
+          "step": 4,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        }
+      ],
+      "record": "per chat request: status+headers+body (include response headers: Retry-After on step 2); upstream.jsonl",
+      "expected": "R1: wire hits both keys (429 each); downstream = 429 with mock body VERBATIM. R2: no upstream hit; downstream = HTTP 429 + header Retry-After: 1 (or 0 if recorded late in the window) + body {\"error\":{\"code\":\"model_cooldown\",\"last_upstream_error\":\"rate_limit_exceeded: mock rate limit\",\"message\":\"All credentials for model mock-model are cooling down via provider openai-compatibility-mock-openai (last error: rate_limit_exceeded: mock rate limit)\",\"model\":\"mock-model\",\"provider\":\"openai-compatibility-mock-openai\",\"reset_seconds\":<0|1>,\"reset_time\":\"<0s|1s>\"}} (keys alphabetically ordered). R3 (after 1.5s): served again — first wire hit is the next key in rotation order; downstream 200.",
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "Retry-After value (0 or 1)",
+        "reset_seconds (0 or 1)",
+        "reset_time (\"0s\" or \"1s\")",
+        "wire-log ts"
+      ],
+      "mock_upstream_mode": "openai: error status 429",
+      "evidence_note": "Precedent: gemini m1 + wire notes recorded this shape with reset_time \"1s\"; transient-error-cooldown-seconds does NOT affect the 429 path."
+    },
+    {
+      "id": "S4-07-reset-quota-management-auth-index",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "auth_index mapping + management-triggered cooldown recovery: GET management listing maps config credentials to auth-index values; POST /v0/management/reset-quota clears one credential's cooldown; error shapes for missing/unknown auth_index.",
+      "config": "baseline (round-robin)",
+      "control": {
+        "openai": "steps 1-2: {\"mode\":\"error\",\"status\":429}; before step 7: delete control file (happy)"
+      },
+      "requests": [
+        {
+          "step": 1,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          },
+          "note": "fresh container; both keys 429 -> quota cooldown (wire: K1 then K2)"
+        },
+        {
+          "step": 2,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 3,
+          "transport": "http",
+          "method": "GET",
+          "path": "/v0/management/openai-compatibility",
+          "headers": {
+            "X-Management-Key": "oracle-mgmt-key-1"
+          },
+          "body": null
+        },
+        {
+          "step": 4,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v0/management/reset-quota",
+          "headers": {
+            "X-Management-Key": "oracle-mgmt-key-1"
+          },
+          "body": {
+            "auth_index": ""
+          }
+        },
+        {
+          "step": 5,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v0/management/reset-quota",
+          "headers": {
+            "X-Management-Key": "oracle-mgmt-key-1"
+          },
+          "body": {
+            "auth_index": "s4-nonexistent-index"
+          }
+        },
+        {
+          "step": 6,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v0/management/reset-quota",
+          "headers": {
+            "X-Management-Key": "oracle-mgmt-key-1"
+          },
+          "body": {
+            "auth_index": "<auth-index of the SMALLEST-ID key (K1) from step 3>"
+          },
+          "note": "fresh container for this case: R1 hits K1 then K2 (round-robin, cursor ends at K2); the next rotation pick wraps to K1 — reset K1"
+        },
+        {
+          "step": 7,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          },
+          "note": "after step 6 reset + DELETE the control file (back to happy)"
+        },
+        {
+          "step": 8,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        }
+      ],
+      "record": "per request: status+headers+body (management JSON bodies in full); upstream.jsonl for chat steps",
+      "expected": "Fresh container. Step 1: wire [K1(429), K2(429)], downstream 429 verbatim. Step 2: no upstream hit; 429 model_cooldown (same shape as S4-06 step 2). Step 3: 200; provider entry lists api-key-entries[] each with deterministic 'auth-index' (16 lowercase hex chars) — record both values and the key mapping. Step 4: 400 {\"error\":\"auth_index is required\"}. Step 5: 404 {\"error\":\"auth not found\"}. Step 6: 200 {\"status\":\"ok\",\"auth_index\":\"<K1 index>\",\"models\":[...]} (record array verbatim). Step 7 (control back to happy): wire [K1(200)] only — K1 was reset; downstream 200. Step 8: wire [K2(200)] — K2's 1s window has expired; RR successor of K1; downstream 200.",
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "models array contents in step 6 (record verbatim)",
+        "wire-log ts"
+      ],
+      "mock_upstream_mode": "openai: error status 429 (for steps 1-2), then DELETE control file before step 7 so the reset credential can serve 200",
+      "note": "Steps 1-2 reproduce S4-06 state cheaply (can reuse the same container run as S4-06 if recorded back-to-back; then this fixture's steps 1-2 are the same requests)."
+    },
+    {
+      "id": "S4-08-request-fault-400-stops-rotation",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "Caller-attributed 400 ends the request at the FIRST failing credential: no rotation, no second upstream hit, no cooldown.",
+      "config": "baseline (round-robin)",
+      "control": {
+        "openai": "{\"mode\":\"error\",\"status\":400}"
+      },
+      "requests": [
+        {
+          "step": 1,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        }
+      ],
+      "record": "status+headers+body; upstream.jsonl",
+      "expected": "wire log has EXACTLY ONE upstream hit (the smallest-ID credential) with status 400; downstream = 400 with the mock error body VERBATIM.",
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "wire-log ts"
+      ],
+      "mock_upstream_mode": "openai: error status 400"
+    },
+    {
+      "id": "S4-09-request-scoped-errors-continue",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "A provider-level request-scoped-errors rule with action \"continue\" reclassifies the matching 400 as credential-attributed: the request rotates to the next credential (no cooldown, no retry rounds).",
+      "config": "baseline + openai-compatibility entry gains request-scoped-errors: [{status: 400, match: [\"mock rate limit\"], action: \"continue\"}]",
+      "control": {
+        "openai": "{\"mode\":\"error\",\"status\":400}"
+      },
+      "requests": [
+        {
+          "step": 1,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        }
+      ],
+      "record": "status+headers+body; upstream.jsonl",
+      "expected": "wire log has TWO upstream hits (both keys, 400 each — rotation continued); downstream = 400 with the mock error body VERBATIM. Contrast with S4-08.",
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "wire-log ts"
+      ],
+      "mock_upstream_mode": "openai: error status 400"
+    },
+    {
+      "id": "S4-10-retry-rounds",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "request-retry: 1 starts an additional credential retry round after round 0 exhausted the pool: the gateway waits for the earliest cooldown (bounded by max-retry-interval), then re-admits every credential; the client sees one response.",
+      "config": "baseline + request-retry: 1 (max-retry-interval: 10, transient-error-cooldown-seconds: 2)",
+      "control": {
+        "openai": "{\"mode\":\"error\",\"status\":500}"
+      },
+      "requests": [
+        {
+          "step": 1,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        }
+      ],
+      "record": "status+headers+body (single downstream response, ~2-2.5s after request start); upstream.jsonl (4 hits)",
+      "expected": "wire log: K1 -> 500, K2 -> 500 (round 0), gap ~2.0-2.5s (cooldown wait + jitter <=0.5s), K1 -> 500, K2 -> 500 (round 1). Downstream = HTTP 500 with mock error body VERBATIM (relay of the last upstream attempt). No round 2 (request-retry is 1).",
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "wire-log ts + inter-round gap duration (assert only: gap >= 2s)"
+      ],
+      "mock_upstream_mode": "openai: error status 500"
+    },
+    {
+      "id": "S4-11-session-affinity",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "routing.session-affinity: requests carrying an explicit session header stick to the credential bound for that session; requests without a session keep round-robin; different sessions bind independently.",
+      "config": "baseline + routing.session-affinity: true (TTL default 1h)",
+      "control": {
+        "openai": "happy"
+      },
+      "requests": [
+        {
+          "step": 1,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 2,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json",
+            "X-Session-ID": "s4-affinity-A"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 3,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json",
+            "X-Session-ID": "s4-affinity-A"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 4,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json",
+            "X-Session-ID": "s4-affinity-B"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 5,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          },
+          "note": "no session header"
+        }
+      ],
+      "record": "per request: status+headers+body; upstream.jsonl with credential per request",
+      "expected": "With keys sorted by auth ID as K1 < K2 < K3 (record mapping in meta.yaml): R1 -> K1 (RR fallback, no session). R2 (session A) -> K2 (new binding). R3 (session A) -> K2 (sticky cache hit). R4 (session B) -> K3 (new independent binding, RR successor). R5 (no session) -> K1 (RR fallback wraps). Wire sequence: K1, K2, K2, K3, K1.",
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "created",
+        "wire-log ts"
+      ],
+      "mock_upstream_mode": "openai: happy",
+      "note": "Requests without an explicit session header still form a derived session from the first-message hash fallback (identical bodies -> identical derived session -> same binding). R1 and R5 share the same body, so R5 is expected to hit the R1 binding (K1) — the recorded sequence is the contract either way."
+    },
+    {
+      "id": "S4-12-stream-disconnect-no-cooldown",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "A mid-stream disconnect is a connection-lifecycle failure: the client keeps HTTP 200 with an in-stream error frame, and the credential is NOT cooled — the next request is served by the same credential (fill-first).",
+      "config": "baseline + routing.strategy: \"fill-first\"",
+      "control": {
+        "openai": "{\"mode\":\"disconnect\",\"after\":2}"
+      },
+      "requests": [
+        {
+          "step": 1,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": true
+          }
+        },
+        {
+          "step": 2,
+          "action": "sleep",
+          "seconds": 0.3,
+          "why": "settle"
+        },
+        {
+          "step": 3,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        }
+      ],
+      "record": "step 1: FULL SSE byte stream (headers + every data: line + in-stream error frame); step 3: status+headers+body; upstream.jsonl",
+      "expected": "R1: HTTP 200, Content-Type text/event-stream; the mock's 2 events arrive as data: lines, then the connection hard-closes and the client receives an in-stream terminal frame data: {\"error\":{\"message\":\"unexpected EOF\",\"type\":\"server_error\",\"code\":\"internal_server_error\"}} (or the byte-exact recorded equivalent); no [DONE]. R3 (non-stream): served by the SAME credential as R1 (no cooldown from the lifecycle failure) — downstream 200.",
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "chunked framing boundaries",
+        "wire-log ts"
+      ],
+      "mock_upstream_mode": "openai: disconnect after 2 events",
+      "evidence_note": "Precedent: gemini m3 recorded the same in-stream 'unexpected EOF' frame with HTTP 200 (probes/mocks)."
+    },
+    {
+      "id": "S4-13-model-pool-rotation",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "One alias mapped to several upstream model names rotates per request within the credential (intra-credential model pool), observable via the upstream request body's model field.",
+      "config": "baseline with api-key-entries reduced to ONLY s4-oai-key-1 (single credential — the pool offset is per credential, so extra keys would mask the rotation)",
+      "control": {
+        "openai": "happy"
+      },
+      "requests": [
+        {
+          "step": 1,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "pool-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 2,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "pool-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 3,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "pool-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        }
+      ],
+      "record": "status+headers+body x3; upstream.jsonl (request bodies!) — same credential throughout",
+      "expected": "All wire requests use the same single credential; the upstream body 'model' alternates by per-credential pool offset: R1 -> mock-pool-1, R2 -> mock-pool-2, R3 -> mock-pool-1. Client-side response 'model' field stays as recorded (no force-mapping).",
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "created",
+        "wire-log ts"
+      ],
+      "mock_upstream_mode": "openai: happy",
+      "note": "If recorded with all 3 keys instead, the pool rotation is confounded by credential rotation — keep 1 key for this case."
+    },
+    {
+      "id": "S4-14-unauthorized-terminal-and-hot-reload",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "All-credentials-401 yields the terminal authentication error (503 + authentication_error code) on the next request; the 30-minute unauthorized cooldown SURVIVES a config hot-reload.",
+      "config": "baseline (round-robin)",
+      "control": {
+        "openai": "{\"mode\":\"error\",\"status\":401}"
+      },
+      "requests": [
+        {
+          "step": 1,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 2,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 3,
+          "action": "hot-reload",
+          "how": "edit the mounted config.yaml (append a comment line '# s4 reload probe') and wait for the watcher reload log line",
+          "why": "prove cooldown state survives hot-reload"
+        },
+        {
+          "step": 4,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        }
+      ],
+      "record": "per chat request: status+headers+body; docker log lines for the reload; upstream.jsonl",
+      "expected": "R1: wire hits both keys (401 each; API-key credentials cannot refresh); downstream = HTTP 401 with the mock error body VERBATIM. R2: NO upstream hit; downstream = HTTP 503, body {\"error\":{\"message\":\"auth_unavailable: no auth available (providers=openai-compatibility-mock-openai, model=mock-model; last upstream error: rate_limit_exceeded: mock rate limit)\",\"type\":\"authentication_error\",\"code\":\"upstream_authentication_required\",\"retryable\":false}} (record byte-exact; the last-upstream-error suffix is expected because the 401 bodies parse as JSON). R3 (after config hot-reload): identical 503 terminal body — the 30-minute unauthorized cooldown survived the reload.",
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "wire-log ts"
+      ],
+      "mock_upstream_mode": "openai: error status 401"
+    },
+    {
+      "id": "S4-15-disable-cooling-provider",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "Provider-level disable-cooling: transient 500s do NOT cool credentials — every request keeps failovering across the whole pool, no 503 ever appears.",
+      "config": "baseline + openai-compatibility entry gains disable-cooling: true",
+      "control": {
+        "openai": "{\"mode\":\"error\",\"status\":500}"
+      },
+      "requests": [
+        {
+          "step": 1,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 2,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        }
+      ],
+      "record": "per request: status+headers+body; upstream.jsonl",
+      "expected": "R1 AND R2: each hits BOTH keys (500 each, full failover both rounds); downstream = 500 with mock body VERBATIM both times. Never 503. Contrast with S4-05 (identical control, cooling on).",
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "wire-log ts"
+      ],
+      "mock_upstream_mode": "openai: error status 500"
+    },
+    {
+      "id": "S4-16-model-scoped-cooldown-isolation",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "A transient cooldown is scoped to the failed model: after both credentials cool on iso-model-1, a request for iso-model-2 is still served (per-model state isolation within each credential).",
+      "config": "baseline (iso-model-1 -> mock-iso-1, iso-model-2 -> mock-iso-2)",
+      "control": {
+        "openai": "{\"by_model\": {\"mock-iso-1\": {\"mode\":\"error\",\"status\":500}}}"
+      },
+      "requests": [
+        {
+          "step": 1,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "iso-model-1",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 2,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "iso-model-1",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 3,
+          "action": "sleep",
+          "seconds": 0.2,
+          "why": "settle"
+        },
+        {
+          "step": 4,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "iso-model-2",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 5,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "iso-model-2",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        }
+      ],
+      "record": "per request: status+headers+body; upstream.jsonl",
+      "expected": "R1: wire hits both keys on upstream model mock-iso-1 (500 each); downstream 500 verbatim. R2: no upstream hit; 503 auth_unavailable (model=iso-model-1). R3 (iso-model-2): served 200 by the smallest-ID credential — the iso-model-1 cooldown did NOT block iso-model-2. R4: next credential in rotation (its iso-model-2 state is also clean) — 200.",
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "wire-log ts"
+      ],
+      "mock_upstream_mode": "openai: by_model error 500 on mock-iso-1",
+      "needs": [
+        "by_model control"
+      ]
+    },
+    {
+      "id": "S4-17-transient-off-quota-still-cools",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "transient-error-cooldown-seconds: -1 disables ONLY transient cooldowns: 500s never cool (every request keeps failovering), while 429 quota cooldowns still activate and produce model_cooldown.",
+      "config": "baseline + transient-error-cooldown-seconds: -1",
+      "control": "phase A: {\"mode\":\"error\",\"status\":500}; phase B: {\"mode\":\"error\",\"status\":429}",
+      "requests": [
+        {
+          "step": 0,
+          "action": "phase A",
+          "control": "{\"mode\":\"error\",\"status\":500}"
+        },
+        {
+          "step": 1,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 2,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 3,
+          "action": "phase B",
+          "control": "{\"mode\":\"error\",\"status\":429}"
+        },
+        {
+          "step": 4,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 5,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mock-model",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        }
+      ],
+      "record": "per chat request: status+headers+body (incl. Retry-After on step 5); upstream.jsonl",
+      "expected": "R1 AND R2 (500 phase): each hits both keys; downstream 500 verbatim; never 503 (no transient cooldown). R4 (429 phase): hits both keys; downstream 429 verbatim. R5: no upstream hit; downstream 429 model_cooldown (quota cooldown ACTIVE despite -1) with Retry-After 1/0.",
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "Retry-After / reset_seconds / reset_time bounded (see S4-06)",
+        "wire-log ts"
+      ],
+      "mock_upstream_mode": "openai: error 500 then error 429",
+      "evidence_note": "Wire notes (parent relay): upstream 429 cooldown reset ~1s is NOT disabled by transient-error-cooldown-seconds: -1."
+    },
+    {
+      "id": "S4-18-mixed-provider-rotation",
+      "classification": "RECORDABLE-LOCALLY",
+      "purpose": "Cross-provider pool: two provider families (gemini-api-key + openai-compatibility) exposing the same client model rotate across providers; a failing provider's requests fail over to the other provider.",
+      "config": "baseline + second openai-compatibility provider: name \"mock-openai-mx\", base-url \"http://host.docker.internal:18999/v1\", one api-key-entries key \"s4-oai-key-1\", models: [{name: \"mock-gpt-model\", alias: \"mx\"}] + gemini-api-key model alias changed to \"mx\" (name gemini-mock-model)",
+      "control": "phase A: both happy; phase B: {\"gemini\": {\"mode\":\"error\",\"status\":500}}, openai happy",
+      "requests": [
+        {
+          "step": 0,
+          "action": "phase A",
+          "control": "openai: happy, gemini: happy"
+        },
+        {
+          "step": 1,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mx",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 2,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mx",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 3,
+          "action": "phase B",
+          "control": "gemini error 500 (transient 2s), openai happy"
+        },
+        {
+          "step": 4,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mx",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        },
+        {
+          "step": 5,
+          "transport": "http",
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "mx",
+            "messages": [
+              {
+                "role": "user",
+                "content": "s4"
+              }
+            ],
+            "stream": false
+          }
+        }
+      ],
+      "record": "per chat request: status+headers+body; BOTH wire logs (mock/logs/gemini.jsonl and mock/logs/openai.jsonl — copy both as upstream-gemini.jsonl / upstream-openai.jsonl)",
+      "expected": "R1: gemini credential serves (provider order: ready-count tie 1:1 resolved by name ASC, gemini < openai-compatibility-mock-openai-mx). R2: openai-compat (mixed cursor alternates). R3 phase B R4: gemini 500 then openai 200 (cross-provider failover), downstream 200. R5: openai only (gemini cooling) — downstream 200. Client-side model field in translated responses: gemini rounds show the gemini->openai-chat translation shape, openai rounds the passthrough shape (record as-is).",
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "created",
+        "wire-log ts"
+      ],
+      "mock_upstream_mode": "gemini + openai mocks, phased"
+    },
+    {
+      "id": "S4-19-invalid-weight-rejected",
+      "classification": "RECORDABLE-LOCALLY",
+      "fixture_status": "OPTIONAL",
+      "purpose": "Weight validation: a credential weight > 1,000,000 (or non-integer) makes the server refuse to start (config-load validation), and a reload that introduces it keeps the old config running.",
+      "config": "baseline with s4-oai-key-1 weight: 1000001",
+      "requests": [
+        {
+          "step": 1,
+          "action": "start-container",
+          "expect": "startup FAILS; capture docker logs (the YAML validation error)"
+        },
+        {
+          "step": 2,
+          "action": "start-container with valid baseline, then hot-reload the config to the invalid weight",
+          "expect": "reload rejected (log line), server keeps serving with the previous config; a chat request still 200"
+        }
+      ],
+      "record": "docker log excerpts (both steps); for step 2 also one chat request response (200) + upstream.jsonl",
+      "expected": "Startup refusal mentions the weight validation error; rejected reload logs the same class of error and does not change behavior.",
+      "dynamic_fields": [
+        "timestamps in logs",
+        "Date",
+        "X-Cpa-Trace-Id"
+      ],
+      "mock_upstream_mode": "openai: happy"
+    },
+    {
+      "id": "S4-D1-oauth-refresh-on-unauthorized",
+      "classification": "FIXTURE-DEFERRED",
+      "reason": "CREDENTIALED-ONLY: needs an OAuth credential (Claude/Codex/etc. auth file with refresh token) pointed at its fixed vendor endpoint. A 401 triggers one in-place token refresh and a same-credential retry before rotation; refresh failure (invalid_grant) cools the credential 30 min and the credential is marked unauthorized.",
+      "specified_in": "spec/sections/S4-scheduling.md §2.4, §2.5 (evidence: sdk/cliproxy/auth/conductor_refresh.go tryRefreshAfterUnauthorized, claudeOAuthRequestCancellation; conductor_cooldown.go invalid_grant branch)",
+      "requests": []
+    },
+    {
+      "id": "S4-D2-oauth-token-expiry-demotion",
+      "classification": "FIXTURE-DEFERRED",
+      "reason": "CREDENTIALED-ONLY: OAuth credentials with expired access tokens are excluded from scheduling until refreshed; expiry is re-evaluated lazily at pick time.",
+      "specified_in": "spec/sections/S4-scheduling.md §2.4 (evidence: sdk/cliproxy/auth/scheduler.go demoteExpiredTokensLocked/promoteExpiredLocked; selector.go isAuthBlockedForModel)",
+      "requests": []
+    },
+    {
+      "id": "S4-D3-antigravity-credits-fallback",
+      "classification": "FIXTURE-DEFERRED",
+      "reason": "CREDENTIALED-ONLY: quota-exceeded.antigravity-credits retries Claude 429/503 exhaustions with an Antigravity OAuth credential that has Google One AI credits; requires real Antigravity OAuth + credits state.",
+      "specified_in": "spec/sections/S4-scheduling.md §2.5 (evidence: conductor_execution.go shouldAttemptAntigravityCreditsFallback/tryAntigravityCreditsExecute; internal/runtime/executor/antigravity_executor_credits.go)",
+      "requests": []
+    }
+  ],
+  "case_count": {
+    "recordable": 19,
+    "recordable_core": 18,
+    "optional": 1,
+    "fixture_deferred": 3
+  }
+}

@@ -1,0 +1,7 @@
+GET /v1/models HTTP/1.1
+Host: 127.0.0.1:18317
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-local-key-1
+Anthropic-Version: 2023-06-01
+

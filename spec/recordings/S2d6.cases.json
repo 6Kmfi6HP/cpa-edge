@@ -1,0 +1,1155 @@
+{
+  "step": "S2d6",
+  "title": "Responses client -> OpenAI chat upstream (openai-compatibility provider)",
+  "spec_section": "spec/sections/S2d6-responses2oai.md",
+  "fixture_dir": "tests/fixtures/S2d6/",
+  "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6; image digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+  "environment": "worker-5 stack: reference on port 8417, mock fleet on 22999 (openai) and 23001-23007; port numbers are masked dynamic fields (substitution expected in fixtures). Config: openai-compatibility provider mock-openai, model mock-gpt-model alias mock-model, api-key mock-upstream-key; downstream auth key oracle-local-key-1 (not a secret). Path conventions identical to reports/oracle/BOOTSTRAP.md s3/s6.",
+  "client_protocol": "openai-responses (POST /v1/responses)",
+  "upstream_provider": "openai-compatibility -> mock_openai.py fleet instance (POST /v1/chat/completions)",
+  "mock_upstream_changes_required": [
+    "mock_openai.py happy SSE stream MUST end with a 'data: [DONE]' frame (the current script omits it; without it every happy stream golden degrades into the S2d6-stream-nodone error case). Keep a variant (control key or X-Mock-Variant header, e.g. 'default-stream-nodone') that omits the terminator to record that case.",
+    "Add scripted reply variants, selectable per request via control file key 'variant' or an X-Mock-Variant request header (strip X-Mock-* headers before wire logging, as mocklib already does): default, default-stream-done, default-stream-nodone, tools-nonstream (+ -custom / -namespace reply names), reasoning-nonstream, length-nonstream, length-usage-stream, tools-stream, reasoning-stream, compact.",
+    "Add route POST /v1/responses/compact returning the canned compact reply (mirror of the codex mock's compact route).",
+    "All timestamps in scripted replies are fixed (created=1770000000, ids chatcmpl-mock-0001) so fixtures are byte-deterministic apart from transport headers and ports."
+  ],
+  "recording_order_notes": [
+    "Run S2d6-error-nostream-429 and S2d6-error-stream-429 LAST: upstream 429 puts the single credential in a ~1s rate-limit cooldown that transient-error-cooldown-seconds:-1 does not disable.",
+    "Disconnect/nodone cases do not cool the credential down (transient cooldown disabled by -1) and can run anywhere.",
+    "Auth/model-notfound/compact-stream-rejected emit no upstream traffic; verify upstream.jsonl is empty for them."
+  ],
+  "case_count_required": 21,
+  "cases": [
+    {
+      "id": "S2d6-nostream-basic",
+      "purpose": "Non-stream happy path. Pins: instructions -> system message; whitelist field drop (temperature/top_p/user/store must NOT appear in the upstream body); upstream body field order model,messages,stream,max_tokens; downstream Responses JSON shape incl. model=<UPSTREAM name> quirk, message item msg_chatcmpl-mock-0001_0, usage with executor-appended output_tokens_details/input_tokens_details.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer oracle-local-key-1"
+        },
+        "body": "{\"model\":\"mock-model\",\"instructions\":\"You are a concise assistant.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Say hi.\"}]}],\"max_output_tokens\":128,\"temperature\":0.7,\"top_p\":0.9,\"user\":\"u-123\",\"store\":false}"
+      },
+      "mock": {
+        "mode": "happy",
+        "variant": "default"
+      },
+      "mock_response_nonstream": {
+        "id": "chatcmpl-mock-0001",
+        "object": "chat.completion",
+        "created": 1770000000,
+        "model": "mock-gpt-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "Hello from mock openai upstream more"
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 9,
+          "completion_tokens": 6,
+          "total_tokens": 15
+        }
+      },
+      "record": "downstream status+headers+body; upstream.jsonl (method, path /v1/chat/completions, headers, body)",
+      "expect_hints": {
+        "upstream_body": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a concise assistant.\"},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Say hi.\"}]}],\"stream\":false,\"max_tokens\":128}",
+        "downstream_body": "{\"id\":\"chatcmpl-mock-0001\",\"object\":\"response\",\"created_at\":1770000000,\"status\":\"completed\",\"background\":false,\"error\":null,\"incomplete_details\":null,\"max_output_tokens\":128,\"model\":\"mock-gpt-model\",\"output\":[{\"id\":\"msg_chatcmpl-mock-0001_0\",\"type\":\"message\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"annotations\":[],\"logprobs\":[],\"text\":\"Hello from mock openai upstream more\"}],\"role\":\"assistant\"}],\"usage\":{\"input_tokens\":9,\"output_tokens\":6,\"total_tokens\":15,\"output_tokens_details\":{\"reasoning_tokens\":0},\"input_tokens_details\":{\"cached_tokens\":0}}}"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "Host/port numbers"
+      ]
+    },
+    {
+      "id": "S2d6-nostream-roles",
+      "purpose": "Role/content-part mapping: developer->user; output_text -> text part; assistant echo content.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer oracle-local-key-1"
+        },
+        "body": "{\"model\":\"mock-model\",\"input\":[{\"type\":\"message\",\"role\":\"developer\",\"content\":[{\"type\":\"input_text\",\"text\":\"Dev rules.\"}]},{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Previous answer.\"}]},{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Continue.\"}]}]}"
+      },
+      "mock": {
+        "mode": "happy",
+        "variant": "default"
+      },
+      "record": "downstream status+headers+body; upstream.jsonl",
+      "expect_hints": {
+        "upstream_body": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Dev rules.\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"Previous answer.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Continue.\"}]}],\"stream\":false}"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "Host/port numbers"
+      ]
+    },
+    {
+      "id": "S2d6-nostream-image",
+      "purpose": "input_image with detail 'original' -> upstream image_url part with detail 'high'; part order preserved (image part before text part).",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer oracle-local-key-1"
+        },
+        "body": "{\"model\":\"mock-model\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_image\",\"image_url\":\"https://example.com/cat.png\",\"detail\":\"original\"},{\"type\":\"input_text\",\"text\":\"What is this?\"}]}]}"
+      },
+      "mock": {
+        "mode": "happy",
+        "variant": "default"
+      },
+      "record": "downstream status+headers+body; upstream.jsonl",
+      "expect_hints": {
+        "upstream_body": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image_url\",\"image_url\":{\"url\":\"https://example.com/cat.png\",\"detail\":\"high\"}},{\"type\":\"text\",\"text\":\"What is this?\"}]}],\"stream\":false}"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "Host/port numbers"
+      ]
+    },
+    {
+      "id": "S2d6-nostream-string-input",
+      "purpose": "input as plain string -> single user message with string content.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer oracle-local-key-1"
+        },
+        "body": "{\"model\":\"mock-model\",\"input\":\"Hi there\"}"
+      },
+      "mock": {
+        "mode": "happy",
+        "variant": "default"
+      },
+      "record": "downstream status+headers+body; upstream.jsonl",
+      "expect_hints": {
+        "upstream_body": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"user\",\"content\":\"Hi there\"}],\"stream\":false}"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "Host/port numbers"
+      ]
+    },
+    {
+      "id": "S2d6-nostream-tool-roundtrip",
+      "purpose": "Tool round-trip. Pins upstream: tools conversion, tool_choice conversion, per-call assistant(tool_calls)+tool message pairs (call_mock_01 string output content; call_mock_02 array output stringified to raw JSON), orphan output -> user message. Pins downstream: reply tool_calls -> function_call item fc_call_mock_03; response echoes CHAT-shaped tools+tool_choice and model=<upstream name>.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer oracle-local-key-1"
+        },
+        "body": "{\"model\":\"mock-model\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Weather in SF?\"}]},{\"type\":\"function_call\",\"call_id\":\"call_mock_01\",\"name\":\"get_weather\",\"arguments\":\"{\\\"city\\\":\\\"SF\\\"}\"},{\"type\":\"function_call_output\",\"call_id\":\"call_mock_01\",\"output\":\"18C and foggy\"},{\"type\":\"function_call\",\"call_id\":\"call_mock_02\",\"name\":\"get_weather\",\"arguments\":\"{\\\"city\\\":\\\"NYC\\\"}\"},{\"type\":\"function_call_output\",\"call_id\":\"call_mock_02\",\"output\":[{\"type\":\"input_text\",\"text\":\"22C and rainy\"}]},{\"type\":\"function_call_output\",\"call_id\":\"call_orphan_99\",\"output\":\"orphan note\"}],\"tools\":[{\"type\":\"function\",\"name\":\"get_weather\",\"description\":\"Get current weather\",\"parameters\":{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\"}},\"required\":[\"city\"]}}],\"tool_choice\":{\"type\":\"function\",\"name\":\"get_weather\"}}"
+      },
+      "mock": {
+        "mode": "happy",
+        "variant": "tools-nonstream"
+      },
+      "mock_response_nonstream": {
+        "id": "chatcmpl-mock-0001",
+        "object": "chat.completion",
+        "created": 1770000000,
+        "model": "mock-gpt-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "",
+              "tool_calls": [
+                {
+                  "id": "call_mock_03",
+                  "type": "function",
+                  "function": {
+                    "name": "get_weather",
+                    "arguments": "{\"city\":\"LA\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 9,
+          "completion_tokens": 6,
+          "total_tokens": 15
+        }
+      },
+      "record": "downstream status+headers+body; upstream.jsonl",
+      "expect_hints": {
+        "upstream_body_prefix": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Weather in SF?\"}]},{\"role\":\"assistant\",\"tool_calls\":[{\"id\":\"call_mock_01\",\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"{\\\"city\\\":\\\"SF\\\"}\"}}]},{\"role\":\"tool\",\"tool_call_id\":\"call_mock_01\",\"content\":\"18C and foggy\"},{\"role\":\"assistant\",\"tool_calls\":[{\"id\":\"call_mock_02\",\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"{\\\"city\\\":\\\"NYC\\\"}\"}}]},{\"role\":\"tool\",\"tool_call_id\":\"call_mock_02\",\"content\":\"[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"22C and rainy\\\"}]\"},{\"role\":\"user\",\"content\":\"orphan note\"}],\"stream\":false,\"tools\":",
+        "downstream_output_item": "{\"id\":\"fc_call_mock_03\",\"type\":\"function_call\",\"status\":\"completed\",\"arguments\":\"{\\\"city\\\":\\\"LA\\\"}\",\"call_id\":\"call_mock_03\",\"name\":\"get_weather\"}"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "Host/port numbers"
+      ]
+    },
+    {
+      "id": "S2d6-nostream-custom-tool",
+      "purpose": "Custom (freeform) tool: declaration -> function tool with single 'input' string parameter; replay custom_tool_call -> tool call with wrapped {\"input\":...} arguments; custom_tool_call_output -> tool message with flattened text. Reply with wrapped arguments -> downstream custom_tool_call item with UNWRAPPED input.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer oracle-local-key-1"
+        },
+        "body": "{\"model\":\"mock-model\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Fix the bug.\"}]},{\"type\":\"custom_tool_call\",\"call_id\":\"ct_mock_01\",\"name\":\"apply_patch\",\"input\":\"*** Begin Patch\\n+fixed\"},{\"type\":\"custom_tool_call_output\",\"call_id\":\"ct_mock_01\",\"output\":\"done\"}],\"tools\":[{\"type\":\"custom\",\"name\":\"apply_patch\",\"description\":\"Apply a patch\"}]}"
+      },
+      "mock": {
+        "mode": "happy",
+        "variant": "tools-nonstream-custom"
+      },
+      "mock_response_nonstream": {
+        "id": "chatcmpl-mock-0001",
+        "object": "chat.completion",
+        "created": 1770000000,
+        "model": "mock-gpt-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "",
+              "tool_calls": [
+                {
+                  "id": "ct_mock_02",
+                  "type": "function",
+                  "function": {
+                    "name": "apply_patch",
+                    "arguments": "{\"input\":\"*** Begin Patch\\n+hello\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 9,
+          "completion_tokens": 6,
+          "total_tokens": 15
+        }
+      },
+      "record": "downstream status+headers+body; upstream.jsonl",
+      "expect_hints": {
+        "upstream_tools": "\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"apply_patch\",\"description\":\"Apply a patch\",\"parameters\":{\"type\":\"object\",\"properties\":{\"input\":{\"type\":\"string\"}},\"required\":[\"input\"]}}}]",
+        "downstream_output_item": "{\"id\":\"ctc_ct_mock_02\",\"type\":\"custom_tool_call\",\"status\":\"completed\",\"input\":\"*** Begin Patch\\n+hello\",\"call_id\":\"ct_mock_02\",\"name\":\"apply_patch\"}"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "Host/port numbers"
+      ]
+    },
+    {
+      "id": "S2d6-nostream-namespace-tool",
+      "purpose": "Namespace tools: child qualified to fs__read_file upstream (tools + replayed call); reply with qualified name resolves back to item name='read_file' + namespace='fs' fields.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer oracle-local-key-1"
+        },
+        "body": "{\"model\":\"mock-model\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Read it.\"}]},{\"type\":\"function_call\",\"call_id\":\"ns_mock_01\",\"name\":\"read_file\",\"namespace\":\"fs\",\"arguments\":\"{\\\"path\\\":\\\"/tmp/x\\\"}\"}],\"tools\":[{\"type\":\"namespace\",\"name\":\"fs\",\"tools\":[{\"type\":\"function\",\"name\":\"read_file\",\"description\":\"Read a file\",\"parameters\":{\"type\":\"object\"}}]}]}"
+      },
+      "mock": {
+        "mode": "happy",
+        "variant": "tools-nonstream-namespace"
+      },
+      "mock_response_nonstream": {
+        "id": "chatcmpl-mock-0001",
+        "object": "chat.completion",
+        "created": 1770000000,
+        "model": "mock-gpt-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "",
+              "tool_calls": [
+                {
+                  "id": "ns_mock_02",
+                  "type": "function",
+                  "function": {
+                    "name": "fs__read_file",
+                    "arguments": "{\"path\":\"/tmp/y\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 9,
+          "completion_tokens": 6,
+          "total_tokens": 15
+        }
+      },
+      "record": "downstream status+headers+body; upstream.jsonl",
+      "expect_hints": {
+        "upstream_tools": "\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"fs__read_file\",\"description\":\"Read a file\",\"parameters\":{\"type\":\"object\"}}}]",
+        "downstream_output_item": "{\"id\":\"fc_ns_mock_02\",\"type\":\"function_call\",\"status\":\"completed\",\"arguments\":\"{\\\"path\\\":\\\"/tmp/y\\\"}\",\"call_id\":\"ns_mock_02\",\"name\":\"read_file\",\"namespace\":\"fs\"}"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "Host/port numbers"
+      ]
+    },
+    {
+      "id": "S2d6-nostream-reasoning",
+      "purpose": "reasoning.effort -> upstream reasoning_effort:'high'; reply reasoning_content -> downstream reasoning item rs_chatcmpl-mock-0001 + message item; response has NO 'reasoning' echo (non-stream echo reads the translated chat request).",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer oracle-local-key-1"
+        },
+        "body": "{\"model\":\"mock-model\",\"reasoning\":{\"effort\":\"high\"},\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Why?\"}]}]}"
+      },
+      "mock": {
+        "mode": "happy",
+        "variant": "reasoning-nonstream"
+      },
+      "mock_response_nonstream": {
+        "id": "chatcmpl-mock-0001",
+        "object": "chat.completion",
+        "created": 1770000000,
+        "model": "mock-gpt-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "Thoughtful answer",
+              "reasoning_content": "Because of constraints."
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 9,
+          "completion_tokens": 6,
+          "total_tokens": 15
+        }
+      },
+      "record": "downstream status+headers+body; upstream.jsonl",
+      "expect_hints": {
+        "upstream_body_suffix": "\"stream\":false,\"reasoning_effort\":\"high\"}",
+        "downstream_output": "[{\"id\":\"rs_chatcmpl-mock-0001\",\"type\":\"reasoning\",\"encrypted_content\":\"\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"Because of constraints.\"}]},{\"id\":\"msg_chatcmpl-mock-0001_0\",\"type\":\"message\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"annotations\":[],\"logprobs\":[],\"text\":\"Thoughtful answer\"}],\"role\":\"assistant\"}]"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "Host/port numbers"
+      ]
+    },
+    {
+      "id": "S2d6-nostream-incomplete",
+      "purpose": "finish_reason 'length' -> downstream status:'incomplete' + incomplete_details {'reason':'max_output_tokens'}; message item status 'incomplete'; max_output_tokens echoed.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer oracle-local-key-1"
+        },
+        "body": "{\"model\":\"mock-model\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Long story please.\"}]}],\"max_output_tokens\":128}"
+      },
+      "mock": {
+        "mode": "happy",
+        "variant": "length-nonstream"
+      },
+      "mock_response_nonstream": {
+        "id": "chatcmpl-mock-0001",
+        "object": "chat.completion",
+        "created": 1770000000,
+        "model": "mock-gpt-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "Truncated ans"
+            },
+            "finish_reason": "length"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 9,
+          "completion_tokens": 6,
+          "total_tokens": 15
+        }
+      },
+      "record": "downstream status+headers+body; upstream.jsonl",
+      "expect_hints": {
+        "downstream_body": "{\"id\":\"chatcmpl-mock-0001\",\"object\":\"response\",\"created_at\":1770000000,\"status\":\"incomplete\",\"background\":false,\"error\":null,\"incomplete_details\":{\"reason\":\"max_output_tokens\"},\"max_output_tokens\":128,\"model\":\"mock-gpt-model\",\"output\":[{\"id\":\"msg_chatcmpl-mock-0001_0\",\"type\":\"message\",\"status\":\"incomplete\",\"content\":[{\"type\":\"output_text\",\"annotations\":[],\"logprobs\":[],\"text\":\"Truncated ans\"}],\"role\":\"assistant\"}],\"usage\":{\"input_tokens\":9,\"output_tokens\":6,\"total_tokens\":15,\"output_tokens_details\":{\"reasoning_tokens\":0},\"input_tokens_details\":{\"cached_tokens\":0}}}"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "Host/port numbers"
+      ]
+    },
+    {
+      "id": "S2d6-stream-basic",
+      "purpose": "Full SSE sequence for a text stream, byte-exact: created(1) in_progress(2) output_item.added(3) content_part.added(4) output_text.delta(5) output_text.done(6) content_part.done(7) output_item.done(8) response.completed(9) + trailing lone \\n. response.model=REQUESTED alias ('mock-model'). NO [DONE] downstream. SSE headers only committed with first frame. Requires mock happy stream WITH 'data: [DONE]' terminator.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer oracle-local-key-1"
+        },
+        "body": "{\"model\":\"mock-model\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Say hi.\"}]}],\"stream\":true}"
+      },
+      "mock": {
+        "mode": "happy",
+        "variant": "default-stream-done"
+      },
+      "mock_response_sse": {
+        "events": [
+          {
+            "id": "chatcmpl-mock-0001",
+            "object": "chat.completion.chunk",
+            "created": 1770000000,
+            "model": "mock-gpt-model",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "role": "assistant"
+                },
+                "finish_reason": null
+              }
+            ]
+          },
+          {
+            "id": "chatcmpl-mock-0001",
+            "object": "chat.completion.chunk",
+            "created": 1770000000,
+            "model": "mock-gpt-model",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "content": "Hello from mock openai upstream"
+                },
+                "finish_reason": null
+              }
+            ]
+          },
+          {
+            "id": "chatcmpl-mock-0001",
+            "object": "chat.completion.chunk",
+            "created": 1770000000,
+            "model": "mock-gpt-model",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {},
+                "finish_reason": "stop"
+              }
+            ]
+          }
+        ],
+        "terminator": "data: [DONE]"
+      },
+      "record": "full downstream SSE byte stream (status+headers+body incl. trailing bytes); upstream.jsonl (must show Accept: text/event-stream, Cache-Control: no-cache, stream:true + stream_options.include_usage:true in body)",
+      "expect_hints": {
+        "downstream_frames": [
+          "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":1,\"response\":{\"id\":\"chatcmpl-mock-0001\",\"object\":\"response\",\"created_at\":1770000000,\"status\":\"in_progress\",\"background\":false,\"error\":null,\"output\":[],\"model\":\"mock-model\"}}",
+          "event: response.in_progress\ndata: {\"type\":\"response.in_progress\",\"sequence_number\":2,\"response\":{\"id\":\"chatcmpl-mock-0001\",\"object\":\"response\",\"created_at\":1770000000,\"status\":\"in_progress\",\"output\":[],\"model\":\"mock-model\"}}",
+          "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":3,\"output_index\":0,\"item\":{\"id\":\"msg_chatcmpl-mock-0001_0\",\"type\":\"message\",\"status\":\"in_progress\",\"content\":[],\"role\":\"assistant\"}}",
+          "event: response.content_part.added\ndata: {\"type\":\"response.content_part.added\",\"sequence_number\":4,\"item_id\":\"msg_chatcmpl-mock-0001_0\",\"output_index\":0,\"content_index\":0,\"part\":{\"type\":\"output_text\",\"annotations\":[],\"logprobs\":[],\"text\":\"\"}}",
+          "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"sequence_number\":5,\"item_id\":\"msg_chatcmpl-mock-0001_0\",\"output_index\":0,\"content_index\":0,\"delta\":\"Hello from mock openai upstream\",\"logprobs\":[]}",
+          "event: response.output_text.done\ndata: {\"type\":\"response.output_text.done\",\"sequence_number\":6,\"item_id\":\"msg_chatcmpl-mock-0001_0\",\"output_index\":0,\"content_index\":0,\"text\":\"Hello from mock openai upstream\",\"logprobs\":[]}",
+          "event: response.content_part.done\ndata: {\"type\":\"response.content_part.done\",\"sequence_number\":7,\"item_id\":\"msg_chatcmpl-mock-0001_0\",\"output_index\":0,\"content_index\":0,\"part\":{\"type\":\"output_text\",\"annotations\":[],\"logprobs\":[],\"text\":\"Hello from mock openai upstream\"}}",
+          "event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"sequence_number\":8,\"output_index\":0,\"item\":{\"id\":\"msg_chatcmpl-mock-0001_0\",\"type\":\"message\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"annotations\":[],\"logprobs\":[],\"text\":\"Hello from mock openai upstream\"}],\"role\":\"assistant\"}}",
+          "event: response.completed\ndata: {\"type\":\"response.completed\",\"sequence_number\":9,\"response\":{\"id\":\"chatcmpl-mock-0001\",\"object\":\"response\",\"created_at\":1770000000,\"status\":\"completed\",\"background\":false,\"error\":null,\"model\":\"mock-model\",\"output\":[{\"id\":\"msg_chatcmpl-mock-0001_0\",\"type\":\"message\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"annotations\":[],\"logprobs\":[],\"text\":\"Hello from mock openai upstream\"}],\"role\":\"assistant\"}]}}"
+        ],
+        "stream_ends_with": "last frame '...}\\n\\n' then one extra '\\n' byte (WriteDone marker); no [DONE] frame"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "Host/port numbers"
+      ]
+    },
+    {
+      "id": "S2d6-stream-usage-incomplete",
+      "purpose": "Stream usage mapping + incomplete finish: final usage chunk (choices:[]) captured into response.incomplete usage {'input_tokens':9,'input_tokens_details':{'cached_tokens':0},'output_tokens':6,'total_tokens':15} (stream key order; NO output_tokens_details); finish 'length' -> response.incomplete with incomplete_details + incomplete item statuses.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer oracle-local-key-1"
+        },
+        "body": "{\"model\":\"mock-model\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Tell me a long story.\"}]}],\"max_output_tokens\":256,\"stream\":true}"
+      },
+      "mock": {
+        "mode": "happy",
+        "variant": "length-usage-stream"
+      },
+      "mock_response_sse": {
+        "events": [
+          {
+            "id": "chatcmpl-mock-0001",
+            "object": "chat.completion.chunk",
+            "created": 1770000000,
+            "model": "mock-gpt-model",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "role": "assistant"
+                },
+                "finish_reason": null
+              }
+            ]
+          },
+          {
+            "id": "chatcmpl-mock-0001",
+            "object": "chat.completion.chunk",
+            "created": 1770000000,
+            "model": "mock-gpt-model",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "content": "Hello from mock openai upstream"
+                },
+                "finish_reason": null
+              }
+            ]
+          },
+          {
+            "id": "chatcmpl-mock-0001",
+            "object": "chat.completion.chunk",
+            "created": 1770000000,
+            "model": "mock-gpt-model",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {},
+                "finish_reason": "length"
+              }
+            ]
+          },
+          {
+            "id": "chatcmpl-mock-0001",
+            "object": "chat.completion.chunk",
+            "created": 1770000000,
+            "model": "mock-gpt-model",
+            "choices": [],
+            "usage": {
+              "prompt_tokens": 9,
+              "completion_tokens": 6,
+              "total_tokens": 15
+            }
+          }
+        ],
+        "terminator": "data: [DONE]"
+      },
+      "record": "full downstream SSE byte stream; upstream.jsonl",
+      "expect_hints": {
+        "terminal_frame": "event: response.incomplete\ndata: {\"type\":\"response.incomplete\",\"sequence_number\":9,\"response\":{\"id\":\"chatcmpl-mock-0001\",\"object\":\"response\",\"created_at\":1770000000,\"status\":\"incomplete\",\"background\":false,\"error\":null,\"incomplete_details\":{\"reason\":\"max_output_tokens\"},\"max_output_tokens\":256,\"model\":\"mock-model\",\"output\":[{\"id\":\"msg_chatcmpl-mock-0001_0\",\"type\":\"message\",\"status\":\"incomplete\",\"content\":[{\"type\":\"output_text\",\"annotations\":[],\"logprobs\":[],\"text\":\"Hello from mock openai upstream\"}],\"role\":\"assistant\"}],\"usage\":{\"input_tokens\":9,\"input_tokens_details\":{\"cached_tokens\":0},\"output_tokens\":6,\"total_tokens\":15}}}"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "Host/port numbers"
+      ]
+    },
+    {
+      "id": "S2d6-stream-toolcalls",
+      "purpose": "Tool-call delta stream: output_item.added (function_call, id fc_call_mock_tool_01), two function_call_arguments.delta events, function_call_arguments.done + output_item.done at finish 'tool_calls', completed with function_call item.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer oracle-local-key-1"
+        },
+        "body": "{\"model\":\"mock-model\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Weather in SF?\"}]}],\"tools\":[{\"type\":\"function\",\"name\":\"get_weather\",\"description\":\"Get current weather\",\"parameters\":{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\"}},\"required\":[\"city\"]}}],\"stream\":true}"
+      },
+      "mock": {
+        "mode": "happy",
+        "variant": "tools-stream"
+      },
+      "mock_response_sse": {
+        "events": [
+          {
+            "id": "chatcmpl-mock-0001",
+            "object": "chat.completion.chunk",
+            "created": 1770000000,
+            "model": "mock-gpt-model",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "role": "assistant"
+                },
+                "finish_reason": null
+              }
+            ]
+          },
+          {
+            "id": "chatcmpl-mock-0001",
+            "object": "chat.completion.chunk",
+            "created": 1770000000,
+            "model": "mock-gpt-model",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "id": "call_mock_tool_01",
+                      "type": "function",
+                      "function": {
+                        "name": "get_weather",
+                        "arguments": ""
+                      }
+                    }
+                  ]
+                },
+                "finish_reason": null
+              }
+            ]
+          },
+          {
+            "id": "chatcmpl-mock-0001",
+            "object": "chat.completion.chunk",
+            "created": 1770000000,
+            "model": "mock-gpt-model",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "function": {
+                        "arguments": "{\"city\":"
+                      }
+                    }
+                  ]
+                },
+                "finish_reason": null
+              }
+            ]
+          },
+          {
+            "id": "chatcmpl-mock-0001",
+            "object": "chat.completion.chunk",
+            "created": 1770000000,
+            "model": "mock-gpt-model",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "function": {
+                        "arguments": "\"SF\"}"
+                      }
+                    }
+                  ]
+                },
+                "finish_reason": null
+              }
+            ]
+          },
+          {
+            "id": "chatcmpl-mock-0001",
+            "object": "chat.completion.chunk",
+            "created": 1770000000,
+            "model": "mock-gpt-model",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {},
+                "finish_reason": "tool_calls"
+              }
+            ]
+          }
+        ],
+        "terminator": "data: [DONE]"
+      },
+      "record": "full downstream SSE byte stream; upstream.jsonl",
+      "expect_hints": {
+        "key_frames": [
+          "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":3,\"output_index\":0,\"item\":{\"id\":\"fc_call_mock_tool_01\",\"type\":\"function_call\",\"status\":\"in_progress\",\"arguments\":\"\",\"call_id\":\"call_mock_tool_01\",\"name\":\"get_weather\"}}",
+          "event: response.function_call_arguments.delta\ndata: {\"type\":\"response.function_call_arguments.delta\",\"sequence_number\":4,\"item_id\":\"fc_call_mock_tool_01\",\"output_index\":0,\"delta\":\"{\\\"city\\\":\"}",
+          "event: response.function_call_arguments.delta\ndata: {\"type\":\"response.function_call_arguments.delta\",\"sequence_number\":5,\"item_id\":\"fc_call_mock_tool_01\",\"output_index\":0,\"delta\":\"\\\"SF\\\"}\"}",
+          "event: response.function_call_arguments.done\ndata: {\"type\":\"response.function_call_arguments.done\",\"sequence_number\":6,\"item_id\":\"fc_call_mock_tool_01\",\"output_index\":0,\"arguments\":\"{\\\"city\\\":\\\"SF\\\"}\"}",
+          "event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"sequence_number\":7,\"output_index\":0,\"item\":{\"id\":\"fc_call_mock_tool_01\",\"type\":\"function_call\",\"status\":\"completed\",\"arguments\":\"{\\\"city\\\":\\\"SF\\\"}\",\"call_id\":\"call_mock_tool_01\",\"name\":\"get_weather\"}}"
+        ]
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "Host/port numbers"
+      ]
+    },
+    {
+      "id": "S2d6-stream-reasoning",
+      "purpose": "Reasoning delta stream: output_item.added (reasoning rs_chatcmpl-mock-0001_0) + reasoning_summary_part.added + 2 reasoning_summary_text.delta; first text delta closes reasoning (reasoning_summary_text.done, reasoning_summary_part.done, output_item.done) then message events; completed output = [reasoning, message]; completed echoes request reasoning {'effort':'high'}.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer oracle-local-key-1"
+        },
+        "body": "{\"model\":\"mock-model\",\"reasoning\":{\"effort\":\"high\"},\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Hi?\"}]}],\"stream\":true}"
+      },
+      "mock": {
+        "mode": "happy",
+        "variant": "reasoning-stream"
+      },
+      "mock_response_sse": {
+        "events": [
+          {
+            "id": "chatcmpl-mock-0001",
+            "object": "chat.completion.chunk",
+            "created": 1770000000,
+            "model": "mock-gpt-model",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "role": "assistant"
+                },
+                "finish_reason": null
+              }
+            ]
+          },
+          {
+            "id": "chatcmpl-mock-0001",
+            "object": "chat.completion.chunk",
+            "created": 1770000000,
+            "model": "mock-gpt-model",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "reasoning_content": "Let me think."
+                },
+                "finish_reason": null
+              }
+            ]
+          },
+          {
+            "id": "chatcmpl-mock-0001",
+            "object": "chat.completion.chunk",
+            "created": 1770000000,
+            "model": "mock-gpt-model",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "reasoning_content": " Carefully."
+                },
+                "finish_reason": null
+              }
+            ]
+          },
+          {
+            "id": "chatcmpl-mock-0001",
+            "object": "chat.completion.chunk",
+            "created": 1770000000,
+            "model": "mock-gpt-model",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "content": "Hi there"
+                },
+                "finish_reason": null
+              }
+            ]
+          },
+          {
+            "id": "chatcmpl-mock-0001",
+            "object": "chat.completion.chunk",
+            "created": 1770000000,
+            "model": "mock-gpt-model",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {},
+                "finish_reason": "stop"
+              }
+            ]
+          }
+        ],
+        "terminator": "data: [DONE]"
+      },
+      "record": "full downstream SSE byte stream; upstream.jsonl",
+      "expect_hints": {
+        "completed_output": "\"output\":[{\"id\":\"rs_chatcmpl-mock-0001_0\",\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"Let me think. Carefully.\"}]},{\"id\":\"msg_chatcmpl-mock-0001_0\",\"type\":\"message\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"annotations\":[],\"logprobs\":[],\"text\":\"Hi there\"}],\"role\":\"assistant\"}]",
+        "reasoning_echo": "\"reasoning\":{\"effort\":\"high\"}"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "Host/port numbers"
+      ]
+    },
+    {
+      "id": "S2d6-stream-disconnect",
+      "purpose": "Upstream hard-close after 2 SSE events (plain client UA): client HTTP stays 200; first 5 translated frames forwarded (created, in_progress, output_item.added, content_part.added, output_text.delta), then terminal frame 'event: error' with error code internal_server_error and message 'unexpected EOF', sequence_number=5, preceded by one blank line.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer oracle-local-key-1"
+        },
+        "body": "{\"model\":\"mock-model\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Say hi.\"}]}],\"stream\":true}"
+      },
+      "mock": {
+        "mode": "disconnect",
+        "after": 2,
+        "variant": "default-stream-done"
+      },
+      "record": "full downstream SSE byte stream; upstream.jsonl",
+      "expect_hints": {
+        "terminal_frame": "\\nevent: error\\ndata: {\"type\":\"error\",\"error\":{\"code\":\"internal_server_error\",\"message\":\"unexpected EOF\",\"param\":null,\"type\":\"server_error\"},\"sequence_number\":5}\\n\\n"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "Host/port numbers",
+        "error.message if transport-prefixed (e.g. 'read tcp ...')"
+      ]
+    },
+    {
+      "id": "S2d6-stream-disconnect-codex",
+      "purpose": "Same hard-close but with Codex client identification (User-Agent codex-tui/... + Originator: codex-tui): terminal failure event becomes 'event: response.failed' with data {'type':'response.failed','sequence_number':5,'response':{'status':'failed','error':{...}}} (error map keys sorted).",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer oracle-local-key-1",
+          "User-Agent": "codex-tui/0.154.0 (Mac OS 26.5.2; arm64) iTerm.app/3.6.11",
+          "Originator": "codex-tui"
+        },
+        "body": "{\"model\":\"mock-model\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Say hi.\"}]}],\"stream\":true}"
+      },
+      "mock": {
+        "mode": "disconnect",
+        "after": 2,
+        "variant": "default-stream-done"
+      },
+      "record": "full downstream SSE byte stream; upstream.jsonl",
+      "expect_hints": {
+        "terminal_frame": "\\nevent: response.failed\\ndata: {\"type\":\"response.failed\",\"sequence_number\":5,\"response\":{\"status\":\"failed\",\"error\":{\"code\":\"internal_server_error\",\"message\":\"unexpected EOF\",\"param\":null,\"type\":\"server_error\"}}}\\n\\n"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "Host/port numbers",
+        "error.message if transport-prefixed"
+      ]
+    },
+    {
+      "id": "S2d6-stream-nodone",
+      "purpose": "Responses-client-only [DONE] strictness: clean chunked EOF WITHOUT a data: [DONE] frame -> the 8 already-forwarded frames stay, then terminal 'event: error' frame with message 'upstream stream closed before [DONE]' (502-classified, server_error/internal_server_error), sequence_number=8.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer oracle-local-key-1"
+        },
+        "body": "{\"model\":\"mock-model\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Say hi.\"}]}],\"stream\":true}"
+      },
+      "mock": {
+        "mode": "happy",
+        "variant": "default-stream-nodone"
+      },
+      "mock_response_sse": {
+        "events": [
+          {
+            "id": "chatcmpl-mock-0001",
+            "object": "chat.completion.chunk",
+            "created": 1770000000,
+            "model": "mock-gpt-model",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "role": "assistant"
+                },
+                "finish_reason": null
+              }
+            ]
+          },
+          {
+            "id": "chatcmpl-mock-0001",
+            "object": "chat.completion.chunk",
+            "created": 1770000000,
+            "model": "mock-gpt-model",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "content": "Hello from mock openai upstream"
+                },
+                "finish_reason": null
+              }
+            ]
+          },
+          {
+            "id": "chatcmpl-mock-0001",
+            "object": "chat.completion.chunk",
+            "created": 1770000000,
+            "model": "mock-gpt-model",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {},
+                "finish_reason": "stop"
+              }
+            ]
+          }
+        ],
+        "terminator": null
+      },
+      "record": "full downstream SSE byte stream; upstream.jsonl",
+      "expect_hints": {
+        "terminal_frame": "\\nevent: error\\ndata: {\"type\":\"error\",\"error\":{\"code\":\"internal_server_error\",\"message\":\"upstream stream closed before [DONE]\",\"param\":null,\"type\":\"server_error\"},\"sequence_number\":8}\\n\\n"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "Host/port numbers"
+      ]
+    },
+    {
+      "id": "S2d6-error-nostream-429",
+      "purpose": "Upstream 429 on a non-stream request: downstream 429 with the upstream JSON body VERBATIM (no sanitization on the non-stream path); Content-Type application/json.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer oracle-local-key-1"
+        },
+        "body": "{\"model\":\"mock-model\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Say hi.\"}]}]}"
+      },
+      "mock": {
+        "mode": "error",
+        "status": 429,
+        "error_body": {
+          "error": {
+            "message": "mock rate limit",
+            "type": "rate_limit_exceeded",
+            "code": "rate_limit_exceeded"
+          }
+        }
+      },
+      "record": "downstream status+headers+body; upstream.jsonl",
+      "expect_hints": {
+        "downstream_body": "{\"error\":{\"message\":\"mock rate limit\",\"type\":\"rate_limit_exceeded\",\"code\":\"rate_limit_exceeded\"}}"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "Host/port numbers"
+      ],
+      "ordering": "RUN LAST: a 429 puts the credential in a ~1s rate-limit cooldown (not disabled by transient-error-cooldown-seconds:-1). Wait >=1s before any further request against mock-openai."
+    },
+    {
+      "id": "S2d6-error-stream-429",
+      "purpose": "Upstream 429 on a STREAM request before any data frame: client receives JSON (not SSE), status 429; body expected (from source) to be the sanitized Responses stream-error shape with SORTED error keys; recorded bytes are authoritative over the hint.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer oracle-local-key-1"
+        },
+        "body": "{\"model\":\"mock-model\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Say hi.\"}]}],\"stream\":true}"
+      },
+      "mock": {
+        "mode": "error",
+        "status": 429,
+        "error_body": {
+          "error": {
+            "message": "mock rate limit",
+            "type": "rate_limit_exceeded",
+            "code": "rate_limit_exceeded"
+          }
+        }
+      },
+      "record": "downstream status+headers+body; upstream.jsonl",
+      "expect_hints": {
+        "downstream_body_EXPECT_FROM_SOURCE": "{\"error\":{\"code\":\"rate_limit_exceeded\",\"message\":\"mock rate limit\",\"type\":\"rate_limit_exceeded\"}}",
+        "note": "spec section 5.1 precedence note: recorded bytes are authoritative; if verbatim passthrough is recorded instead, the section will be amended."
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "Host/port numbers"
+      ],
+      "ordering": "RUN LAST (cooldown, see S2d6-error-nostream-429)."
+    },
+    {
+      "id": "S2d6-auth-missing",
+      "purpose": "POST /v1/responses without Authorization -> 401 {'error':'Missing API key'} with the CORS block; no upstream call.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"model\":\"mock-model\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Say hi.\"}]}]}"
+      },
+      "mock": null,
+      "record": "downstream status+headers+body; upstream.jsonl must stay EMPTY for this case",
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "Host/port numbers"
+      ]
+    },
+    {
+      "id": "S2d6-model-notfound",
+      "purpose": "Unroutable model -> 400 {'error':{'message':'unknown provider for model no-such-model','type':'invalid_request_error','code':'model_not_found','param':'model'}}; no upstream call.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer oracle-local-key-1"
+        },
+        "body": "{\"model\":\"no-such-model\",\"input\":\"hi\"}"
+      },
+      "mock": null,
+      "record": "downstream status+headers+body; upstream.jsonl must stay EMPTY for this case",
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "Host/port numbers"
+      ]
+    },
+    {
+      "id": "S2d6-compact-passthrough",
+      "purpose": "POST /v1/responses/compact -> upstream POST /v1/responses/compact (NOT /chat/completions) with the client body passed through except model rewritten to mock-gpt-model and 'stream' absent; upstream response passed through with usage-details injection: usage gains output_tokens_details.reasoning_tokens=0 then input_tokens_details.cached_tokens=0.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses/compact",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer oracle-local-key-1"
+        },
+        "body": "{\"model\":\"mock-model\",\"instructions\":\"Summarize the conversation.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Hello there\"}]},{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Hi! How can I help?\"}]}]}"
+      },
+      "mock": {
+        "mode": "happy",
+        "variant": "compact",
+        "route": "POST /v1/responses/compact"
+      },
+      "mock_response_nonstream": {
+        "id": "resp_mock_compact",
+        "object": "response",
+        "status": "completed",
+        "output": [],
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "total_tokens": 2
+        }
+      },
+      "record": "downstream status+headers+body; upstream.jsonl (path must be /v1/responses/compact)",
+      "expect_hints": {
+        "upstream_body": "{\"model\":\"mock-gpt-model\",\"instructions\":\"Summarize the conversation.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Hello there\"}]},{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Hi! How can I help?\"}]}]}",
+        "downstream_body": "{\"id\":\"resp_mock_compact\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2,\"output_tokens_details\":{\"reasoning_tokens\":0},\"input_tokens_details\":{\"cached_tokens\":0}}}"
+      },
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "Host/port numbers"
+      ]
+    },
+    {
+      "id": "S2d6-compact-stream-rejected",
+      "purpose": "compact with stream:true -> 400 {'error':{'message':'Streaming not supported for compact responses','type':'invalid_request_error'}} (no code field); no upstream call.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses/compact",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer oracle-local-key-1"
+        },
+        "body": "{\"model\":\"mock-model\",\"instructions\":\"Summarize the conversation.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Hello there\"}]},{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Hi! How can I help?\"}]}],\"stream\":true}"
+      },
+      "mock": null,
+      "record": "downstream status+headers+body; upstream.jsonl must stay EMPTY for this case",
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "Host/port numbers"
+      ]
+    },
+    {
+      "id": "S2d6-stream-slow",
+      "status": "OPTIONAL-DEFERRED",
+      "purpose": "Slow-chunks mode (300ms between upstream events): byte stream must equal S2d6-stream-basic; only inter-event timing differs. Defer unless the recording pass has budget; if recorded, timing goes to meta.yaml dynamic fields only.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer oracle-local-key-1"
+        },
+        "body": "{\"model\":\"mock-model\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Say hi.\"}]}],\"stream\":true}"
+      },
+      "mock": {
+        "mode": "slow",
+        "delay_ms": 300,
+        "variant": "default-stream-done"
+      },
+      "record": "full downstream SSE byte stream + timing notes",
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id",
+        "Host/port numbers",
+        "inter-event timing"
+      ]
+    }
+  ]
+}

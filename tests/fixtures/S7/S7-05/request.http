@@ -1,0 +1,65 @@
+# Exact downstream request bytes, in order (step dividers)
+
+### step 1: PUT http://127.0.0.1:8397/v0/management/proxy-url (set socks5 proxy-url)
+PUT /v0/management/proxy-url HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Type: application/json
+Content-Length: 59
+
+
+{"value":"socks5://oracle-user:oracle-pass@127.0.0.1:1080"}
+
+### step 2: GET http://127.0.0.1:8397/v0/management/proxy-url (read back)
+GET /v0/management/proxy-url HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+
+
+### step 3: GET http://127.0.0.1:8397/v0/management/config (full config echo (contains proxy-url))
+GET /v0/management/config HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+
+
+### step 4: PUT http://127.0.0.1:8397/v0/management/proxy-url (switch to direct)
+PUT /v0/management/proxy-url HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Type: application/json
+Content-Length: 18
+
+
+{"value":"direct"}
+
+### step 5: DELETE http://127.0.0.1:8397/v0/management/proxy-url (delete proxy-url)
+DELETE /v0/management/proxy-url HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+
+
+### step 6: GET http://127.0.0.1:8397/v0/management/proxy-url (empty after delete)
+GET /v0/management/proxy-url HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+

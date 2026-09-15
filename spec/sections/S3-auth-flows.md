@@ -298,9 +298,20 @@ None of the S3 surfaces produce SSE. Auth-related HTTP responses are single-shot
 | login-URL endpoints | local build failure | 500 | `{"error":"failed to ..."}` |
 
 ## 6. Golden samples index
-Recordings requested in `spec/recordings/S3.cases.json`; fixtures land under `tests/fixtures/S3/<case-id>/` per the RECIPES layout (meta.yaml, request.http, downstream.md, upstream.jsonl, mock-response.json as applicable). S3 cases need no mock upstream (no provider credentials in scope); "upstream" for S3 is the reference binary itself on `127.0.0.1:18317` with the oracle config.
+Recording request: `spec/recordings/S3.cases.json` (48 cases: 38 RECORDABLE-LOCALLY + 10 FIXTURE-DEFERRED). Fixtures land under `tests/fixtures/S3/<case-id>/` per the RECIPES layout (meta.yaml, request.http, downstream.md; `upstream.jsonl`/`mock-response.json` not applicable — S3 exercises the reference binary itself on `127.0.0.1:18317`, no provider mock). Config instances beyond the default oracle template: `open` (api-keys removed), `safemode` (`your-api-key-1`), `no-mgmt-secret`, `mgmt-local-only` (allow-remote false), `fresh-ban` (fresh container for the IP-ban pair; ordering constraints in the cases file).
 
-(Counts updated after oracle delivery; see final reply.)
+Case groups:
+- Inbound api-key matrix (10): missing / invalid / valid Bearer, raw Authorization (no Bearer prefix), x-goog-api-key, x-api-key, query `key`, query `auth_token`, open-when-unconfigured, safemode 403.
+- Realtime auth shapes (2): missing key, invalid key — OpenAI-shaped 401.
+- Management authz (8): missing key, invalid key, valid X-Management-Key, valid Bearer, remote-disabled 403, unconfigured-404, ban-reset-on-success, ban-after-5-invalid.
+- Plain OAuth callback routes (4): anthropic/codex unknown-state 200-HTML, devin missing 400, devin unknown 400.
+- `/v0/management/oauth-callback` ladder (5): invalid body, missing state, invalid state, missing code, unknown state 404.
+- Login-URL endpoints (4): anthropic, codex, antigravity, devin (URL structure byte-asserted with masked random values).
+- Session lifecycle (2 multi-request): full pending→wait→cancel→expired→404 lifecycle; provider-mismatch 400.
+- Status/cancel edges (3): empty status, invalid state, missing state.
+FIXTURE-DEFERRED (10): claude/codex/antigravity/devin live exchanges, claude/codex refresh flows, kimi/xai/meta live device flows, device-auth-url endpoints (live vendor call), refresh-on-401 — all CREDENTIALED-ONLY per R-FIXTURE; documented in S3 §2.3/§2.6/§2.7 and the cases file.
+
+(Paths and counts below are finalized after oracle delivery.)
 
 ## 7. Open questions and intentional non-equivalences
 - O-1: Inbound API-key comparison is a plain map lookup (not constant-time). Mirror for behavioral equality, or register a security non-equivalence? Default: mirror; timing is not observable in wire goldens.

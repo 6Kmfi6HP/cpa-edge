@@ -1,0 +1,43 @@
+{
+ "id": "S1-23",
+ "purpose": "Codex-only routes without codex credentials: 503 selector errors; backend-api alias routing.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+ "recorded_at": "2026-09-15T23:46:49",
+ "record_kind": "response",
+ "mock_upstream_mode": null,
+ "config": "baseline (no providers)",
+ "dynamic_fields": [
+  "Date",
+  "X-Cpa-Trace-Id",
+  "created",
+  "created_at",
+  "Content-Length when body is dynamic"
+ ],
+ "requests": [
+  {
+   "name": "alpha-search",
+   "method": "POST",
+   "path": "/v1/alpha/search",
+   "request_file": "alpha-search.request.http",
+   "downstream_file": "alpha-search.downstream.md",
+   "http_status": "503"
+  },
+  {
+   "name": "live-empty",
+   "method": "POST",
+   "path": "/v1/live",
+   "request_file": "live-empty.request.http",
+   "downstream_file": "live-empty.downstream.md",
+   "http_status": "503"
+  },
+  {
+   "name": "codex-alias-unknown",
+   "method": "POST",
+   "path": "/backend-api/codex/responses",
+   "request_file": "codex-alias-unknown.request.http",
+   "downstream_file": "codex-alias-unknown.downstream.md",
+   "http_status": "400"
+  }
+ ],
+ "upstream_file": null
+}

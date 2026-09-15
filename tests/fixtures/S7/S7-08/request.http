@@ -1,0 +1,85 @@
+# Exact downstream request bytes, in order (step dividers)
+
+### step 1: PATCH http://127.0.0.1:8397/v0/management/plugins/example/enabled (PATCH enabled=false)
+PATCH /v0/management/plugins/example/enabled HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Type: application/json
+Content-Length: 17
+
+
+{"enabled":false}
+
+### step 2: GET http://127.0.0.1:8397/v0/management/plugins/example/config (GET plugin config)
+GET /v0/management/plugins/example/config HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+
+
+### step 3: PUT http://127.0.0.1:8397/v0/management/plugins/example/config (PUT replaced config)
+PUT /v0/management/plugins/example/config HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Type: application/json
+Content-Length: 43
+
+
+{"enabled":true,"priority":2,"mode":"safe"}
+
+### step 4: GET http://127.0.0.1:8397/v0/management/plugins/example/config (GET replaced echo)
+GET /v0/management/plugins/example/config HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+
+
+### step 5: GET http://127.0.0.1:8397/v0/management/plugins (list mid-state)
+GET /v0/management/plugins HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+
+
+### step 6: DELETE http://127.0.0.1:8397/v0/management/plugins/example (DELETE plugin)
+DELETE /v0/management/plugins/example HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+
+
+### step 7: GET http://127.0.0.1:8397/v0/management/plugins (list after delete)
+GET /v0/management/plugins HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+
+
+### step 8: GET http://127.0.0.1:8397/v0/management/plugins/unknown/config (unknown plugin 404)
+GET /v0/management/plugins/unknown/config HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+

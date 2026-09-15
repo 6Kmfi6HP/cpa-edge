@@ -1,0 +1,795 @@
+{
+  "step_id": "S2d9",
+  "section": "spec/sections/S2d9-codex-passthrough.md",
+  "upstream_anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6 (image eceasy/cli-proxy-api:v7.3.4)",
+  "target_fixture_dir": "tests/fixtures/S2d9/",
+  "classification": "RECORDABLE-LOCALLY (codex-api-key with base-url override; Ruling R-FIXTURE)",
+  "downstream_base_url": "http://127.0.0.1:8417",
+  "reference_config_addition": "codex-api-key:\n  - api-key: \"mock-codex-key-1\"\n    base-url: \"http://host.docker.internal:23001\"\n    models:\n      - name: \"mock-codex-upstream\"\n        alias: \"codex-mock\"\n      - name: \"mock-codex-upstream\"\n        alias: \"codex-mock-forced\"\n        force-mapping: true",
+  "reference_config_baseline": "BOOTSTRAP.md section 3 template semantics: api-keys [oracle-local-key-1], request-retry 0, transient-error-cooldown-seconds -1, usage-statistics-enabled false; hot-reload proven. Reference instance port is per-worker (worker-5: 8417; BOOTSTRAP default 18317).",
+  "mock_contract": {
+    "new_script": "_cpa_edge_ref/mock/mock_codex_responses.py (Responses/Codex wire; extend the existing stdlib mock pattern)",
+    "port": 23001,
+    "endpoints": [
+      "POST /responses (SSE or scripted HTTP error)",
+      "POST /responses/compact (JSON)"
+    ],
+    "request_log": "upstream_log.jsonl (method, path, headers, body) exactly like mock_openai.py",
+    "case_selection": "control file (e.g. mock_case.txt containing the case id) set before each downstream request; the reference does NOT forward arbitrary client headers, so X-Mock-* request headers cannot reach this upstream. Scripts below are the exact bytes per case.",
+    "default_behavior": "if control file missing/unknown: happy standard script (case S2d9-01 shape)"
+  },
+  "shared_downstream_headers": {
+    "Authorization": "Bearer oracle-local-key-1",
+    "Content-Type": "application/json"
+  },
+  "dynamic_fields_to_mask": [
+    "Date response header",
+    "X-Cpa-Trace-Id and other X-Cpa-*/X-Server-* response headers",
+    "upstream body prompt_cache_key (uuid) and header Session-Id when the client sent no prompt_cache_key",
+    "nothing else is dynamic: mock ids (resp_mock_*), created_at 1742812800, ports, and key strings are fixed"
+  ],
+  "run_order": [
+    "S2d9-01",
+    "S2d9-02",
+    "S2d9-03",
+    "S2d9-04",
+    "S2d9-05",
+    "S2d9-06",
+    "S2d9-07",
+    "S2d9-08",
+    "S2d9-15",
+    "S2d9-16",
+    "S2d9-17",
+    "S2d9-13",
+    "S2d9-14",
+    "S2d9-10",
+    "S2d9-11",
+    "S2d9-12",
+    "S2d9-09"
+  ],
+  "ordering_rules": [
+    "RESTART the reference container before S2d9-10 and again between S2d9-10 and the S2d9-11 -> S2d9-12 window (the 404 model_not_found cooldown outlives 2s waits and pollutes 4xx-flavored cases).",
+    "S2d9-12 fires <1s after S2d9-11 completes.",
+    "RESTART the reference container before S2d9-09 (upstream 401) so it records the classified-401 contract, not a cooldown error.",
+    "S2d9-09 runs LAST overall.",
+    "cases 01-08, 15-17 have no cross-case credential side effects and may run back-to-back on one container (S2d9-17 investigation may need extra runs; see notes)."
+  ],
+  "case_count": 17,
+  "cases": [
+    {
+      "id": "S2d9-01",
+      "purpose": "Minimal non-stream request: default rewrites (model alias->upstream, input string->array, stream forced true upstream, store false, include forced, instructions defaulted to empty string, image_generation tool injected, parallel_tool_calls forced true), SSE-forced upstream call, terminal aggregation to a single JSON response object, response.output reconstruction from output_item.done, usage-details defaulting.",
+      "mock_mode": "happy",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "model": "codex-mock",
+          "input": "Say hi"
+        }
+      },
+      "record": {
+        "downstream": "status + response headers + full body (for SSE: complete byte stream until connection close)",
+        "upstream": "all requests the reference emitted, from mock upstream_log.jsonl (method, path, headers, body)"
+      },
+      "upstream_expect": [
+        "POST {base-url}/responses",
+        "Authorization: Bearer mock-codex-key-1",
+        "Accept: text/event-stream",
+        "Content-Type: application/json",
+        "User-Agent: codex-tui/0.154.0 (Mac OS 26.5.2; arm64) iTerm.app/3.6.11 (codex-tui; 0.154.0)",
+        "Originator: codex-tui",
+        "Session-Id: <uuid, dynamic> equal to body prompt_cache_key (client sent none)",
+        "body.model == \"mock-codex-upstream\"",
+        "body.input == [{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Say hi\"}]}]",
+        "body.stream == true (added)",
+        "body.store == false (added)",
+        "body.include == [\"reasoning.encrypted_content\"] (added)",
+        "body.instructions == \"\" (added)",
+        "body.parallel_tool_calls == true (added)",
+        "body.tools == [{\"type\":\"image_generation\",\"output_format\":\"png\"}] (added)",
+        "body.prompt_cache_key == <uuid, dynamic>"
+      ],
+      "downstream_expect": [
+        "HTTP 200, Content-Type: application/json",
+        "body is the response object of the response.completed event (no wrapper)",
+        "body.model == \"mock-codex-upstream\" (upstream value preserved; no echo injection on non-stream)",
+        "body.output == the item from response.output_item.done (reconstructed; upstream sent output:[])",
+        "body.usage == {\"input_tokens\":12,\"output_tokens\":7,\"total_tokens\":19,\"input_tokens_details\":{\"cached_tokens\":0},\"output_tokens_details\":{\"reasoning_tokens\":0}}"
+      ],
+      "mock_sse_script_exact_bytes": "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_mock_001\",\"object\":\"response\",\"created_at\":1742812800,\"status\":\"in_progress\",\"model\":\"mock-codex-upstream\",\"output\":[]}}\nevent: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":1,\"output_index\":0,\"item\":{\"id\":\"msg_mock_001\",\"type\":\"message\",\"status\":\"in_progress\",\"role\":\"assistant\",\"content\":[]}}\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"sequence_number\":2,\"item_id\":\"msg_mock_001\",\"output_index\":0,\"content_index\":0,\"delta\":\"Hello\"}\nevent: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"sequence_number\":3,\"output_index\":0,\"item\":{\"id\":\"msg_mock_001\",\"type\":\"message\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Hello\",\"annotations\":[]}]}}\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"sequence_number\":4,\"response\":{\"id\":\"resp_mock_001\",\"object\":\"response\",\"created_at\":1742812800,\"status\":\"completed\",\"model\":\"mock-codex-upstream\",\"output\":[],\"usage\":{\"input_tokens\":12,\"output_tokens\":7,\"total_tokens\":19}}}\n",
+      "upstream_call_count": "one"
+    },
+    {
+      "id": "S2d9-02",
+      "purpose": "Minimal streaming request: event-by-event SSE fidelity (event: names preserved, data payloads byte-identical, framing normalized to \\n\\n, final trailing \\n), model-echo injection into response.created when response.model absent, response.output repair in response.completed.",
+      "mock_mode": "happy",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "model": "codex-mock",
+          "input": "Say hi",
+          "stream": true
+        }
+      },
+      "record": {
+        "downstream": "status + response headers + full body (for SSE: complete byte stream until connection close)",
+        "upstream": "all requests the reference emitted, from mock upstream_log.jsonl (method, path, headers, body)"
+      },
+      "upstream_expect": [
+        "POST /responses with Accept: text/event-stream; body.stream == true; same forced fields as S2d9-01"
+      ],
+      "downstream_expect": [
+        "HTTP 200, Content-Type: text/event-stream, Cache-Control: no-cache, Connection: keep-alive, Access-Control-Allow-Origin: *",
+        "frame order and event: names exactly: response.created, response.output_item.added, response.content_part.added, response.output_text.delta, response.output_text.delta, response.content_part.done, response.output_item.done, response.completed",
+        "response.created frame: response.model == \"codex-mock\" (client alias injected; upstream omitted it)",
+        "response.completed frame: response.model == \"mock-codex-upstream\" (upstream value preserved), response.output == [item from output_item.done] (reconstructed), usage bytes unchanged (cached_tokens 5 / reasoning_tokens 3 already present)",
+        "every frame terminated by \\n\\n; stream ends with one extra \\n byte after the last frame; no [DONE]"
+      ],
+      "mock_sse_script_exact_bytes": "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_mock_002\",\"object\":\"response\",\"created_at\":1742812800,\"status\":\"in_progress\",\"output\":[]}}\nevent: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":1,\"output_index\":0,\"item\":{\"id\":\"msg_mock_002\",\"type\":\"message\",\"status\":\"in_progress\",\"role\":\"assistant\",\"content\":[]}}\nevent: response.content_part.added\ndata: {\"type\":\"response.content_part.added\",\"sequence_number\":2,\"item_id\":\"msg_mock_002\",\"output_index\":0,\"content_index\":0,\"part\":{\"type\":\"output_text\",\"text\":\"\",\"annotations\":[]}}\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"sequence_number\":3,\"item_id\":\"msg_mock_002\",\"output_index\":0,\"content_index\":0,\"delta\":\"Hello\"}\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"sequence_number\":4,\"item_id\":\"msg_mock_002\",\"output_index\":0,\"content_index\":0,\"delta\":\" world\"}\nevent: response.content_part.done\ndata: {\"type\":\"response.content_part.done\",\"sequence_number\":5,\"item_id\":\"msg_mock_002\",\"output_index\":0,\"content_index\":0,\"part\":{\"type\":\"output_text\",\"text\":\"Hello world\",\"annotations\":[]}}\nevent: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"sequence_number\":6,\"output_index\":0,\"item\":{\"id\":\"msg_mock_002\",\"type\":\"message\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Hello world\",\"annotations\":[]}]}}\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"sequence_number\":7,\"response\":{\"id\":\"resp_mock_002\",\"object\":\"response\",\"created_at\":1742812800,\"status\":\"completed\",\"model\":\"mock-codex-upstream\",\"output\":[],\"usage\":{\"input_tokens\":12,\"input_tokens_details\":{\"cached_tokens\":5},\"output_tokens\":7,\"output_tokens_details\":{\"reasoning_tokens\":3},\"total_tokens\":19}}}\n",
+      "upstream_call_count": "one"
+    },
+    {
+      "id": "S2d9-03",
+      "purpose": "force-mapping alias: upstream model rewritten to mock-codex-upstream in request; every model field in every forwarded data payload rewritten back to the alias codex-mock-forced (created + completed), overriding upstream-provided model values.",
+      "mock_mode": "happy",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "model": "codex-mock-forced",
+          "input": "Say hi",
+          "stream": true
+        }
+      },
+      "record": {
+        "downstream": "status + response headers + full body (for SSE: complete byte stream until connection close)",
+        "upstream": "all requests the reference emitted, from mock upstream_log.jsonl (method, path, headers, body)"
+      },
+      "upstream_expect": [
+        "body.model == \"mock-codex-upstream\""
+      ],
+      "downstream_expect": [
+        "HTTP 200 SSE",
+        "response.created frame: response.model == \"codex-mock-forced\" (rewritten from mock-codex-upstream)",
+        "response.completed frame: response.model == \"codex-mock-forced\""
+      ],
+      "mock_sse_script_exact_bytes": "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_mock_003\",\"object\":\"response\",\"created_at\":1742812800,\"status\":\"in_progress\",\"model\":\"mock-codex-upstream\",\"output\":[]}}\nevent: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":1,\"output_index\":0,\"item\":{\"id\":\"msg_mock_003\",\"type\":\"message\",\"status\":\"in_progress\",\"role\":\"assistant\",\"content\":[]}}\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"sequence_number\":2,\"item_id\":\"msg_mock_003\",\"output_index\":0,\"content_index\":0,\"delta\":\"Hi\"}\nevent: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"sequence_number\":3,\"output_index\":0,\"item\":{\"id\":\"msg_mock_003\",\"type\":\"message\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Hi\",\"annotations\":[]}]}}\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"sequence_number\":4,\"response\":{\"id\":\"resp_mock_003\",\"object\":\"response\",\"created_at\":1742812800,\"status\":\"completed\",\"model\":\"mock-codex-upstream\",\"output\":[],\"usage\":{\"input_tokens\":5,\"output_tokens\":2,\"total_tokens\":7}}}\n",
+      "upstream_call_count": "one"
+    },
+    {
+      "id": "S2d9-04",
+      "purpose": "Tools and roles: system role -> developer, function tool schema preserved verbatim, web_search_preview normalized to web_search, image_generation tool appended after client tools, store:true -> false, instructions preserved.",
+      "mock_mode": "happy",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "model": "codex-mock",
+          "instructions": "You are a weather assistant.",
+          "input": [
+            {
+              "type": "message",
+              "role": "system",
+              "content": [
+                {
+                  "type": "input_text",
+                  "text": "Always answer briefly."
+                }
+              ]
+            },
+            {
+              "type": "message",
+              "role": "user",
+              "content": [
+                {
+                  "type": "input_text",
+                  "text": "What is the weather in Paris?"
+                }
+              ]
+            }
+          ],
+          "tools": [
+            {
+              "type": "function",
+              "name": "get_weather",
+              "description": "Get current weather for a city",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "city": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "city"
+                ]
+              }
+            },
+            {
+              "type": "web_search_preview"
+            }
+          ],
+          "tool_choice": "auto",
+          "store": true
+        }
+      },
+      "record": {
+        "downstream": "status + response headers + full body (for SSE: complete byte stream until connection close)",
+        "upstream": "all requests the reference emitted, from mock upstream_log.jsonl (method, path, headers, body)"
+      },
+      "upstream_expect": [
+        "input[0].role == \"developer\" (was system)",
+        "input[1] preserved verbatim",
+        "tools == [function tool verbatim, {\"type\":\"web_search\"}, {\"type\":\"image_generation\",\"output_format\":\"png\"}]",
+        "tool_choice == \"auto\" preserved",
+        "store == false",
+        "instructions == \"You are a weather assistant.\" preserved"
+      ],
+      "downstream_expect": [
+        "HTTP 200 application/json, aggregated response object"
+      ],
+      "mock_sse_script_exact_bytes": "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_mock_004\",\"object\":\"response\",\"created_at\":1742812800,\"status\":\"in_progress\",\"model\":\"mock-codex-upstream\",\"output\":[]}}\nevent: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":1,\"output_index\":0,\"item\":{\"id\":\"msg_mock_004\",\"type\":\"message\",\"status\":\"in_progress\",\"role\":\"assistant\",\"content\":[]}}\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"sequence_number\":2,\"item_id\":\"msg_mock_004\",\"output_index\":0,\"content_index\":0,\"delta\":\"Sunny\"}\nevent: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"sequence_number\":3,\"output_index\":0,\"item\":{\"id\":\"msg_mock_004\",\"type\":\"message\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Sunny\",\"annotations\":[]}]}}\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"sequence_number\":4,\"response\":{\"id\":\"resp_mock_004\",\"object\":\"response\",\"created_at\":1742812800,\"status\":\"completed\",\"model\":\"mock-codex-upstream\",\"output\":[],\"usage\":{\"input_tokens\":15,\"output_tokens\":6,\"total_tokens\":21}}}\n",
+      "upstream_call_count": "one"
+    },
+    {
+      "id": "S2d9-05",
+      "purpose": "Reasoning passthrough: top-level reasoning preserved verbatim; include forced; input reasoning item with valid encrypted_content kept verbatim; reasoning item without encrypted_content loses its id (store=false orphan rule); reasoning item with invalid encrypted_content loses BOTH encrypted_content and id.",
+      "mock_mode": "happy",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "model": "codex-mock",
+          "input": [
+            {
+              "type": "reasoning",
+              "id": "rs_valid_1",
+              "summary": [
+                {
+                  "type": "summary_text",
+                  "text": "pondering"
+                }
+              ],
+              "encrypted_content": "gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+            },
+            {
+              "type": "reasoning",
+              "id": "rs_orphan_2",
+              "summary": []
+            },
+            {
+              "type": "reasoning",
+              "id": "rs_bad_3",
+              "encrypted_content": "invalid-encrypted-content-value"
+            },
+            {
+              "type": "message",
+              "role": "user",
+              "content": [
+                {
+                  "type": "input_text",
+                  "text": "Continue"
+                }
+              ]
+            }
+          ],
+          "reasoning": {
+            "effort": "medium",
+            "summary": "auto"
+          },
+          "stream": true
+        }
+      },
+      "record": {
+        "downstream": "status + response headers + full body (for SSE: complete byte stream until connection close)",
+        "upstream": "all requests the reference emitted, from mock upstream_log.jsonl (method, path, headers, body)"
+      },
+      "upstream_expect": [
+        "body.reasoning == {\"effort\":\"medium\",\"summary\":\"auto\"} (verbatim)",
+        "input[0] == original rs_valid_1 item verbatim (id + summary + encrypted_content)",
+        "input[1] == {\"type\":\"reasoning\",\"summary\":[]} (id rs_orphan_2 dropped)",
+        "input[2] == {\"type\":\"reasoning\"} (id and encrypted_content dropped)",
+        "input[3] user message verbatim",
+        "include == [\"reasoning.encrypted_content\"]"
+      ],
+      "downstream_expect": [
+        "HTTP 200 SSE, happy stream forwarded"
+      ],
+      "mock_sse_script_exact_bytes": "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_mock_005\",\"object\":\"response\",\"created_at\":1742812800,\"status\":\"in_progress\",\"model\":\"mock-codex-upstream\",\"output\":[]}}\nevent: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":1,\"output_index\":0,\"item\":{\"id\":\"msg_mock_005\",\"type\":\"message\",\"status\":\"in_progress\",\"role\":\"assistant\",\"content\":[]}}\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"sequence_number\":2,\"item_id\":\"msg_mock_005\",\"output_index\":0,\"content_index\":0,\"delta\":\"Done\"}\nevent: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"sequence_number\":3,\"output_index\":0,\"item\":{\"id\":\"msg_mock_005\",\"type\":\"message\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Done\",\"annotations\":[]}]}}\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"sequence_number\":4,\"response\":{\"id\":\"resp_mock_005\",\"object\":\"response\",\"created_at\":1742812800,\"status\":\"completed\",\"model\":\"mock-codex-upstream\",\"output\":[],\"usage\":{\"input_tokens\":20,\"output_tokens\":4,\"total_tokens\":24}}}\n",
+      "upstream_call_count": "one"
+    },
+    {
+      "id": "S2d9-06",
+      "purpose": "Store semantics and field deletion: store forced false; previous_response_id, truncation, user, temperature, top_p, max_output_tokens, service_tier (non-priority), prompt_cache_retention, safety_identifier, generate deleted; stream_options stripped except reasoning_summary_delivery; prompt_cache_key preserved verbatim and mirrored in Session-Id header; metadata preserved.",
+      "mock_mode": "happy",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "model": "codex-mock",
+          "instructions": "Be terse.",
+          "input": "Hi",
+          "stream": true,
+          "store": true,
+          "previous_response_id": "resp_prev_123",
+          "truncation": "auto",
+          "user": "user-42",
+          "temperature": 0.7,
+          "top_p": 0.9,
+          "max_output_tokens": 256,
+          "service_tier": "auto",
+          "prompt_cache_key": "sess-fix-123",
+          "prompt_cache_retention": "24h",
+          "safety_identifier": "safety-1",
+          "generate": true,
+          "metadata": {
+            "trace": "t1"
+          },
+          "stream_options": {
+            "reasoning_summary_delivery": "consequential",
+            "other_field": true
+          }
+        }
+      },
+      "record": {
+        "downstream": "status + response headers + full body (for SSE: complete byte stream until connection close)",
+        "upstream": "all requests the reference emitted, from mock upstream_log.jsonl (method, path, headers, body)"
+      },
+      "upstream_expect": [
+        "body has NO previous_response_id, truncation, user, temperature, top_p, max_output_tokens, service_tier, prompt_cache_retention, safety_identifier, generate",
+        "body.stream_options == {\"reasoning_summary_delivery\":\"consequential\"} (other_field dropped)",
+        "body.prompt_cache_key == \"sess-fix-123\"",
+        "header Session-Id == \"sess-fix-123\"",
+        "body.metadata == {\"trace\":\"t1\"}",
+        "body.store == false"
+      ],
+      "downstream_expect": [
+        "HTTP 200 SSE, happy stream forwarded"
+      ],
+      "mock_sse_script_exact_bytes": "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_mock_006\",\"object\":\"response\",\"created_at\":1742812800,\"status\":\"in_progress\",\"model\":\"mock-codex-upstream\",\"output\":[]}}\nevent: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":1,\"output_index\":0,\"item\":{\"id\":\"msg_mock_006\",\"type\":\"message\",\"status\":\"in_progress\",\"role\":\"assistant\",\"content\":[]}}\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"sequence_number\":2,\"item_id\":\"msg_mock_006\",\"output_index\":0,\"content_index\":0,\"delta\":\"Ok\"}\nevent: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"sequence_number\":3,\"output_index\":0,\"item\":{\"id\":\"msg_mock_006\",\"type\":\"message\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Ok\",\"annotations\":[]}]}}\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"sequence_number\":4,\"response\":{\"id\":\"resp_mock_006\",\"object\":\"response\",\"created_at\":1742812800,\"status\":\"completed\",\"model\":\"mock-codex-upstream\",\"output\":[],\"usage\":{\"input_tokens\":9,\"output_tokens\":2,\"total_tokens\":11}}}\n",
+      "upstream_call_count": "one"
+    },
+    {
+      "id": "S2d9-07",
+      "purpose": "Native Lite dialect (X-OpenAI-Internal-Codex-Responses-Lite: true): instructions preserved verbatim, parallel_tool_calls forced false, NO image_generation tool injected, Lite header forwarded upstream.",
+      "mock_mode": "happy",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json",
+          "X-OpenAI-Internal-Codex-Responses-Lite": "true"
+        },
+        "body": {
+          "model": "codex-mock",
+          "instructions": "Native instructions here.",
+          "input": "Hi",
+          "parallel_tool_calls": true,
+          "stream": true
+        }
+      },
+      "record": {
+        "downstream": "status + response headers + full body (for SSE: complete byte stream until connection close)",
+        "upstream": "all requests the reference emitted, from mock upstream_log.jsonl (method, path, headers, body)"
+      },
+      "upstream_expect": [
+        "body.instructions == \"Native instructions here.\"",
+        "body.parallel_tool_calls == false (client sent true)",
+        "body has NO tools key",
+        "header X-OpenAI-Internal-Codex-Responses-Lite == \"true\" forwarded",
+        "header Originator == codex-tui (cloaking), Session-Id == <uuid dynamic>"
+      ],
+      "downstream_expect": [
+        "HTTP 200 SSE, happy stream forwarded"
+      ],
+      "mock_sse_script_exact_bytes": "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_mock_007\",\"object\":\"response\",\"created_at\":1742812800,\"status\":\"in_progress\",\"model\":\"mock-codex-upstream\",\"output\":[]}}\nevent: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":1,\"output_index\":0,\"item\":{\"id\":\"msg_mock_007\",\"type\":\"message\",\"status\":\"in_progress\",\"role\":\"assistant\",\"content\":[]}}\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"sequence_number\":2,\"item_id\":\"msg_mock_007\",\"output_index\":0,\"content_index\":0,\"delta\":\"Lite\"}\nevent: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"sequence_number\":3,\"output_index\":0,\"item\":{\"id\":\"msg_mock_007\",\"type\":\"message\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Lite\",\"annotations\":[]}]}}\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"sequence_number\":4,\"response\":{\"id\":\"resp_mock_007\",\"object\":\"response\",\"created_at\":1742812800,\"status\":\"completed\",\"model\":\"mock-codex-upstream\",\"output\":[],\"usage\":{\"input_tokens\":6,\"output_tokens\":4,\"total_tokens\":10}}}\n",
+      "upstream_call_count": "one"
+    },
+    {
+      "id": "S2d9-08",
+      "purpose": "Upstream disconnect mid-stream (no terminal event): downstream HTTP stays 200, forwarded frames preserved, ONE synthesized terminal failure frame appended (plain client -> event: error), stream then closes. Exact synthesized payload bytes pinned by this fixture.",
+      "mock_mode": "disconnect-mid-stream",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "model": "codex-mock",
+          "input": "Hi",
+          "stream": true
+        }
+      },
+      "record": {
+        "downstream": "status + response headers + full body (for SSE: complete byte stream until connection close)",
+        "upstream": "all requests the reference emitted, from mock upstream_log.jsonl (method, path, headers, body)"
+      },
+      "upstream_expect": [
+        "POST /responses, forced fields as S2d9-01"
+      ],
+      "downstream_expect": [
+        "HTTP 200, Content-Type: text/event-stream (headers committed after first frame)",
+        "response.created, response.output_item.added, response.output_text.delta frames forwarded",
+        "stream ends with ONE synthesized failure frame: line 1 \"event: error\", line 2 data: {\"type\":\"error\",\"error\":{...},\"sequence_number\":N}; error detail type server_error or invalid_request_error per fixture; message references the disconnected stream (\"stream error: stream disconnected before completion: stream closed before response.completed\" expected from source; if fixture shows the recorded \"unexpected EOF\" variant, fixture wins and the section must be amended)",
+        "no response.completed frame, no trailing \\n after the error frame unless fixture shows otherwise"
+      ],
+      "mock_sse_script_exact_bytes": "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_mock_008\",\"object\":\"response\",\"created_at\":1742812800,\"status\":\"in_progress\",\"model\":\"mock-codex-upstream\",\"output\":[]}}\nevent: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":1,\"output_index\":0,\"item\":{\"id\":\"msg_mock_008\",\"type\":\"message\",\"status\":\"in_progress\",\"role\":\"assistant\",\"content\":[]}}\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"sequence_number\":2,\"item_id\":\"msg_mock_008\",\"output_index\":0,\"content_index\":0,\"delta\":\"partial answer\"}\nMOCK: wait 300ms after last frame, then close the socket without any terminal event",
+      "upstream_call_count": "one"
+    },
+    {
+      "id": "S2d9-15",
+      "purpose": "Compact happy path: POST /v1/responses/compact; stream field deleted upstream; model rewritten; NO store/include forcing, NO tool injection, NO previous_response_id deletion on this path; upstream Accept: application/json at /responses/compact; downstream body VERBATIM (usage-details defaulting skipped for object==response.compaction).",
+      "mock_mode": "happy",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses/compact",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "model": "codex-mock",
+          "instructions": "Compress the conversation history.",
+          "input": [
+            {
+              "type": "message",
+              "role": "user",
+              "content": [
+                {
+                  "type": "input_text",
+                  "text": "long conversation transcript"
+                }
+              ]
+            }
+          ],
+          "stream": false
+        }
+      },
+      "record": {
+        "downstream": "status + response headers + full body (for SSE: complete byte stream until connection close)",
+        "upstream": "all requests the reference emitted, from mock upstream_log.jsonl (method, path, headers, body)"
+      },
+      "upstream_expect": [
+        "POST {base-url}/responses/compact",
+        "Accept: application/json",
+        "body has NO stream field (client sent false)",
+        "body.model == \"mock-codex-upstream\"",
+        "body.instructions preserved; NO store key, NO include key, NO tools key"
+      ],
+      "downstream_expect": [
+        "HTTP 200, Content-Type: application/json",
+        "body byte-identical to the mock reply"
+      ],
+      "mock_compact_reply_exact_bytes": "{\"id\":\"resp_mock_compact_015\",\"object\":\"response.compaction\",\"status\":\"completed\",\"output\":[{\"type\":\"summary\",\"text\":\"Compressed.\"}]}",
+      "upstream_call_count": "one"
+    },
+    {
+      "id": "S2d9-16",
+      "purpose": "Compact with stream:true is rejected before any upstream call: 400 invalid_request_error; mock receives nothing (upstream.jsonl for this case is empty).",
+      "mock_mode": "none",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses/compact",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "model": "codex-mock",
+          "input": "x",
+          "stream": true
+        }
+      },
+      "record": {
+        "downstream": "status + response headers + full body (for SSE: complete byte stream until connection close)",
+        "upstream": "all requests the reference emitted, from mock upstream_log.jsonl (method, path, headers, body)"
+      },
+      "upstream_expect": [
+        "NO request reaches the mock"
+      ],
+      "downstream_expect": [
+        "HTTP 400, Content-Type: application/json",
+        "body == {\"error\":{\"message\":\"Streaming not supported for compact responses\",\"type\":\"invalid_request_error\"}}"
+      ],
+      "upstream_call_count": "zero"
+    },
+    {
+      "id": "S2d9-17",
+      "purpose": "Slow/split upstream writes: 300ms pacing, SSE comment line, data: without space, and one data payload split across two TCP writes mid-JSON: downstream bytes must be reassembled and re-framed identically to a fast clean stream (comment glued to the following frame, data: normalized to \"data: \").",
+      "mock_mode": "slow-chunks",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "model": "codex-mock",
+          "input": "Hi",
+          "stream": true
+        }
+      },
+      "record": {
+        "downstream": "status + response headers + full body (for SSE: complete byte stream until connection close)",
+        "upstream": "all requests the reference emitted, from mock upstream_log.jsonl (method, path, headers, body)"
+      },
+      "upstream_expect": [
+        "POST /responses"
+      ],
+      "downstream_expect": [
+        "HTTP 200 SSE",
+        "frames: response.created; then a frame containing \": keepalive\" glued with \\n before \"event: response.output_text.delta\" and its data line; data line normalized to \"data: {\\\"type\\\":\\\"response.output_text.delta\\\",...\\\"delta\\\":\\\"Slow\\\"}\"; then response.completed; final trailing \\n",
+        "byte stream equals what a clean single-write mock would produce for the same logical frames"
+      ],
+      "upstream_call_count": "one",
+      "notes": "Worker-1's attempt returned HTTP 408 (not 200) although the mock wrote the documented writes exactly. Investigate on a fresh container: (a) repeat as specified; (b) variant with all sleeps halved; (c) variant with a single 300ms pause and no comment/partial-line tricks. If a stall policy is confirmed, record it as reality and report the observed threshold/trigger — the section will spec it; if it was a mock artifact, re-record and keep the original expectation.",
+      "mock_sse_script_exact_bytes": {
+        "writes": [
+          {
+            "bytes": "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_mock_017\",\"object\":\"response\",\"created_at\":1742812800,\"status\":\"in_progress\",\"model\":\"mock-codex-upstream\",\"output\":[]}}\n\n",
+            "sleep_after_ms": 300
+          },
+          {
+            "bytes": ": keepalive\n\n",
+            "sleep_after_ms": 150
+          },
+          {
+            "bytes": "event: response.output_text.delta\n",
+            "sleep_after_ms": 150
+          },
+          {
+            "bytes": "data:{\"type\":\"response.output_text.delta\",\"sequen",
+            "sleep_after_ms": 150
+          },
+          {
+            "bytes": "ce_number\":1,\"item_id\":\"msg_mock_017\",\"output_index\":0,\"content_index\":0,\"delta\":\"Slow\"}\n\n",
+            "sleep_after_ms": 300
+          },
+          {
+            "bytes": "event: response.completed\ndata: {\"type\":\"response.completed\",\"sequence_number\":2,\"response\":{\"id\":\"resp_mock_017\",\"object\":\"response\",\"created_at\":1742812800,\"status\":\"completed\",\"model\":\"mock-codex-upstream\",\"output\":[{\"id\":\"msg_mock_017\",\"type\":\"message\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Slow\",\"annotations\":[]}]}],\"usage\":{\"input_tokens\":8,\"output_tokens\":1,\"total_tokens\":9}}}\n\n"
+          }
+        ]
+      }
+    },
+    {
+      "id": "S2d9-13",
+      "purpose": "In-stream terminal failure via the /backend-api/codex/responses alias route, plain curl client: error data frame is NOT forwarded; synthesized event: error frame appended after forwarded frames; upstream error detail object used verbatim; sequence_number taken from the upstream error payload.",
+      "mock_mode": "upstream-error",
+      "request": {
+        "method": "POST",
+        "path": "/backend-api/codex/responses",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "model": "codex-mock",
+          "input": "Hi",
+          "stream": true
+        }
+      },
+      "record": {
+        "downstream": "status + response headers + full body (for SSE: complete byte stream until connection close)",
+        "upstream": "all requests the reference emitted, from mock upstream_log.jsonl (method, path, headers, body)"
+      },
+      "upstream_expect": [
+        "POST /responses (alias route reaches the same upstream call)"
+      ],
+      "downstream_expect": [
+        "HTTP 200 SSE",
+        "response.created and response.output_text.delta frames forwarded",
+        "final frame: \"event: error\" + data {\"type\":\"error\",\"error\":{\"code\":\"server_error\",\"message\":\"upstream exploded\"},\"sequence_number\":2}",
+        "the upstream data:{\"type\":\"error\",...} frame itself is NOT present downstream"
+      ],
+      "mock_sse_script_exact_bytes": "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_mock_013\",\"object\":\"response\",\"created_at\":1742812800,\"status\":\"in_progress\",\"model\":\"mock-codex-upstream\",\"output\":[]}}\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"sequence_number\":1,\"item_id\":\"msg_mock_013\",\"output_index\":0,\"content_index\":0,\"delta\":\"partial\"}\ndata: {\"type\":\"error\",\"code\":\"server_error\",\"message\":\"upstream exploded\",\"sequence_number\":2}\n",
+      "upstream_call_count": "one"
+    },
+    {
+      "id": "S2d9-14",
+      "purpose": "In-stream terminal failure, Codex-flavored client (Originator: codex_cli_rs): synthesized terminal frame uses event: response.failed with response:{\"status\":\"failed\",\"error\":{...}} shape.",
+      "mock_mode": "upstream-error",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json",
+          "Originator": "codex_cli_rs"
+        },
+        "body": {
+          "model": "codex-mock",
+          "input": "Hi",
+          "stream": true
+        }
+      },
+      "record": {
+        "downstream": "status + response headers + full body (for SSE: complete byte stream until connection close)",
+        "upstream": "all requests the reference emitted, from mock upstream_log.jsonl (method, path, headers, body)"
+      },
+      "upstream_expect": [
+        "POST /responses"
+      ],
+      "downstream_expect": [
+        "HTTP 200 SSE",
+        "final frame: \"event: response.failed\" + data {\"type\":\"response.failed\",\"sequence_number\":2,\"response\":{\"status\":\"failed\",\"error\":{\"code\":\"server_error\",\"message\":\"upstream exploded\"}}}"
+      ],
+      "mock_sse_script_exact_bytes": "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_mock_014\",\"object\":\"response\",\"created_at\":1742812800,\"status\":\"in_progress\",\"model\":\"mock-codex-upstream\",\"output\":[]}}\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"sequence_number\":1,\"item_id\":\"msg_mock_014\",\"output_index\":0,\"content_index\":0,\"delta\":\"partial\"}\ndata: {\"type\":\"error\",\"code\":\"server_error\",\"message\":\"upstream exploded\",\"sequence_number\":2}\n",
+      "upstream_call_count": "one"
+    },
+    {
+      "id": "S2d9-10",
+      "purpose": "Upstream HTTP 404 with model_not_found body: status and body pass downstream VERBATIM (no rewrite), plain JSON response (not SSE).",
+      "mock_mode": "upstream-error",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "model": "codex-mock",
+          "input": "Hi",
+          "stream": true
+        }
+      },
+      "record": {
+        "downstream": "status + response headers + full body (for SSE: complete byte stream until connection close)",
+        "upstream": "all requests the reference emitted, from mock upstream_log.jsonl (method, path, headers, body)"
+      },
+      "upstream_expect": [
+        "POST /responses"
+      ],
+      "downstream_expect": [
+        "HTTP 404, Content-Type: application/json",
+        "body byte-identical to the mock error body"
+      ],
+      "mock_http_error": {
+        "status": 404,
+        "content_type": "application/json",
+        "body": "{\"error\":{\"message\":\"model not found: mock-codex-upstream\",\"type\":\"invalid_request_error\",\"code\":\"model_not_found\",\"param\":\"model\"}}"
+      },
+      "upstream_call_count": "one",
+      "notes": "After this case the credential is in a model_not_found cooldown that survives transient-error-cooldown-seconds:-1 and outlives 2s waits (recorded worker-1 finding). RESTART the reference container before S2d9-11."
+    },
+    {
+      "id": "S2d9-11",
+      "purpose": "Upstream HTTP 429 with usage_limit_reached body: status and body pass downstream VERBATIM; no Retry-After header asserted (open question). NOTE: this 429 puts the credential into a ~1s rate-limit cooldown that transient-error-cooldown-seconds:-1 does NOT disable; S2d9-12 must fire immediately after this case.",
+      "mock_mode": "upstream-error",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "model": "codex-mock",
+          "input": "Hi",
+          "stream": true
+        }
+      },
+      "record": {
+        "downstream": "status + response headers + full body (for SSE: complete byte stream until connection close)",
+        "upstream": "all requests the reference emitted, from mock upstream_log.jsonl (method, path, headers, body)"
+      },
+      "upstream_expect": [
+        "POST /responses"
+      ],
+      "downstream_expect": [
+        "HTTP 429, Content-Type: application/json",
+        "body byte-identical to the mock error body"
+      ],
+      "mock_http_error": {
+        "status": 429,
+        "content_type": "application/json",
+        "body": "{\"error\":{\"message\":\"You have exceeded your usage limit\",\"type\":\"usage_limit_reached\",\"code\":\"usage_limit_reached\",\"resets_in_seconds\":3600}}"
+      },
+      "upstream_call_count": "one",
+      "notes": "Fire on a FRESH reference container (restart after S2d9-10). S2d9-12 must follow <1s after this case completes."
+    },
+    {
+      "id": "S2d9-12",
+      "purpose": "Immediate repeat of the S2d9-11 request during the ~1s rate-limit cooldown: credential selection fails BEFORE any upstream call; downstream returns the model_cooldown selection error recorded by the oracle (shape: {\"error\":{\"code\":\"model_cooldown\",\"last_upstream_error\":\"<verbatim 429 body>\",\"message\":\"All credentials for model ... are cooling down via provider codex (last error: ...)\"}}); upstream.jsonl for this case is empty.",
+      "mock_mode": "upstream-error (sequenced)",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "model": "codex-mock",
+          "input": "Hi",
+          "stream": true
+        }
+      },
+      "record": {
+        "downstream": "status + response headers + full body (for SSE: complete byte stream until connection close)",
+        "upstream": "all requests the reference emitted, from mock upstream_log.jsonl (method, path, headers, body)"
+      },
+      "upstream_expect": [
+        "NO request reaches the mock (selection failed)"
+      ],
+      "downstream_expect": [
+        "HTTP status + body as recorded (expected code model_cooldown per recorded wire note 2026-09-16)",
+        "no upstream call logged by the mock for this case"
+      ],
+      "upstream_call_count": "zero",
+      "notes": "Fire <1s after S2d9-11 on the same fresh container. Worker-1's attempt was polluted by S2d9-10's cooldown (503 shape, 0 upstream calls) — re-record cleanly."
+    },
+    {
+      "id": "S2d9-09",
+      "purpose": "Upstream HTTP 401 with authentication_error body: downstream 401 with REWRITTEN classified body {\"error\":{\"message\":\"Invalid token\",\"type\":\"authentication_error\",\"code\":\"auth_unavailable\"}}; plain JSON (not SSE). Run LAST because a 401 may additionally mark the credential unauthorized (auth-status side effects are S4 scope; recording it last avoids poisoning other cases).",
+      "mock_mode": "upstream-error",
+      "request": {
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "model": "codex-mock",
+          "input": "Hi",
+          "stream": true
+        }
+      },
+      "record": {
+        "downstream": "status + response headers + full body (for SSE: complete byte stream until connection close)",
+        "upstream": "all requests the reference emitted, from mock upstream_log.jsonl (method, path, headers, body)"
+      },
+      "upstream_expect": [
+        "POST /responses"
+      ],
+      "downstream_expect": [
+        "HTTP 401, Content-Type: application/json",
+        "body == {\"error\":{\"message\":\"Invalid token\",\"type\":\"authentication_error\",\"code\":\"auth_unavailable\"}}"
+      ],
+      "mock_http_error": {
+        "status": 401,
+        "content_type": "application/json",
+        "body": "{\"error\":{\"message\":\"Invalid token\",\"type\":\"authentication_error\",\"code\":\"invalid_api_key\"}}"
+      },
+      "upstream_call_count": "one",
+      "notes": "Fire on a FRESH reference container (worker-1's attempt was polluted by S2d9-10's cooldown: 503, 0 upstream calls). Runs LAST."
+    }
+  ],
+  "port_substitution_note": "Ports are per-worker conventions and are MASKED DYNAMIC FIELDS in fixtures (listed in meta.yaml). Originally drafted for worker-1 (reference 18317, mock 19012). Recording assigned to worker-5: reference downstream port 8417, mock port 23001 (fallback: any of 23001-23007). If worker-5 must use a different port, substitute everywhere consistently and record it in meta.yaml dynamic_fields; no assertion in the section depends on the literal port number.",
+  "recorded_findings_worker1_run_2026_09_16": [
+    "S2d9-01..08, 15, 16, 13, 14, 10 matched the case expectations (13/14 terminal frames event:error vs event:response.failed as specified; 16 = 400 with zero upstream calls; 10 = 404 body verbatim).",
+    "Upstream 404 model_not_found (S2d9-10) puts the credential into a cooldown that SURVIVES transient-error-cooldown-seconds:-1 and lasts LONGER than 2s: with the originally specified >=2s waits, S2d9-11, S2d9-12 and S2d9-09 all returned HTTP 503 cooldown-family errors with ZERO upstream calls (polluted, not contract-pinning).",
+    "S2d9-17 (slow-chunks) returned HTTP 408 instead of 200-with-reassembled-bytes even though the mock wrote the documented writes exactly (chunked, with the documented sleeps). Unresolved whether this is a reference trickle/stall policy or an SSE-reader interaction; needs a fresh investigation run (see S2d9-17 notes)."
+  ]
+}

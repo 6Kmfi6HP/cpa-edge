@@ -1,0 +1,42 @@
+{
+  "case": "S7-13",
+  "title": "anthropic-auth-url-forwarder",
+  "feature": "local-callback-servers",
+  "recorded_at": "2026-09-15T16:57:22Z",
+  "recorder": "oracle-runner-3",
+  "version": {
+    "image": "eceasy/cli-proxy-api:v7.3.4",
+    "digest": "sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+    "commit": "8335eac731946bd4eff18f500653f93736df53d6",
+    "binary_self_report": "CLIProxyAPI Version: v7.3.4, Commit: 8335eac, BuiltAt: 2026-09-15T14:07:06Z"
+  },
+  "base_url": "http://127.0.0.1:8397",
+  "client_protocol": "HTTP/1.1 via curl against the reference binary directly",
+  "upstream_provider_type": "none",
+  "stream": false,
+  "config": "worker-3 pristine config on container publishing host 24545 -> container 54545 (forwarder port); reference port 8397",
+  "port_adaptation": "cases file defaults 18317->8397 (reference), 18999->20999 (openai mock), forwarder host publish 54545->24545 (container-internal 54545 unchanged)",
+  "dynamic_fields": [
+    "Date response header",
+    "X-Cpa-Trace-Id response header",
+    "port numbers (worker-3: reference 8397, openai mock 20999, forwarder host publish 24545)",
+    "state (32 hex)",
+    "PKCE code_challenge embedded in url",
+    "302 Location port (reference server port as the binary reports it)",
+    "forwarder bind/bind-stop log lines"
+  ],
+  "files": [
+    "downstream-1.md",
+    "downstream-2.md",
+    "downstream-3.md",
+    "downstream-4.md",
+    "request.http",
+    "upstream.jsonl",
+    "mock-response.json"
+  ],
+  "notes": [
+    "Demonstrate the localhost callback forwarder — the exact serverless-impossible feature: GET anthropic-auth-url?is_webui=1 returns 200 with a URL whose redirect is localhost:54545, binds 0.0.0.0:54545, and that listener answers 302 -> http://127.0.0.1:18317/anthropic/callback forwarding query params. Deterministic: the redirect is NOT followed, so no code is delivered and no external call happens.",
+    "redirect_uri in the returned url is http://localhost:54545/callback (container-internal); the probe reaches it via host publish 24545"
+  ],
+  "sequence": "4 steps in order; 302 never followed (offline-safe)"
+}

@@ -1,0 +1,10 @@
+POST /v1/responses HTTP/1.1
+Host: 127.0.0.1:18317
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-local-key-1
+Content-Type: application/json
+Content-Length: 582
+
+
+{"model": "codex-mock", "instructions": "You are a weather assistant.", "input": [{"type": "message", "role": "system", "content": [{"type": "input_text", "text": "Always answer briefly."}]}, {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "What is the weather in Paris?"}]}], "tools": [{"type": "function", "name": "get_weather", "description": "Get current weather for a city", "parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}}, {"type": "web_search_preview"}], "tool_choice": "auto", "store": true}

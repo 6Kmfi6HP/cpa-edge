@@ -1,0 +1,67 @@
+# Exact downstream request bytes, in order (step dividers)
+
+### step 1: GET http://127.0.0.1:8397/v0/management/logs (logs disabled: GET -> 400)
+GET /v0/management/logs HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+
+
+### step 2: DELETE http://127.0.0.1:8397/v0/management/logs (logs disabled: DELETE -> 400)
+DELETE /v0/management/logs HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+
+
+### step 3: PUT http://127.0.0.1:8397/v0/management/logs-max-total-size-mb (set logs-max-total-size-mb)
+PUT /v0/management/logs-max-total-size-mb HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Type: application/json
+Content-Length: 11
+
+
+{"value":5}
+
+### step 4: GET http://127.0.0.1:8397/v0/management/logs-max-total-size-mb (read back)
+GET /v0/management/logs-max-total-size-mb HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+
+
+### step 5: PUT http://127.0.0.1:8397/v0/management/error-logs-max-files (set error-logs-max-files)
+PUT /v0/management/error-logs-max-files HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Type: application/json
+Content-Length: 11
+
+
+{"value":3}
+
+### step 6: PUT http://127.0.0.1:8397/v0/management/logs-max-total-size-mb (restore to 0)
+PUT /v0/management/logs-max-total-size-mb HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+Content-Type: application/json
+Content-Length: 11
+
+
+{"value":0}

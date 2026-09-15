@@ -1,0 +1,40 @@
+# Exact downstream requests in order (state substituted from step 1)
+
+### step 1: 30 auth-url
+GET /v0/management/anthropic-auth-url?is_webui=1 HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+
+
+### step 2: 10 forwarder-302 (NOT followed)
+GET /callback?code=oracle-demo-code&state=91e54514e27e5f47e456b4360a566ad8 HTTP/1.1
+Host: 127.0.0.1:24545
+User-Agent: curl/8.7.1
+Accept: */*
+
+
+
+
+### step 3: 30 status still wait
+GET /v0/management/get-auth-status?state=91e54514e27e5f47e456b4360a566ad8 HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+
+
+### step 4: 30 cancel session
+DELETE /v0/management/oauth-session?state=91e54514e27e5f47e456b4360a566ad8 HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+

@@ -1,0 +1,45 @@
+# docker logs cpa-oracle-3 during this case (auxiliary evidence)
+```text
+[2026-09-16 00:50:42] [--------] [warn ] [gin_logger.go:101] 400 |          60ms |      172.17.0.1 | GET     "/v0/management/logs"
+[2026-09-16 00:50:43] [--------] [warn ] [gin_logger.go:101] 400 |          56ms |      172.17.0.1 | DELETE  "/v0/management/logs"
+[2026-09-16 00:50:43] [--------] [info ] [gin_logger.go:103] 200 |          58ms |      172.17.0.1 | PUT     "/v0/management/logs-max-total-size-mb"
+[2026-09-16 00:50:43] [--------] [info ] [config_reload.go:72] config file changed, reloading: /CLIProxyAPI/config.yaml
+[2026-09-16 00:50:43] [--------] [info ] [config_reload.go:128] config changes detected:
+[2026-09-16 00:50:43] [--------] [info ] [config_reload.go:130]   logs-max-total-size-mb: 0 -> 5
+[2026-09-16 00:50:43] [--------] [info ] [config_reload.go:130]   codex.live-media-relay.ice-servers: updated (0 -> 0 entries, credentials redacted)
+[2026-09-16 00:50:43] [--------] [info ] [config_reload.go:130]   payload.default: updated (0 -> 0 rules)
+[2026-09-16 00:50:43] [--------] [info ] [config_reload.go:130]   payload.default-raw: updated (0 -> 0 rules)
+[2026-09-16 00:50:43] [--------] [info ] [config_reload.go:130]   payload.override: updated (0 -> 0 rules)
+[2026-09-16 00:50:43] [--------] [info ] [config_reload.go:130]   payload.override-raw: updated (0 -> 0 rules)
+[2026-09-16 00:50:43] [--------] [info ] [config_reload.go:130]   payload.filter: updated (0 -> 0 rules)
+[2026-09-16 00:50:43] [--------] [info ] [config_reload.go:141] config successfully reloaded, triggering client reload
+server clients and configuration updated: 8 clients (0 auth entries + 1 Gemini API keys + 1 Interactions API keys + 1 Claude API keys + 1 Codex keys + 1 xAI keys + 1 Meta API keys + 1 Vertex-compat + 1 OpenAI-compat)
+[2026-09-16 00:50:43] [--------] [info ] [clients.go:152] full client load complete - 8 clients (0 auth files + 2 Gemini API keys + 1 Vertex API keys + 1 Claude API keys + 1 Codex keys + 1 xAI keys + 1 Meta API keys + 1 OpenAI-compat)
+[2026-09-16 00:50:43] [--------] [info ] [gin_logger.go:103] 200 |          78ms |      172.17.0.1 | GET     "/v0/management/logs-max-total-size-mb"
+[2026-09-16 00:50:43] [--------] [info ] [gin_logger.go:103] 200 |          59ms |      172.17.0.1 | PUT     "/v0/management/error-logs-max-files"
+[2026-09-16 00:50:43] [--------] [info ] [config_reload.go:72] config file changed, reloading: /CLIProxyAPI/config.yaml
+[2026-09-16 00:50:43] [--------] [info ] [config_reload.go:128] config changes detected:
+[2026-09-16 00:50:43] [--------] [info ] [config_reload.go:130]   error-logs-max-files: 10 -> 3
+[2026-09-16 00:50:43] [--------] [info ] [config_reload.go:130]   codex.live-media-relay.ice-servers: updated (0 -> 0 entries, credentials redacted)
+[2026-09-16 00:50:43] [--------] [info ] [config_reload.go:130]   payload.default: updated (0 -> 0 rules)
+[2026-09-16 00:50:43] [--------] [info ] [config_reload.go:130]   payload.default-raw: updated (0 -> 0 rules)
+[2026-09-16 00:50:43] [--------] [info ] [config_reload.go:130]   payload.override: updated (0 -> 0 rules)
+[2026-09-16 00:50:43] [--------] [info ] [config_reload.go:130]   payload.override-raw: updated (0 -> 0 rules)
+[2026-09-16 00:50:43] [--------] [info ] [config_reload.go:130]   payload.filter: updated (0 -> 0 rules)
+[2026-09-16 00:50:43] [--------] [info ] [config_reload.go:141] config successfully reloaded, triggering client reload
+server clients and configuration updated: 8 clients (0 auth entries + 1 Gemini API keys + 1 Interactions API keys + 1 Claude API keys + 1 Codex keys + 1 xAI keys + 1 Meta API keys + 1 Vertex-compat + 1 OpenAI-compat)
+[2026-09-16 00:50:43] [--------] [info ] [clients.go:152] full client load complete - 8 clients (0 auth files + 2 Gemini API keys + 1 Vertex API keys + 1 Claude API keys + 1 Codex keys + 1 xAI keys + 1 Meta API keys + 1 OpenAI-compat)
+[2026-09-16 00:50:43] [--------] [info ] [gin_logger.go:103] 200 |          57ms |      172.17.0.1 | PUT     "/v0/management/logs-max-total-size-mb"
+[2026-09-16 00:50:43] [--------] [info ] [config_reload.go:72] config file changed, reloading: /CLIProxyAPI/config.yaml
+[2026-09-16 00:50:43] [--------] [info ] [config_reload.go:128] config changes detected:
+[2026-09-16 00:50:43] [--------] [info ] [config_reload.go:130]   logs-max-total-size-mb: 5 -> 0
+[2026-09-16 00:50:43] [--------] [info ] [config_reload.go:130]   codex.live-media-relay.ice-servers: updated (0 -> 0 entries, credentials redacted)
+[2026-09-16 00:50:43] [--------] [info ] [config_reload.go:130]   payload.default: updated (0 -> 0 rules)
+[2026-09-16 00:50:43] [--------] [info ] [config_reload.go:130]   payload.default-raw: updated (0 -> 0 rules)
+[2026-09-16 00:50:43] [--------] [info ] [config_reload.go:130]   payload.override: updated (0 -> 0 rules)
+[2026-09-16 00:50:43] [--------] [info ] [config_reload.go:130]   payload.override-raw: updated (0 -> 0 rules)
+[2026-09-16 00:50:43] [--------] [info ] [config_reload.go:130]   payload.filter: updated (0 -> 0 rules)
+[2026-09-16 00:50:43] [--------] [info ] [config_reload.go:141] config successfully reloaded, triggering client reload
+server clients and configuration updated: 8 clients (0 auth entries + 1 Gemini API keys + 1 Interactions API keys + 1 Claude API keys + 1 Codex keys + 1 xAI keys + 1 Meta API keys + 1 Vertex-compat + 1 OpenAI-compat)
+[2026-09-16 00:50:43] [--------] [info ] [clients.go:152] full client load complete - 8 clients (0 auth files + 2 Gemini API keys + 1 Vertex API keys + 1 Claude API keys + 1 Codex keys + 1 xAI keys + 1 Meta API keys + 1 OpenAI-compat)
+```

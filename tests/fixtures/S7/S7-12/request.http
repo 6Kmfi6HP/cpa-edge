@@ -1,0 +1,108 @@
+# Exact downstream request bytes, in order (step dividers)
+
+### step 1: GET http://127.0.0.1:8397/v0/management/oauth-callback (no state param)
+GET /v0/management/oauth-callback HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+
+
+
+
+### step 2: GET http://127.0.0.1:8397/v0/management/oauth-callback?state=bad%2Fstate&code=c (state with path separator)
+GET /v0/management/oauth-callback?state=bad%2Fstate&code=c HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+
+
+
+
+### step 3: GET http://127.0.0.1:8397/v0/management/oauth-callback?state=zz (state without code/error)
+GET /v0/management/oauth-callback?state=zz HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+
+
+
+
+### step 4: GET http://127.0.0.1:8397/v0/management/oauth-callback?state=zz&code=c (unknown state)
+GET /v0/management/oauth-callback?state=zz&code=c HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+
+
+
+
+### step 5: POST http://127.0.0.1:8397/v0/management/oauth-callback (POST invalid body)
+POST /v0/management/oauth-callback HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Type: application/json
+Content-Length: 8
+
+
+not-json
+
+### step 6: POST http://127.0.0.1:8397/v0/management/oauth-callback (POST unknown state)
+POST /v0/management/oauth-callback HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Type: application/json
+Content-Length: 25
+
+
+{"state":"zz","code":"c"}
+
+### step 7: GET http://127.0.0.1:8397/v0/management/get-auth-status (get-auth-status WITH mgmt key)
+GET /v0/management/get-auth-status HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+
+
+### step 8: GET http://127.0.0.1:8397/v0/management/get-auth-status (get-auth-status WITHOUT mgmt key)
+GET /v0/management/get-auth-status HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+
+
+
+
+### step 9: GET http://127.0.0.1:8397/v0/management/get-auth-status?state=zz (get-auth-status unknown state)
+GET /v0/management/get-auth-status?state=zz HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+
+
+### step 10: DELETE http://127.0.0.1:8397/v0/management/oauth-session?state=zz (DELETE oauth-session unknown state)
+DELETE /v0/management/oauth-session?state=zz HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+
+
+### step 11: DELETE http://127.0.0.1:8397/v0/management/oauth-session (DELETE oauth-session missing state)
+DELETE /v0/management/oauth-session HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-mgmt-key-1
+
+
+

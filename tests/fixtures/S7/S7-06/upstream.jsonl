@@ -1,0 +1,2 @@
+{"ts": 1789491042.3250968, "type": "openai", "method": "GET", "path": "/v1/models", "headers": {"Host": "host.docker.internal:20999", "User-Agent": "Go-http-client/1.1", "Accept-Encoding": "gzip"}, "body": ""}
+{"ts": 1789491042.834424, "type": "openai", "method": "GET", "path": "/v1/models", "headers": {"Host": "host.docker.internal:20999", "User-Agent": "Go-http-client/1.1", "Accept-Encoding": "gzip"}, "body": ""}

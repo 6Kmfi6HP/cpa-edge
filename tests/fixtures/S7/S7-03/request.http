@@ -1,0 +1,21 @@
+# Exact downstream request bytes, in order (step dividers)
+
+### step 1: POST http://127.0.0.1:8397/v1/ws (POST wrong method -> R-404)
+POST /v1/ws HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-local-key-1
+
+
+
+
+### step 2: OPTIONS http://127.0.0.1:8397/v1/ws (OPTIONS auto-answered)
+OPTIONS /v1/ws HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Origin: http://localhost:3000
+
+
+

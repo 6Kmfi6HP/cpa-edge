@@ -1,0 +1,783 @@
+{
+  "step_id": "S2d2",
+  "title": "Gemini client -> OpenAI upstream (openai-compatibility provider)",
+  "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image eceasy/cli-proxy-api:v7.3.4",
+  "section": "spec/sections/S2d2-gem2oai.md",
+  "client_protocol": "gemini",
+  "gateway": {
+    "base_url": "http://127.0.0.1:18317",
+    "auth": "x-goog-api-key: <gateway-api-key> OR Authorization: Bearer <gateway-api-key>; concrete key: oracle-local-key-1 (config api-keys[0]); header value is a placeholder in this file, never a real secret"
+  },
+  "upstream": {
+    "provider_type": "openai-compatibility",
+    "config": "name \"mock-openai\", base-url http://host.docker.internal:18999/v1, api-key mock-upstream-key, model name mock-gpt-model, alias mock-model (already in run/config.yaml)",
+    "mock": "_cpa_edge_ref/mock/mock_openai.py on port 18999 (control: mock/control/openai.json)"
+  },
+  "target_fixture_dir": "tests/fixtures/S2d2/",
+  "mock_extension_request": {
+    "what": "mock_openai.py gains a 'scenario' control key (from mock/control/openai.json or X-Mock-Scenario header); scenarios are exact canned responses listed below; modes happy/error/slow/disconnect keep their current semantics ON TOP of the selected scenario; with no scenario set the CURRENT default behavior must remain byte-identical (old S2-mock recordings must stay reproducible).",
+    "scenarios": {
+      "s2d2-nonstream-text": {
+        "where": "non-stream /v1/chat/completions, HTTP 200",
+        "response_body": "{\"id\":\"chatcmpl-mock-0001\",\"object\":\"chat.completion\",\"created\":1770000000,\"model\":\"mock-gpt-model\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"Hello from mock openai upstream more\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":9,\"completion_tokens\":6,\"total_tokens\":15}}"
+      },
+      "s2d2-nonstream-toolcall": {
+        "where": "non-stream /v1/chat/completions, HTTP 200",
+        "response_body": "{\"id\":\"chatcmpl-mock-tool\",\"object\":\"chat.completion\",\"created\":1770000000,\"model\":\"mock-gpt-model\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"call_mock_tool_1\",\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"{\\\"city\\\":\\\"Paris\\\",\\\"unit\\\":\\\"celsius\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":21,\"completion_tokens\":7,\"total_tokens\":28}}"
+      },
+      "s2d2-nonstream-reasoning": {
+        "where": "non-stream /v1/chat/completions, HTTP 200",
+        "response_body": "{\"id\":\"chatcmpl-mock-reason\",\"object\":\"chat.completion\",\"created\":1770000000,\"model\":\"mock-gpt-model\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"Final answer text\",\"reasoning_content\":\"Working through it\"},\"finish_reason\":\"length\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15,\"completion_tokens_details\":{\"reasoning_tokens\":4}}}"
+      },
+      "s2d2-stream-full": {
+        "where": "stream /v1/chat/completions, SSE frames in order",
+        "sse_frames": [
+          "data: {\"id\":\"chatcmpl-mock-s1\",\"object\":\"chat.completion.chunk\",\"created\":1770000000,\"model\":\"mock-gpt-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\n",
+          "data: {\"id\":\"chatcmpl-mock-s1\",\"object\":\"chat.completion.chunk\",\"created\":1770000000,\"model\":\"mock-gpt-model\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hello\"},\"finish_reason\":null}]}\n\n",
+          "data: {\"id\":\"chatcmpl-mock-s1\",\"object\":\"chat.completion.chunk\",\"created\":1770000000,\"model\":\"mock-gpt-model\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" world\"},\"finish_reason\":null}]}\n\n",
+          "data: {\"id\":\"chatcmpl-mock-s1\",\"object\":\"chat.completion.chunk\",\"created\":1770000000,\"model\":\"mock-gpt-model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+          "data: {\"id\":\"chatcmpl-mock-s1\",\"object\":\"chat.completion.chunk\",\"created\":1770000000,\"model\":\"mock-gpt-model\",\"choices\":[],\"usage\":{\"prompt_tokens\":8,\"completion_tokens\":2,\"total_tokens\":10}}\n\n",
+          "data: [DONE]\n\n"
+        ]
+      },
+      "s2d2-stream-toolcall": {
+        "where": "stream /v1/chat/completions, SSE frames in order",
+        "sse_frames": [
+          "data: {\"id\":\"chatcmpl-mock-s1\",\"object\":\"chat.completion.chunk\",\"created\":1770000000,\"model\":\"mock-gpt-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\n",
+          "data: {\"id\":\"chatcmpl-mock-s1\",\"object\":\"chat.completion.chunk\",\"created\":1770000000,\"model\":\"mock-gpt-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_mock_stream_1\",\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"\"}}]},\"finish_reason\":null}]}\n\n",
+          "data: {\"id\":\"chatcmpl-mock-s1\",\"object\":\"chat.completion.chunk\",\"created\":1770000000,\"model\":\"mock-gpt-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"ci\"}}]},\"finish_reason\":null}]}\n\n",
+          "data: {\"id\":\"chatcmpl-mock-s1\",\"object\":\"chat.completion.chunk\",\"created\":1770000000,\"model\":\"mock-gpt-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"ty\\\":\\\"Paris\\\"}\"}}]},\"finish_reason\":null}]}\n\n",
+          "data: {\"id\":\"chatcmpl-mock-s1\",\"object\":\"chat.completion.chunk\",\"created\":1770000000,\"model\":\"mock-gpt-model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n",
+          "data: [DONE]\n\n"
+        ]
+      },
+      "s2d2-stream-reasoning": {
+        "where": "stream /v1/chat/completions, SSE frames in order",
+        "sse_frames": [
+          "data: {\"id\":\"chatcmpl-mock-s1\",\"object\":\"chat.completion.chunk\",\"created\":1770000000,\"model\":\"mock-gpt-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\n",
+          "data: {\"id\":\"chatcmpl-mock-s1\",\"object\":\"chat.completion.chunk\",\"created\":1770000000,\"model\":\"mock-gpt-model\",\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"Let me think\"},\"finish_reason\":null}]}\n\n",
+          "data: {\"id\":\"chatcmpl-mock-s1\",\"object\":\"chat.completion.chunk\",\"created\":1770000000,\"model\":\"mock-gpt-model\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Answer\"},\"finish_reason\":null}]}\n\n",
+          "data: {\"id\":\"chatcmpl-mock-s1\",\"object\":\"chat.completion.chunk\",\"created\":1770000000,\"model\":\"mock-gpt-model\",\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\" more\"},\"finish_reason\":null}]}\n\n",
+          "data: {\"id\":\"chatcmpl-mock-s1\",\"object\":\"chat.completion.chunk\",\"created\":1770000000,\"model\":\"mock-gpt-model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+          "data: [DONE]\n\n"
+        ]
+      },
+      "s2d2-stream-midstream-error": {
+        "where": "stream /v1/chat/completions, SSE frames in order",
+        "sse_frames": [
+          "data: {\"id\":\"chatcmpl-mock-s1\",\"object\":\"chat.completion.chunk\",\"created\":1770000000,\"model\":\"mock-gpt-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\n",
+          "data: {\"id\":\"chatcmpl-mock-s1\",\"object\":\"chat.completion.chunk\",\"created\":1770000000,\"model\":\"mock-gpt-model\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Partial\"},\"finish_reason\":null}]}\n\n",
+          "data: {\"error\":{\"message\":\"mock midstream failure\",\"type\":\"server_error\",\"code\":\"internal_server_error\",\"status\":502}}\n\n",
+          "data: [DONE]\n\n"
+        ]
+      }
+    },
+    "note": "All scenario bodies/frames are byte-exact; send them verbatim (json.dumps compact, no spaces)."
+  },
+  "recording_contract": {
+    "per_case": "tests/fixtures/S2d2/<case-id>/{meta.yaml,request.http,downstream.md,upstream.jsonl,mock-response.json}; multi-request cases: label each request (R1..Rn) in request.http and each response in downstream.md in order (or use per-request suffixed files and note the layout in meta.yaml)",
+    "record_always": [
+      "downstream status + full response headers + exact body bytes (or full SSE byte stream incl. framing newlines)",
+      "upstream-side received request(s): method, path, headers (secrets redacted), exact body bytes (from mock logs/openai.jsonl, delimited per case)",
+      "the scripted mock reply that drove the case (mock-response.json)"
+    ],
+    "dynamic_fields_default": [
+      "Date",
+      "X-Cpa-Trace-Id"
+    ]
+  },
+  "ordering_constraints": [
+    "Run order recommendation: cases 1-13, 16 (happy/slow/disconnect), then 14-15 (error/cooldown) LAST.",
+    "Cases 14 and 15 leave the mock-model credential in rate-limit cooldown for ~1s: after them, wait >= 1s (or restart) before any other mock-model case.",
+    "Case 15 request B MUST fire immediately (< 1s) after its request A to catch the cooldown window.",
+    "Snap the mock wire log (or note offsets) per case so upstream.jsonl attribution is unambiguous."
+  ],
+  "cases": [
+    {
+      "id": "gem2oai-basic-params",
+      "purpose": "generationConfig mapping table; systemInstruction -> system message with array content; user text -> string content; upstream wire contract (headers, alias rewrite, stream:false, NO stream_options); non-stream response envelope + usageMetadata; client headers are NOT forwarded upstream",
+      "mock": {
+        "mode": "happy",
+        "scenario": "s2d2-nonstream-text"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:generateContent",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>",
+            "X-Client-Marker": "s2d2-case1",
+            "User-Agent": "s2d2-test/1.0"
+          },
+          "body": "{\"systemInstruction\":{\"parts\":[{\"text\":\"Be terse.\"}]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}],\"generationConfig\":{\"temperature\":0.5,\"maxOutputTokens\":128,\"topP\":0.9,\"topK\":4,\"stopSequences\":[\"END\"],\"candidateCount\":1,\"responseModalities\":[\"TEXT\"],\"thinkingConfig\":{\"thinkingLevel\":\"high\"}},\"service_tier\":\"flex\""
+        }
+      ],
+      "record": "downstream 200 + body; upstream request line for this case (headers + body)",
+      "expected": {
+        "upstream_body": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"system\",\"content\":[{\"type\":\"text\",\"text\":\"Be terse.\"}]},{\"role\":\"user\",\"content\":\"Say hello\"}],\"temperature\":0.5,\"max_tokens\":128,\"top_p\":0.9,\"top_k\":4,\"stop\":[\"END\"],\"n\":1,\"modalities\":[\"text\"],\"reasoning_effort\":\"high\",\"stream\":false,\"service_tier\":\"flex\"}",
+        "upstream_headers_must_not_include": [
+          "X-Client-Marker",
+          "s2d2-test/1.0"
+        ],
+        "downstream_body": "{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Hello from mock openai upstream more\"}],\"role\":\"model\"},\"index\":0,\"finishReason\":\"STOP\"}],\"model\":\"mock-gpt-model\",\"usageMetadata\":{\"promptTokenCount\":9,\"candidatesTokenCount\":6,\"totalTokenCount\":15}}"
+      }
+    },
+    {
+      "id": "gem2oai-system-snake-multimodal",
+      "purpose": "system_instruction snake_case alias; system inlineData image -> image_url data: URL; user thought part dropped; user inline audio -> input_audio part; mixed turn -> content as array",
+      "mock": {
+        "mode": "happy",
+        "scenario": "s2d2-nonstream-text"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:generateContent",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"system_instruction\":{\"parts\":[{\"text\":\"Describe inputs.\"},{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"aGk=\"}}]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"thought\":true,\"text\":\"hidden\"},{\"text\":\"What is in these files?\"},{\"inlineData\":{\"mimeType\":\"audio/wav\",\"data\":\"UklGRg==\"}}]}]}"
+        }
+      ],
+      "record": "downstream 200 + body; upstream request",
+      "expected": {
+        "upstream_body": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"system\",\"content\":[{\"type\":\"text\",\"text\":\"Describe inputs.\"},{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,aGk=\"}}]},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"What is in these files?\"},{\"type\":\"input_audio\",\"input_audio\":{\"data\":\"UklGRg==\",\"format\":\"wav\"}}]}],\"stream\":false}",
+        "downstream_body": "{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Hello from mock openai upstream more\"}],\"role\":\"model\"},\"index\":0,\"finishReason\":\"STOP\"}],\"model\":\"mock-gpt-model\",\"usageMetadata\":{\"promptTokenCount\":9,\"candidatesTokenCount\":6,\"totalTokenCount\":15}}"
+      }
+    },
+    {
+      "id": "gem2oai-tools-toolconfig",
+      "purpose": "tools[].functionDeclarations -> OpenAI tools (parameters and parametersJsonSchema fallback; description always present); tool_choice mapping: ANY-single -> named function, NONE -> none, AUTO -> auto, ANY-multi -> required",
+      "mock": {
+        "mode": "happy",
+        "scenario": "s2d2-nonstream-text"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:generateContent",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Use tools.\"}]}],\"tools\":[{\"functionDeclarations\":[{\"name\":\"get_weather\",\"description\":\"Get weather\",\"parameters\":{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\"}},\"required\":[\"city\"]}},{\"name\":\"no_params\",\"parametersJsonSchema\":{\"type\":\"object\"}}]}],\"toolConfig\":{\"functionCallingConfig\":{\"mode\":\"ANY\",\"allowedFunctionNames\":[\"get_weather\"]}}}",
+          "note": "R1: ANY single allowed name"
+        },
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:generateContent",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Use tools.\"}]}],\"tools\":[{\"functionDeclarations\":[{\"name\":\"get_weather\",\"description\":\"Get weather\",\"parameters\":{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\"}},\"required\":[\"city\"]}},{\"name\":\"no_params\",\"parametersJsonSchema\":{\"type\":\"object\"}}]}],\"toolConfig\":{\"functionCallingConfig\":{\"mode\":\"NONE\"}}}",
+          "note": "R2: NONE"
+        },
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:generateContent",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Use tools.\"}]}],\"tools\":[{\"functionDeclarations\":[{\"name\":\"get_weather\",\"description\":\"Get weather\",\"parameters\":{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\"}},\"required\":[\"city\"]}},{\"name\":\"no_params\",\"parametersJsonSchema\":{\"type\":\"object\"}}]}],\"toolConfig\":{\"functionCallingConfig\":{\"mode\":\"AUTO\"}}}",
+          "note": "R3: AUTO"
+        },
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:generateContent",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Use tools.\"}]}],\"tools\":[{\"functionDeclarations\":[{\"name\":\"get_weather\",\"description\":\"Get weather\",\"parameters\":{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\"}},\"required\":[\"city\"]}},{\"name\":\"no_params\",\"parametersJsonSchema\":{\"type\":\"object\"}}]}],\"toolConfig\":{\"functionCallingConfig\":{\"mode\":\"ANY\",\"allowedFunctionNames\":[\"get_weather\",\"no_params\"]}}}",
+          "note": "R4: ANY with 2 allowed names"
+        }
+      ],
+      "record": "downstream 200 body each; upstream request body each",
+      "expected": {
+        "upstream_tools": "[{\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"description\":\"Get weather\",\"parameters\":{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\"}},\"required\":[\"city\"]}}},{\"type\":\"function\",\"function\":{\"name\":\"no_params\",\"description\":\"\",\"parameters\":{\"type\":\"object\"}}}]",
+        "upstream_tool_choice_R1": "{\"type\":\"function\",\"function\":{\"name\":\"get_weather\"}}",
+        "upstream_tool_choice_R2": "\"none\"",
+        "upstream_tool_choice_R3": "\"auto\"",
+        "upstream_tool_choice_R4": "\"required\""
+      }
+    },
+    {
+      "id": "gem2oai-tool-roundtrip-request",
+      "purpose": "model functionCall parts -> assistant tool_calls with deterministic sha256 ids; function functionResponse parts -> separate tool messages with FIFO id matching; tool message content is the JSON-stringified response.content; the function-role turn ALSO emits an empty {role:function,content:\"\"} message (quirk)",
+      "mock": {
+        "mode": "happy",
+        "scenario": "s2d2-nonstream-text"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:generateContent",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Read a.txt and grep for needle\"}]},{\"role\":\"model\",\"parts\":[{\"functionCall\":{\"name\":\"read_file\",\"args\":{\"path\":\"a.txt\"}}},{\"functionCall\":{\"name\":\"grep\",\"args\":{\"pattern\":\"needle\"}}}]},{\"role\":\"function\",\"parts\":[{\"functionResponse\":{\"name\":\"read_file\",\"response\":{\"result\":\"a\"}}},{\"functionResponse\":{\"name\":\"grep\",\"response\":{\"result\":\"b\"}}}]}]}"
+        }
+      ],
+      "record": "upstream request body (primary); downstream 200 body",
+      "expected": {
+        "upstream_body": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"user\",\"content\":\"Read a.txt and grep for needle\"},{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"call_afc3091cba33b0e168fe2b6d\",\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"arguments\":\"{\\\"path\\\":\\\"a.txt\\\"}\"}},{\"id\":\"call_e161c311bf2b29d6a375147f\",\"type\":\"function\",\"function\":{\"name\":\"grep\",\"arguments\":\"{\\\"pattern\\\":\\\"needle\\\"}\"}}]},{\"role\":\"tool\",\"tool_call_id\":\"call_afc3091cba33b0e168fe2b6d\",\"content\":\"{\\\"result\\\":\\\"a\\\"}\"},{\"role\":\"tool\",\"tool_call_id\":\"call_e161c311bf2b29d6a375147f\",\"content\":\"{\\\"result\\\":\\\"b\\\"}\"},{\"role\":\"function\",\"content\":\"\"}],\"stream\":false}",
+        "note": "ids = call_ + sha256('call|1|0|read_file|{raw args bytes}') and ('call|1|1|grep|...') first 12 bytes hex; args raw bytes are exactly as the client sent them, so send the request body verbatim"
+      }
+    },
+    {
+      "id": "gem2oai-thinking-config",
+      "purpose": "generationConfig.thinkingConfig.thinkingLevel -> reasoning_effort; thinkingBudget -> level via thresholds (2048 -> medium); auto level passthrough",
+      "mock": {
+        "mode": "happy",
+        "scenario": "s2d2-nonstream-text"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:generateContent",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Think hard.\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"thinkingLevel\":\"high\"}}}",
+          "note": "R1: level high"
+        },
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:generateContent",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Think a bit.\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"thinkingBudget\":2048}}}",
+          "note": "R2: budget 2048"
+        },
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:generateContent",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Decide yourself.\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"thinkingLevel\":\"auto\"}}}",
+          "note": "R3: level auto"
+        }
+      ],
+      "record": "upstream request body each",
+      "expected": {
+        "upstream_reasoning_effort_R1": "\"reasoning_effort\":\"high\"",
+        "upstream_reasoning_effort_R2": "\"reasoning_effort\":\"medium\"",
+        "upstream_reasoning_effort_R3": "\"reasoning_effort\":\"auto\"",
+        "note": "R3 is a passthrough expectation; the recording is authoritative (if the thinking applier rewrites or drops it, report the divergence - section will be updated)"
+      }
+    },
+    {
+      "id": "gem2oai-role-mapping",
+      "purpose": "role 'model' -> 'assistant'; consecutive text parts concatenate to one string; non-model roles pass through verbatim",
+      "mock": {
+        "mode": "happy",
+        "scenario": "s2d2-nonstream-text"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:generateContent",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"model\",\"parts\":[{\"text\":\"Hi\"}]},{\"role\":\"user\",\"parts\":[{\"text\":\"a\"},{\"text\":\"b\"}]},{\"role\":\"function\",\"parts\":[{\"text\":\"r\"}]}]}"
+        }
+      ],
+      "record": "upstream request body (primary); downstream 200 body",
+      "expected": {
+        "upstream_body": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"assistant\",\"content\":\"Hi\"},{\"role\":\"user\",\"content\":\"ab\"},{\"role\":\"function\",\"content\":\"r\"}],\"stream\":false}"
+      }
+    },
+    {
+      "id": "gem2oai-resp-nonstream-toolcall",
+      "purpose": "non-stream upstream tool_calls -> functionCall part with id preserved, args parsed to object; finish_reason tool_calls -> finishReason STOP",
+      "mock": {
+        "mode": "happy",
+        "scenario": "s2d2-nonstream-toolcall"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:generateContent",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"What is the weather in Paris?\"}]}]}"
+        }
+      ],
+      "record": "downstream 200 + body",
+      "expected": {
+        "downstream_body": "{\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"id\":\"call_mock_tool_1\",\"name\":\"get_weather\",\"args\":{\"city\":\"Paris\",\"unit\":\"celsius\"}}}],\"role\":\"model\"},\"index\":0,\"finishReason\":\"STOP\"}],\"model\":\"mock-gpt-model\",\"usageMetadata\":{\"promptTokenCount\":21,\"candidatesTokenCount\":7,\"totalTokenCount\":28}}"
+      }
+    },
+    {
+      "id": "gem2oai-resp-nonstream-reasoning",
+      "purpose": "non-stream reasoning_content -> {thought:true,text} part FIRST; content text part second; finish_reason length -> MAX_TOKENS; reasoning_tokens -> thoughtsTokenCount",
+      "mock": {
+        "mode": "happy",
+        "scenario": "s2d2-nonstream-reasoning"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:generateContent",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Solve it.\"}]}]}"
+        }
+      ],
+      "record": "downstream 200 + body",
+      "expected": {
+        "downstream_body": "{\"candidates\":[{\"content\":{\"parts\":[{\"thought\":true,\"text\":\"Working through it\"},{\"text\":\"Final answer text\"}],\"role\":\"model\"},\"index\":0,\"finishReason\":\"MAX_TOKENS\"}],\"model\":\"mock-gpt-model\",\"usageMetadata\":{\"promptTokenCount\":10,\"candidatesTokenCount\":5,\"totalTokenCount\":15,\"thoughtsTokenCount\":4}}"
+      }
+    },
+    {
+      "id": "gem2oai-stream-text-full",
+      "purpose": "stream: role chunk dropped; one frame per content delta; finish frame; usage-only frame (candidates:[] + usageMetadata + model AFTER usageMetadata); [DONE] swallowed; no [DONE] downstream; SSE response headers; alt=sse mapping",
+      "mock": {
+        "mode": "happy",
+        "scenario": "s2d2-stream-full"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:streamGenerateContent?alt=sse",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}"
+        }
+      ],
+      "record": "downstream full SSE byte stream incl. headers and framing newlines",
+      "expected_downstream_frames": [
+        "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Hello\"}],\"role\":\"model\"},\"index\":0}],\"model\":\"mock-gpt-model\"}\n\n",
+        "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\" world\"}],\"role\":\"model\"},\"index\":0}],\"model\":\"mock-gpt-model\"}\n\n",
+        "data: {\"candidates\":[{\"content\":{\"parts\":[],\"role\":\"model\"},\"index\":0,\"finishReason\":\"STOP\"}],\"model\":\"mock-gpt-model\"}\n\n",
+        "data: {\"candidates\":[],\"usageMetadata\":{\"promptTokenCount\":8,\"candidatesTokenCount\":2,\"totalTokenCount\":10},\"model\":\"mock-gpt-model\"}\n\n"
+      ],
+      "expected_headers": [
+        "Content-Type: text/event-stream",
+        "Cache-Control: no-cache",
+        "Connection: keep-alive",
+        "Access-Control-Allow-Origin: *"
+      ]
+    },
+    {
+      "id": "gem2oai-stream-toolcall",
+      "purpose": "stream: tool_call deltas produce NO frames; arguments reassembled across deltas; single flush on the finish frame with functionCall part (id preserved) and finishReason STOP",
+      "mock": {
+        "mode": "happy",
+        "scenario": "s2d2-stream-toolcall"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:streamGenerateContent?alt=sse",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Call get_weather for Paris.\"}]}],\"tools\":[{\"functionDeclarations\":[{\"name\":\"get_weather\"}]}]}"
+        }
+      ],
+      "record": "downstream full SSE byte stream",
+      "expected_downstream_frames": [
+        "data: {\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"id\":\"call_mock_stream_1\",\"name\":\"get_weather\",\"args\":{\"city\":\"Paris\"}}}],\"role\":\"model\"},\"index\":0,\"finishReason\":\"STOP\"}],\"model\":\"mock-gpt-model\"}\n\n"
+      ]
+    },
+    {
+      "id": "gem2oai-stream-reasoning",
+      "purpose": "stream: reasoning_content deltas -> {thought:true,text} frames, interleaved with text frames in upstream arrival order",
+      "mock": {
+        "mode": "happy",
+        "scenario": "s2d2-stream-reasoning"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:streamGenerateContent?alt=sse",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Answer with reasoning.\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"thinkingLevel\":\"high\"}}}"
+        }
+      ],
+      "record": "downstream full SSE byte stream",
+      "expected_downstream_frames": [
+        "data: {\"candidates\":[{\"content\":{\"parts\":[{\"thought\":true,\"text\":\"Let me think\"}],\"role\":\"model\"},\"index\":0}],\"model\":\"mock-gpt-model\"}\n\n",
+        "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Answer\"}],\"role\":\"model\"},\"index\":0}],\"model\":\"mock-gpt-model\"}\n\n",
+        "data: {\"candidates\":[{\"content\":{\"parts\":[{\"thought\":true,\"text\":\" more\"}],\"role\":\"model\"},\"index\":0}],\"model\":\"mock-gpt-model\"}\n\n",
+        "data: {\"candidates\":[{\"content\":{\"parts\":[],\"role\":\"model\"},\"index\":0,\"finishReason\":\"STOP\"}],\"model\":\"mock-gpt-model\"}\n\n"
+      ]
+    },
+    {
+      "id": "gem2oai-stream-slow",
+      "purpose": "slow chunks: each translated frame is flushed separately (frame count/order identical to case 9; inter-arrival between frames >= mock delay; ~2 gaps of >=300ms)",
+      "mock": {
+        "mode": "slow",
+        "scenario": "s2d2-stream-full",
+        "delay_ms": 300
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:streamGenerateContent?alt=sse",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}"
+        }
+      ],
+      "record": "downstream full SSE byte stream + per-frame arrival timestamps (curl -N timestamps or verbose log)",
+      "expected": "same 4 frames as gem2oai-stream-text-full, same order; only timing differs"
+    },
+    {
+      "id": "gem2oai-stream-disconnect",
+      "purpose": "mid-stream hard close: already-flushed frames preserved; stream terminates with an event: error frame carrying the OpenAI-shaped error object; HTTP stays 200 (no status change)",
+      "mock": {
+        "mode": "disconnect",
+        "scenario": "s2d2-stream-full",
+        "after": 2
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:streamGenerateContent?alt=sse",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}"
+        }
+      ],
+      "record": "downstream status (200) + full SSE byte stream",
+      "expected_downstream_frames": [
+        "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Hello\"}],\"role\":\"model\"},\"index\":0}],\"model\":\"mock-gpt-model\"}\n\n",
+        "event: error\ndata: {\"error\":{\"message\":\"unexpected EOF\",\"type\":\"server_error\",\"code\":\"internal_server_error\"}}\n\n"
+      ]
+    },
+    {
+      "id": "gem2oai-error-in-stream-payload",
+      "purpose": "upstream error object delivered inside a data frame -> terminal in-stream error; payload passed VERBATIM as the error body; HTTP stays 200",
+      "mock": {
+        "mode": "happy",
+        "scenario": "s2d2-stream-midstream-error"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:streamGenerateContent?alt=sse",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Anything.\"}]}]}"
+        }
+      ],
+      "record": "downstream status (200) + full SSE byte stream",
+      "expected_downstream_frames": [
+        "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Partial\"}],\"role\":\"model\"},\"index\":0}],\"model\":\"mock-gpt-model\"}\n\n",
+        "event: error\ndata: {\"error\":{\"message\":\"mock midstream failure\",\"type\":\"server_error\",\"code\":\"internal_server_error\",\"status\":502}}\n\n"
+      ]
+    },
+    {
+      "id": "gem2oai-error-429",
+      "purpose": "upstream 429 body+status pass downstream VERBATIM; for the stream variant the failure arrives BEFORE the first chunk so NO SSE headers are sent; both carry the upstream error body byte-for-byte",
+      "mock": {
+        "mode": "error",
+        "status": 429,
+        "error_body": "{\"error\":{\"message\":\"mock rate limit\",\"type\":\"rate_limit_exceeded\",\"code\":\"rate_limit_exceeded\"}}"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:generateContent",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}",
+          "note": "R1: non-stream"
+        },
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:streamGenerateContent?alt=sse",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}",
+          "note": "R2: stream"
+        }
+      ],
+      "record": "downstream status + headers + body for both requests; upstream requests",
+      "expected": {
+        "downstream_status": 429,
+        "downstream_body": "{\"error\":{\"message\":\"mock rate limit\",\"type\":\"rate_limit_exceeded\",\"code\":\"rate_limit_exceeded\"}}",
+        "R2_note": "response is plain JSON (Content-Type: application/json), no text/event-stream header"
+      }
+    },
+    {
+      "id": "gem2oai-cooldown-after-429",
+      "purpose": "immediately after a 429 the model credential enters a ~1s rate-limit cooldown; the next request gets HTTP 500 + model_cooldown body (alphabetical keys, provider openai-compatible-mock-openai); NOT disabled by transient-error-cooldown-seconds: -1",
+      "mock": {
+        "mode": "error",
+        "status": 429,
+        "error_body": "{\"error\":{\"message\":\"mock rate limit\",\"type\":\"rate_limit_exceeded\",\"code\":\"rate_limit_exceeded\"}}"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:streamGenerateContent?alt=sse",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}",
+          "note": "R1: triggers 429 (fire first)"
+        },
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:generateContent",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}",
+          "note": "R2: fire IMMEDIATELY (< 1s) after R1 completes; expect the cooldown error"
+        }
+      ],
+      "record": "downstream status + headers + body for R2 (and R1 for completeness)",
+      "expected": {
+        "downstream_status_R2": 500,
+        "downstream_body_R2": "{\"error\":{\"code\":\"model_cooldown\",\"last_upstream_error\":\"rate_limit_exceeded: mock rate limit\",\"message\":\"All credentials for model mock-model are cooling down via provider openai-compatible-mock-openai (last error: rate_limit_exceeded: mock rate limit)\",\"model\":\"mock-model\",\"provider\":\"openai-compatible-mock-openai\",\"reset_seconds\":1,\"reset_time\":\"1s\"}}",
+        "tolerance": "reset_seconds/reset_time may record 0/0s if R2 slipped past the window - if R2 instead returns 200, the case must be re-run with a tighter gap; record actual values"
+      }
+    },
+    {
+      "id": "gem2oai-model-resolution-errors",
+      "purpose": "unknown alias -> 400 model_not_found; models/-prefixed POST path does NOT resolve (400); unknown :method -> 200 EMPTY body; action without a colon -> 404 JSON not-found",
+      "mock": {
+        "mode": "happy",
+        "scenario": "none - gateway-local, upstream never called (assert: no new upstream log lines for this case)"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/nonexistent-model:generateContent",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}]}",
+          "note": "R1: unknown alias"
+        },
+        {
+          "method": "POST",
+          "path": "/v1beta/models/models/mock-model:generateContent",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}]}",
+          "note": "R2: models/-prefixed path"
+        },
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:bogusMethod",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}]}",
+          "note": "R3: unknown method"
+        },
+        {
+          "method": "POST",
+          "path": "/v1beta/models/justname",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}]}",
+          "note": "R4: no colon in action"
+        }
+      ],
+      "record": "downstream status + headers + body for all four; note the exact (empty) bodies",
+      "expected": {
+        "R1": {
+          "status": 400,
+          "body": "{\"error\":{\"message\":\"unknown provider for model nonexistent-model\",\"type\":\"invalid_request_error\",\"code\":\"model_not_found\",\"param\":\"model\"}}"
+        },
+        "R2": {
+          "status": 400,
+          "body": "{\"error\":{\"message\":\"unknown provider for model models/mock-model\",\"type\":\"invalid_request_error\",\"code\":\"model_not_found\",\"param\":\"model\"}}"
+        },
+        "R3": {
+          "status": 200,
+          "body": ""
+        },
+        "R4": {
+          "status": 404,
+          "body": "{\"error\":{\"message\":\"/v1beta/models/justname not found.\",\"type\":\"invalid_request_error\"}}"
+        }
+      }
+    },
+    {
+      "id": "gem2oai-count-tokens",
+      "purpose": "countTokens: translated-request local o200k_base count; response body shape {totalTokens, promptTokensDetails}; NO upstream HTTP request is emitted",
+      "mock": {
+        "mode": "happy",
+        "scenario": "none - gateway-local (assert: no upstream log line for this case)"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:countTokens",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}"
+        }
+      ],
+      "record": "downstream 200 + body; empty upstream window",
+      "expected": {
+        "downstream_body_shape": "{\"totalTokens\":<N>,\"promptTokensDetails\":[{\"modality\":\"TEXT\",\"tokenCount\":<N>}]}",
+        "note": "<N> is deterministic for this exact body; record the integer. Cross-check hint: same body as the S2 mock non-stream recording."
+      }
+    },
+    {
+      "id": "gem2oai-models-list",
+      "purpose": "Gemini-format model listing includes openai-compat aliases with models/ name prefix, displayName/description defaults, supportedGenerationMethods default; single-model GET accepts bare and prefixed ids; unknown id -> 404 not_found",
+      "mock": {
+        "mode": "happy",
+        "scenario": "none - gateway-local"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/v1beta/models",
+          "headers": {
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "note": "R1: full list"
+        },
+        {
+          "method": "GET",
+          "path": "/v1beta/models/mock-model",
+          "headers": {
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "note": "R2: single model, bare id"
+        },
+        {
+          "method": "GET",
+          "path": "/v1beta/models/models/mock-model",
+          "headers": {
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "note": "R3: single model, prefixed id"
+        },
+        {
+          "method": "GET",
+          "path": "/v1beta/models/no-such-model",
+          "headers": {
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "note": "R4: unknown id"
+        }
+      ],
+      "record": "downstream status + body for all four",
+      "expected": {
+        "R1": "200, models[] contains the entry for the openai-compat alias mock-model with name 'models/mock-model' and supportedGenerationMethods including generateContent",
+        "R2_R3": "200 with the same model map (name prefixed 'models/mock-model')",
+        "R4": {
+          "status": 404,
+          "body": "{\"error\":{\"message\":\"Not Found\",\"type\":\"not_found\"}}"
+        }
+      }
+    },
+    {
+      "id": "gem2oai-auth-styles",
+      "purpose": "both auth styles accepted on /v1beta (x-goog-api-key, Bearer); missing key -> 401 'Missing API key'; invalid key -> 401 'Invalid API key' (string error shape)",
+      "mock": {
+        "mode": "happy",
+        "scenario": "none - use countTokens so no upstream call is needed"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:countTokens",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}]}",
+          "note": "R1: no key -> 401"
+        },
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:countTokens",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<wrong-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}]}",
+          "note": "R2: invalid key -> 401"
+        },
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:countTokens",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "<gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}]}",
+          "note": "R3: x-goog-api-key -> 200"
+        },
+        {
+          "method": "POST",
+          "path": "/v1beta/models/mock-model:countTokens",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer <gateway-api-key>"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}]}",
+          "note": "R4: Bearer -> 200"
+        }
+      ],
+      "record": "downstream status + body for all four",
+      "expected": {
+        "R1": {
+          "status": 401,
+          "body": "{\"error\":\"Missing API key\"}"
+        },
+        "R2": {
+          "status": 401,
+          "body": "{\"error\":\"Invalid API key\"}"
+        },
+        "R3_R4": {
+          "status": 200,
+          "body_shape": "{\"totalTokens\":<N>,\"promptTokensDetails\":[{\"modality\":\"TEXT\",\"tokenCount\":<N>}]}"
+        }
+      }
+    }
+  ]
+}

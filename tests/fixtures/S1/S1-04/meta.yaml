@@ -1,0 +1,51 @@
+{
+ "id": "S1-04",
+ "purpose": "Ruling R-404 part 2: wrong method on a known route returns 404 with empty body, not 405; HEAD only registered on /healthz.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+ "recorded_at": "2026-09-15T23:46:48",
+ "record_kind": "response",
+ "mock_upstream_mode": null,
+ "config": "baseline (no providers)",
+ "dynamic_fields": [
+  "Date",
+  "X-Cpa-Trace-Id",
+  "created",
+  "created_at",
+  "Content-Length when body is dynamic"
+ ],
+ "requests": [
+  {
+   "name": "get-on-post-route",
+   "method": "GET",
+   "path": "/v1/chat/completions",
+   "request_file": "get-on-post-route.request.http",
+   "downstream_file": "get-on-post-route.downstream.md",
+   "http_status": "404"
+  },
+  {
+   "name": "post-on-get-route",
+   "method": "POST",
+   "path": "/v1/models",
+   "request_file": "post-on-get-route.request.http",
+   "downstream_file": "post-on-get-route.downstream.md",
+   "http_status": "404"
+  },
+  {
+   "name": "put-on-messages",
+   "method": "PUT",
+   "path": "/v1/messages",
+   "request_file": "put-on-messages.request.http",
+   "downstream_file": "put-on-messages.downstream.md",
+   "http_status": "404"
+  },
+  {
+   "name": "head-on-root",
+   "method": "HEAD",
+   "path": "/",
+   "request_file": "head-on-root.request.http",
+   "downstream_file": "head-on-root.downstream.md",
+   "http_status": "404"
+  }
+ ],
+ "upstream_file": null
+}

@@ -1,0 +1,42 @@
+{
+  "case": "S7-05",
+  "title": "proxy-url-config-accepted-echo",
+  "feature": "socks5-proxy",
+  "recorded_at": "2026-09-15T16:50:41Z",
+  "recorder": "oracle-runner-3",
+  "version": {
+    "image": "eceasy/cli-proxy-api:v7.3.4",
+    "digest": "sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+    "commit": "8335eac731946bd4eff18f500653f93736df53d6",
+    "binary_self_report": "CLIProxyAPI Version: v7.3.4, Commit: 8335eac, BuiltAt: 2026-09-15T14:07:06Z"
+  },
+  "base_url": "http://127.0.0.1:8397",
+  "client_protocol": "HTTP/1.1 via curl against the reference binary directly",
+  "upstream_provider_type": "none",
+  "stream": false,
+  "config": "worker-3 pristine template run3/run/config.yaml (port 8397, 8 mock base-urls on worker-3 ports, api-keys [oracle-local-key-1], no real credentials)",
+  "port_adaptation": "cases file defaults 18317->8397 (reference), 18999->20999 (openai mock), forwarder host publish 54545->24545 (container-internal 54545 unchanged)",
+  "dynamic_fields": [
+    "Date response header",
+    "X-Cpa-Trace-Id response header",
+    "port numbers (worker-3: reference 8397, openai mock 20999, forwarder host publish 24545)",
+    "secret-key bcrypt hash inside config echo",
+    "model list contents in config echo",
+    "ws-auth key if persisted by earlier S7-02 management PUT (sequence context)"
+  ],
+  "files": [
+    "downstream-1.md",
+    "downstream-2.md",
+    "downstream-3.md",
+    "downstream-4.md",
+    "downstream-5.md",
+    "downstream-6.md",
+    "request.http",
+    "upstream.jsonl",
+    "mock-response.json"
+  ],
+  "notes": [
+    "Demonstrate proxy-url config acceptance and visibility: management CRUD round-trip + config echo. No credential is used; the feature is visible through its config surface."
+  ],
+  "sequence": "runs after S7-02 on the session-1 container (config may carry ws-auth: false)"
+}

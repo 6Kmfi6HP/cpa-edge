@@ -1,0 +1,12 @@
+POST /v1/messages HTTP/1.1
+Host: 127.0.0.1:18317
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Type: application/json
+anthropic-version: 2023-06-01
+Authorization: Bearer oracle-local-key-1
+Content-Type: application/json
+Content-Length: 97
+
+
+{"model": "mock-model", "max_tokens": 64, "messages": [{"role": "user", "content": "Say hello"}]}

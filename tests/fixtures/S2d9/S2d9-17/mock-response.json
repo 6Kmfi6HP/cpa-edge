@@ -1,0 +1,31 @@
+{
+ "mode": "slow-chunks",
+ "upstream_call_count": "one",
+ "writes": {
+  "writes": [
+   {
+    "bytes": "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_mock_017\",\"object\":\"response\",\"created_at\":1742812800,\"status\":\"in_progress\",\"model\":\"mock-codex-upstream\",\"output\":[]}}\n\n",
+    "sleep_after_ms": 300
+   },
+   {
+    "bytes": ": keepalive\n\n",
+    "sleep_after_ms": 150
+   },
+   {
+    "bytes": "event: response.output_text.delta\n",
+    "sleep_after_ms": 150
+   },
+   {
+    "bytes": "data:{\"type\":\"response.output_text.delta\",\"sequen",
+    "sleep_after_ms": 150
+   },
+   {
+    "bytes": "ce_number\":1,\"item_id\":\"msg_mock_017\",\"output_index\":0,\"content_index\":0,\"delta\":\"Slow\"}\n\n",
+    "sleep_after_ms": 300
+   },
+   {
+    "bytes": "event: response.completed\ndata: {\"type\":\"response.completed\",\"sequence_number\":2,\"response\":{\"id\":\"resp_mock_017\",\"object\":\"response\",\"created_at\":1742812800,\"status\":\"completed\",\"model\":\"mock-codex-upstream\",\"output\":[{\"id\":\"msg_mock_017\",\"type\":\"message\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Slow\",\"annotations\":[]}]}],\"usage\":{\"input_tokens\":8,\"output_tokens\":1,\"total_tokens\":9}}}\n\n"
+   }
+  ]
+ }
+}

@@ -1,0 +1,10 @@
+POST /v1/responses HTTP/1.1
+Host: 127.0.0.1:18317
+User-Agent: curl/8.7.1
+Accept: */*
+Authorization: Bearer oracle-local-key-1
+Content-Type: application/json
+Content-Length: 580
+
+
+{"model": "codex-mock", "input": [{"type": "reasoning", "id": "rs_valid_1", "summary": [{"type": "summary_text", "text": "pondering"}], "encrypted_content": "gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}, {"type": "reasoning", "id": "rs_orphan_2", "summary": []}, {"type": "reasoning", "id": "rs_bad_3", "encrypted_content": "invalid-encrypted-content-value"}, {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Continue"}]}], "reasoning": {"effort": "medium", "summary": "auto"}, "stream": true}
