@@ -94,45 +94,42 @@ class RespReader {
 
   /** Next complete command, or undefined when more bytes are needed. */
   next(): { readonly args: string[]; readonly protocolError: boolean } | undefined {
-    const lines = this.findLineEnd(0)
-    if (lines === undefined) return undefined
-    const [type, rest] = lines
-    if (type !== '*') {
-      this.buffer = this.buffer.slice(rest)
+    const first = this.findLineEnd(0)
+    if (first === undefined) return undefined
+    const [head, after] = first
+    if (!head.startsWith('*')) {
+      this.buffer = this.buffer.slice(after)
       return { args: [], protocolError: true }
     }
-    let offset = rest
-    const countLine = this.readLine(offset)
-    if (countLine === undefined) return undefined
-    const count = Number(decoder.decode(countLine.text))
+    const count = Number(head.slice(1))
     if (!Number.isInteger(count) || count < 0) {
-      this.buffer = this.buffer.slice(countLine.next)
+      this.buffer = this.buffer.slice(after)
       return { args: [], protocolError: true }
     }
-    offset = countLine.next
+    let offset = after
     const args: string[] = []
     for (let i = 0; i < count; i += 1) {
-      const dollarLine = this.readLine(offset)
-      if (dollarLine === undefined) return undefined
-      const dollar = decoder.decode(dollarLine.text)
-      if (!dollar.startsWith('$')) {
-        this.buffer = this.buffer.slice(dollarLine.next)
+      const header = this.readLine(offset)
+      if (header === undefined) return undefined
+      const text = decoder.decode(header.text)
+      if (!text.startsWith('$')) {
+        this.buffer = this.buffer.slice(header.next)
         return { args: [], protocolError: true }
       }
-      const declared = Number(dollar.slice(1))
+      const declared = Number(text.slice(1))
       if (!Number.isInteger(declared)) {
-        this.buffer = this.buffer.slice(dollarLine.next)
+        this.buffer = this.buffer.slice(header.next)
         return { args: [], protocolError: true }
       }
       if (declared === -1) {
-        offset = dollarLine.next
+        offset = header.next
         args.push('')
         continue
       }
-      const payloadEnd = this.findCrlf(dollarLine.next, declared)
+      const payloadEnd = this.findCrlf(header.next, declared)
       if (payloadEnd === undefined) return undefined
-      const actualLength = payloadEnd - dollarLine.next
-      args.push(decoder.decode(this.buffer.slice(dollarLine.next, payloadEnd)))
+      const actualLength = payloadEnd - header.next
+      args.push(decoder.decode(this.buffer.slice(header.next, payloadEnd)))
       offset = payloadEnd + 2
       if (actualLength !== declared) {
         // Tolerant framing consumed the payload; the mismatch answers later.
