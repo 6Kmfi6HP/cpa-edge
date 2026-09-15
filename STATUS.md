@@ -30,7 +30,7 @@
 | S7 | spec: platform degradation matrix | 1 | spec-s7-platform | merged | 3 | ADMITTED after 3 rounds. NE registry feeds SPEC §5. RuntimeCapabilities -> I-core; T2/T3/D1 bindings recorded. |
 | I-core | packages/core: scheduling algorithms | 2 | impl-i-core | impl | 0 |  |
 | I-auth | packages/auth: OAuth/device/refresh | 2 | — | merged | 2 | MERGED: auth complete (spec 3 rounds + impl gate 2 rounds). 168 unit + 44 contract live. Ledger: reset-preserves-ban + blocked_until-field hardening -> T1; N4/N5/N6/N8-N16 residuals -> D2. |
-| I-tr-S2d1 | packages/translators: OpenAI→Gemini | 2 | impl-i-tr-s2d1 | impl | 0 |  |
+| I-tr-S2d1 | packages/translators: OpenAI→Gemini | 2 | impl-i-tr-s2d1 | impl-adv | 0 | delivered: 106/106; harness fixes routed; impl-review running on adv-impl-1 |
 | I-tr-S2d2 | packages/translators: Gemini→OpenAI | 2 | — | merged | 1 | MERGED: gem2oai PASS-WITH-NONBLOCKING round 1. 123 module + 26 contract live green. Ledger: N1 depth-cap->400 (T1 hardening), N2 countTokens time-box (T2), N3 failureCount atomicity (S4-impl note), N4 alt-empty spec sentence, N5 model-stamp parity, N6 leniency notes (D2). |
 | I-tr-S2d3 | packages/translators: OpenAI→Claude | 2 | — | merged | 2 | MERGED: oai2cla complete (spec 2 rounds, impl-review 2 rounds). 141 unit + 28 contract green. Residual: Store-get-throw hardening -> T2; N6 UA default blessed; N9 js-tiktoken kept (R-TOK) |
 | I-tr-S2d4 | packages/translators: Claude→OpenAI | 2 | — | merged | 1 | MERGED: cla2oai PASS-WITH-NONBLOCKING round 1. 89/89 (34 golden). Rulings: N2 per-surface recorded pins stand (S2d8-20 vs S2d6 cross-surface contrast); N1 depth guard -> T1 wrapper covers; N3-N6 ledger. |
