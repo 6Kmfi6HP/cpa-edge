@@ -10,8 +10,8 @@
  * byte-exact contract material (S2d5 sections 2.3, 3.1-3.3).
  */
 import { CpaError } from '@cpa-edge/core'
-import { parseStrictJson, rawValueAt, readArray, readObject, readString, serializeDocument, wireObject } from './json'
-import type { DocumentValue } from './json'
+import { memberValueStart, parseStrictJson, rawSpanAt, rawValueAt, readArray, readObject, readString, scanObjectMembers, serializeDocument, serializeOrdered, wireObject } from './json'
+import type { DocumentValue, RawSpan } from './json'
 import { RawJson } from './json'
 import { deriveCodexSessionId, truncateRunes } from './session'
 import { buildShortNameMap, normalizeCodexToolSchemasInBody, shortenToolName } from './tools'
@@ -188,6 +188,8 @@ function translateInput(
       continue
     }
 
+    const isAssistant = role === 'assistant'
+
     if (role === 'tool') {
       appendToolOutput(record, items, pending, ambiguousIds)
       continue
@@ -196,8 +198,7 @@ function translateInput(
     // Any other role resets the pending call set.
     pending.clear()
 
-    const isAssistant = role === 'assistant'
-    const parts = messageParts(record['content'], !isAssistant)
+    const parts = messageParts(record['content'], !isAssistant, isAssistant)
     if (!isAssistant && firstUserParts === undefined && role === 'user') {
       firstUserParts = parts
     }
@@ -230,37 +231,41 @@ function partsText(parts: readonly WireObject[]): string {
   return out
 }
 
-/** Content -> message parts; multimodal parts are user-role-only. */
-function messageParts(content: unknown, multimodal: boolean): WireObject[] {
+/**
+ * Content -> message parts. Text parts are `output_text` on assistant
+ * messages and `input_text` everywhere else; media parts (image/file/
+ * audio) exist on user messages only.
+ */
+function messageParts(content: unknown, allowMedia: boolean, isAssistant: boolean): WireObject[] {
   const parts: WireObject[] = []
   if (typeof content === 'string') {
-    if (content.length > 0) parts.push(textPart(content, multimodal))
+    if (content.length > 0) parts.push(textPart(content, isAssistant))
     return parts
   }
   if (!Array.isArray(content)) return parts
   for (const element of content) {
     if (typeof element === 'string') {
-      if (element.length > 0) parts.push(textPart(element, multimodal))
+      if (element.length > 0) parts.push(textPart(element, isAssistant))
       continue
     }
     if (typeof element !== 'object' || element === null) continue
-    const part = convertMessagePart(element as Record<string, unknown>, multimodal)
+    const part = convertMessagePart(element as Record<string, unknown>, allowMedia, isAssistant)
     if (part !== undefined) parts.push(part)
   }
   return parts
 }
 
-function textPart(text: string, multimodal: boolean): WireObject {
-  return { type: multimodal ? 'input_text' : 'output_text', text }
+function textPart(text: string, isAssistant: boolean): WireObject {
+  return { type: isAssistant ? 'output_text' : 'input_text', text }
 }
 
 /** One OpenAI content part -> one Responses content part. */
-function convertMessagePart(part: Record<string, unknown>, multimodal: boolean): WireObject | undefined {
+function convertMessagePart(part: Record<string, unknown>, allowMedia: boolean, isAssistant: boolean): WireObject | undefined {
   const type = part['type']
   if (type === 'text') {
-    return textPart(readString(part, 'text') ?? '', multimodal)
+    return textPart(readString(part, 'text') ?? '', isAssistant)
   }
-  if (!multimodal) return undefined
+  if (!allowMedia) return undefined
   if (type === 'image_url') {
     const image = readObject(part, 'image_url')
     const url = image !== undefined ? readString(image, 'url') : undefined
@@ -452,6 +457,20 @@ function outputPart(element: unknown): WireObject | undefined {
 // Tools + tool_choice (S2d5 3.2)
 // ---------------------------------------------------------------------------
 
+/**
+ * Replaces the value of one member inside a raw JSON object span, leaving
+ * every other byte untouched. A missing member leaves the text unchanged.
+ */
+function spliceRawMemberValue(objectRaw: string, key: string, newValue: string): string {
+  const objectSpan: RawSpan = { start: 0, end: objectRaw.length }
+  const members = scanObjectMembers(objectRaw, objectSpan)
+  if (members === undefined) return objectRaw
+  const member = members.find((entry) => entry.key === key)
+  if (member === undefined) return objectRaw
+  const valueStart = memberValueStart(objectRaw, member)
+  return objectRaw.slice(0, valueStart) + serializeOrdered(newValue) + objectRaw.slice(member.span.end)
+}
+
 /** Names of custom tools that no function tool also declares. */
 function customOnlyNames(tools: readonly unknown[]): Set<string> {
   const functionNames = new Set<string>()
@@ -520,14 +539,14 @@ function translateTools(
     }
 
     if (type === 'custom') {
-      const tool: WireObject = {}
-      for (const key of Object.keys(record)) {
-        const member = record[key]
-        if (member === undefined) continue
-        if (key === 'name') tool['name'] = shortenToolName(typeof member === 'string' ? member : '')
-        else tool[key] = member as WireValue
+      // Verbatim passthrough: the client's raw tool bytes with only the
+      // `name` member spliced to its shortened form.
+      const rawTool = rawValueAt(rawBody, ['tools', String(index)])
+      if (rawTool === undefined) {
+        out.push(wireObject(record))
+        continue
       }
-      out.push(tool)
+      out.push(new RawJson(spliceRawMemberValue(rawTool, 'name', shortenToolName(readString(record, 'name') ?? ''))) as unknown as WireValue)
       continue
     }
 

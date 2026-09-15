@@ -98,11 +98,11 @@ function scriptEventsFor(control: Record<string, unknown>, embedded: readonly Re
 function buildMockResponse(
   control: Record<string, unknown>,
   embedded: readonly Record<string, unknown>[],
+  reply: Readonly<Record<string, unknown>> | undefined,
 ): Oai2CodexUpstreamResponse {
   const mode = typeof control['mode'] === 'string' ? control['mode'] : 'happy'
   if (mode === 'error') {
-    const reply = control['reply']
-    const replyRecord = typeof reply === 'object' && reply !== null ? (reply as Record<string, unknown>) : {}
+    const replyRecord = reply ?? {}
     const status = typeof control['status'] === 'number' ? control['status'] : typeof replyRecord['status'] === 'number' ? (replyRecord['status'] as number) : 500
     const bodyObject = replyRecord['body']
     const bodyText = bodyObject !== undefined ? pythonJson(bodyObject) : ''
@@ -259,7 +259,7 @@ describe('S2d5 golden replay - full facade', () => {
       const captured: Oai2CodexUpstreamRequest[] = []
       const send: Oai2CodexUpstreamSender = async (call) => {
         captured.push(call)
-        return buildMockResponse(mock.control, mock.scriptEvents)
+        return buildMockResponse(mock.control, mock.scriptEvents, mock.reply)
       }
 
       for (let step = 0; step < recordedRequests.length; step++) {

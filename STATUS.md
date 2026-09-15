@@ -18,7 +18,7 @@
 | S2d3 | spec: OpenAI client → Claude upstream | 1 | spec-s2d3-oai2cla | merged | 2 | ADMITTED round 2. 26 goldens. Unlocks I-tr-S2d3. |
 | S2d4 | spec: Claude client → OpenAI upstream | 1 | spec-s2d4-cla2oai | spec | 0 |  |
 | S2d5 | spec: OpenAI client → Codex/Responses upstream | 1 | spec-s2d5-oai2codex | merged | 2 | ADMITTED round 2 (R1-R7 text rider to writer). 26 goldens; union->enum MUST + type-selection pinned. Unlocks I-tr-S2d5. |
-| S2d6 | spec: Responses client → OpenAI chat upstream | 1 | spec-s2d6-res2oai | spec-fix | 2 | R2: FAIL on F1 one-phrase (or [DONE]) arm + F2/F3 doc sentences; R3 = final |
+| S2d6 | spec: Responses client → OpenAI chat upstream | 1 | spec-s2d6-res2oai | spec-adv-r3 | 2 | F1-F4 applied with quoted lines; narrow round-3 running on adv-spec-1 |
 | S2d7 | spec: Gemini client → Claude upstream | 1 | spec-s2d7-gem2cla | merged | 2 | ADMITTED round 2. 31 goldens; validator families byte-pinned; empty-stream conductor gate recorded-deviation integrated. Unlocks I-tr-S2d7. |
 | S2d8 | spec: Claude client → Gemini upstream | 1 | spec-s2d8-cla2gem | merged | 2 | ADMITTED round 2. 18 goldens; two-stage thinking rule; byte-encoding MUSTs. Unlocks I-tr-S2d8. |
 | S2d9 | spec: Codex/Responses passthrough semantics | 1 | spec-s2d9-codex | spec | 0 |  |
@@ -31,7 +31,7 @@
 | I-core | packages/core: scheduling algorithms | 2 | impl-i-core | impl | 0 |  |
 | I-auth | packages/auth: OAuth/device/refresh | 2 | impl-i-auth | impl-adv | 0 | delivered: 153 unit + S3 contract 44/44; impl-review running on adv-impl-2 |
 | I-tr-S2d1 | packages/translators: OpenAI→Gemini | 2 | — | pending | 0 |  |
-| I-tr-S2d2 | packages/translators: Gemini→OpenAI | 2 | impl-i-tr-s2d2 | impl | 0 |  |
+| I-tr-S2d2 | packages/translators: Gemini→OpenAI | 2 | impl-i-tr-s2d2 | impl-adv | 0 | delivered: 123 module tests, package 365 green; contract suite URL defect found + fix dispatched to writer; impl-review pending suite green |
 | I-tr-S2d3 | packages/translators: OpenAI→Claude | 2 | — | merged | 2 | MERGED: oai2cla complete (spec 2 rounds, impl-review 2 rounds). 141 unit + 28 contract green. Residual: Store-get-throw hardening -> T2; N6 UA default blessed; N9 js-tiktoken kept (R-TOK) |
 | I-tr-S2d4 | packages/translators: Claude→OpenAI | 2 | — | pending | 0 |  |
 | I-tr-S2d5 | packages/translators: OpenAI→Codex/Responses | 2 | impl-i-tr-s2d5 | impl | 0 |  |

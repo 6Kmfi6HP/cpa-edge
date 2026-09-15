@@ -116,13 +116,15 @@ export function readRecordedUpstreams(caseId: string): RecordedUpstream[] {
   })
 }
 
-/** Mock control + embedded script events of a case. */
+/** Mock control + embedded script events + error reply of a case. */
 export interface MockRecord {
   readonly control: Readonly<Record<string, unknown>>
   readonly scriptEvents: readonly Record<string, unknown>[]
+  /** Error-mode reply (top-level `reply` of mock-response.json). */
+  readonly reply: Readonly<Record<string, unknown>> | undefined
 }
 
-/** Reads the mock control record and any embedded script events. */
+/** Reads the mock control record, script events and error reply. */
 export function readMockResponse(caseId: string): MockRecord {
   const parsed = JSON.parse(readText(`${FIXTURE_ROOT}/${caseId}/mock-response.json`)) as Record<string, unknown>
   const control = parsed['control_file']
@@ -136,7 +138,12 @@ export function readMockResponse(caseId: string): MockRecord {
       if (typeof entry === 'object' && entry !== null) scriptEvents.push(entry as Record<string, unknown>)
     }
   }
-  return { control: control as Record<string, unknown>, scriptEvents }
+  const reply = parsed['reply']
+  return {
+    control: control as Record<string, unknown>,
+    scriptEvents,
+    reply: typeof reply === 'object' && reply !== null ? (reply as Record<string, unknown>) : undefined,
+  }
 }
 
 function readText(path: string): string {

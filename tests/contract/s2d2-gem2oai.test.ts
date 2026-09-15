@@ -922,8 +922,13 @@ function assertUpstreamWire(
 ): void {
   const context = `S2d2[${caseId}] upstream wire`
   expect(call.method, `${context}: method`).toBe(recorded.method)
-  expect(call.url, `${context}: url (trimmed baseUrl + recorded path)`).toBe(
-    `${baseUrl.replace(/\/$/, '')}${recorded.path}`,
+  // The recorded mock path (/v1/chat/completions) already carries the /v1 that is part
+  // of the configured openai-compat base URL, so baseUrl + recorded.path would double it.
+  // The upstream URL per the interface contract is `<trimmed baseUrl>/chat/completions`;
+  // the inventory check pins every recorded wire line's path to /v1/chat/completions, so
+  // nothing fixture-derived is dropped here.
+  expect(call.url, `${context}: url (trimmed baseUrl + /chat/completions)`).toBe(
+    `${baseUrl.replace(/\/$/, '')}/chat/completions`,
   )
 
   const expectedPairs: Array<[string, string]> = []
