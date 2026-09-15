@@ -565,7 +565,12 @@ export function translateClaudeToGemini(
   }
   if (systemInstruction !== undefined) body['systemInstruction'] = systemInstruction
   if (tools !== undefined && !forCountTokens) body['tools'] = [tools]
-  if (toolConfig !== undefined && !forCountTokens) body['toolConfig'] = toolConfig
+  // toolConfig survives the countTokens variant: the recorded strip list
+  // is exactly {tools, generationConfig, safetySettings} (golden
+  // S2d8-21 pins toolConfig.functionCallingConfig on the :countTokens
+  // wire; S2d8-13 pins the absent side when the request carries no
+  // tool_choice).
+  if (toolConfig !== undefined) body['toolConfig'] = toolConfig
   if (generationConfig !== undefined && !forCountTokens) body['generationConfig'] = generationConfig
   if (!forCountTokens) body['safetySettings'] = [...SAFETY_SETTINGS.map((entry) => ({ ...entry }))]
 

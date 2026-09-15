@@ -13,7 +13,16 @@
  * per-chunk usageMetadata filter, the HasContent-gated `message_stop`,
  * and the raw-splice of upstream argument bytes.
  */
-import { isPlainObject, rawValueAt, readArray, readObject, readString, serializeOrdered } from './json'
+import {
+  assertWithinJsonDepth,
+  isPlainObject,
+  rawValueAt,
+  readArray,
+  readObject,
+  readString,
+  serializeOrdered,
+  serializeOrderedCapped,
+} from './json'
 import type { WireObject, WireValue } from './json'
 import { restoreToolName, sanitizeClaudeToolId, sanitizeFunctionName } from './schema'
 import type { ToolNameIndex } from './schema'
@@ -115,10 +124,15 @@ function argsValueAt(body: string, partPath: readonly string[]): WireValue {
   return call['args'] as WireValue
 }
 
-/** Parsed functionCall object at a part path, or undefined. */
+/**
+ * Parsed functionCall object at a part path, or undefined. The raw span
+ * passes the parse-time depth cap first: over-deep arguments surface as
+ * `invalid-input` instead of blowing the re-serialization stack.
+ */
 function readCallAt(body: string, partPath: readonly string[]): Record<string, unknown> | undefined {
   const callSpan = rawValueAt(body, [...partPath, 'functionCall'])
   if (callSpan === undefined) return undefined
+  assertWithinJsonDepth(callSpan)
   try {
     const parsed: unknown = JSON.parse(callSpan)
     if (!isPlainObject(parsed)) return undefined
@@ -135,7 +149,7 @@ function readCallAt(body: string, partPath: readonly string[]): Record<string, u
 function argsTextAt(body: string, partPath: readonly string[]): string | undefined {
   const call = readCallAt(body, partPath)
   if (call === undefined || call['args'] === undefined) return undefined
-  return serializeOrdered(call['args'] as WireValue)
+  return serializeOrderedCapped(call['args'])
 }
 
 /**
@@ -255,7 +269,9 @@ export function translateGeminiResponseToClaude(ctx: GeminiToClaudeContext): str
   if (seenUsage || inputTokens > 0 || outputTokens > 0) {
     message['usage'] = claudeUsageObject(usage)
   }
-  return serializeOrdered(message)
+  // The message embeds the re-serialized tool_use input, so the final
+  // write goes through the capped serializer too.
+  return serializeOrderedCapped(message)
 }
 
 // ---------------------------------------------------------------------------

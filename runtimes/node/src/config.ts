@@ -143,16 +143,16 @@ const readModels = (value: unknown): readonly RawModelSource[] => {
   for (const item of value) {
     const record = asPlainObject(item)
     if (record === undefined) continue
-    const name = readString(record['name'])
-    if (name.length === 0) continue
-    const alias = readString(record['alias']) || name
-    const displayName = readString(record['display-name'])
-    const thinkingSource = readObject(record['thinking'])
+    const name = readString(record, 'name')
+    if (name === undefined || name.length === 0) continue
+    const alias = readString(record, 'alias')
+    const displayName = readString(record, 'display-name')
+    const thinkingSource = readObject(record, 'thinking')
     let thinking: RawModelSource['thinking']
     if (thinkingSource !== undefined) {
       const levels = readStringArray(thinkingSource['levels'])
-      const min = readNumber(thinkingSource['min'])
-      const max = readNumber(thinkingSource['max'])
+      const min = readNumber(thinkingSource, 'min')
+      const max = readNumber(thinkingSource, 'max')
       thinking = {
         ...(min === undefined ? {} : { min }),
         ...(max === undefined ? {} : { max }),
@@ -161,8 +161,8 @@ const readModels = (value: unknown): readonly RawModelSource[] => {
     }
     out.push({
       name,
-      alias,
-      ...(displayName.length === 0 ? {} : { displayName }),
+      alias: alias !== undefined && alias.length > 0 ? alias : name,
+      ...(displayName === undefined || displayName.length === 0 ? {} : { displayName }),
       image: record['image'] === true,
       isCompat: record['is-compat'] === true,
       forceMapping: record['force-mapping'] === true,
@@ -180,8 +180,8 @@ const readImageGenerationMode = (value: unknown): ImageGenerationMode => {
 }
 
 const providerNameOf = (family: ProviderFamily, raw: Readonly<Record<string, unknown>>): string => {
-  const configured = readString(raw['name'])
-  if (configured.length > 0) return configured
+  const configured = readString(raw, 'name')
+  if (configured !== undefined && configured.length > 0) return configured
   // Family default ids double as `owned_by` and cooldown `provider` names.
   return family === 'openai-compatibility'
     ? 'openai-compatibility'
@@ -189,8 +189,8 @@ const providerNameOf = (family: ProviderFamily, raw: Readonly<Record<string, unk
 }
 
 const baseUrlOf = (family: ProviderFamily, raw: Readonly<Record<string, unknown>>): string => {
-  const configured = readString(raw['base-url'])
-  if (configured.length > 0) return configured
+  const configured = readString(raw, 'base-url')
+  if (configured !== undefined && configured.length > 0) return configured
   return family === 'claude-api-key' ? DEFAULT_CLAUDE_BASE_URL : ''
 }
 
@@ -205,14 +205,16 @@ const readProviderSection = (family: ProviderFamily, value: unknown): ProviderEn
   for (const item of value) {
     const raw = asPlainObject(item)
     if (raw === undefined) continue
-    const apiKey = readString(raw['api-key'])
+    const apiKey = readString(raw, 'api-key') ?? ''
     const baseUrl = baseUrlOf(family, raw)
     if (apiKey.length === 0 && baseUrl.length === 0) continue
     const requiresBaseUrl =
-      family === 'codex-api-key' || family === 'xai-api-key' || family === 'meta-api-key' ||
+      family === 'codex-api-key' ||
+      family === 'xai-api-key' ||
+      family === 'meta-api-key' ||
       family === 'openai-compatibility'
     if (requiresBaseUrl && baseUrl.length === 0) continue
-    const fingerprintProfile = readString(raw['fingerprint-profile'])
+    const fingerprintProfile = readString(raw, 'fingerprint-profile') ?? ''
     out.push({
       family,
       providerName: providerNameOf(family, raw),
@@ -228,24 +230,24 @@ const readProviderSection = (family: ProviderFamily, value: unknown): ProviderEn
 
 /** Normalizes the YAML-shaped config object into the runtime form. */
 export function normalizeRuntimeConfig(input: RuntimeConfigInput): NormalizedConfig {
-  const remoteManagementSource = readObject(input['remote-management']) ?? {}
+  const remoteManagementSource = readObject(input, 'remote-management') ?? {}
   const providers: ProviderEntry[] = []
   for (const family of FAMILY_ORDER) {
     providers.push(...readProviderSection(family, input[family]))
   }
-  const claudeCodeSource = readObject(input['claude-code']) ?? {}
+  const claudeCodeSource = readObject(input, 'claude-code') ?? {}
   return {
-    port: readNumber(input['port']) ?? 0,
+    port: readNumber(input, 'port') ?? 0,
     apiKeys: readStringArray(input['api-keys']),
     remoteManagement: {
       allowRemote: remoteManagementSource['allow-remote'] === true,
-      secretKey: readString(remoteManagementSource['secret-key']),
+      secretKey: readString(remoteManagementSource, 'secret-key') ?? '',
       disableControlPanel: remoteManagementSource['disable-control-panel'] === true,
     },
     imageGenerationMode: readImageGenerationMode(input['disable-image-generation']),
     disableCloakingModelList: claudeCodeSource['disable-cloaking-model-list'] === true,
-    requestRetry: readNumber(input['request-retry']) ?? 0,
-    transientErrorCooldownSeconds: readNumber(input['transient-error-cooldown-seconds']) ?? 0,
+    requestRetry: readNumber(input, 'request-retry') ?? 0,
+    transientErrorCooldownSeconds: readNumber(input, 'transient-error-cooldown-seconds') ?? 0,
     providers,
   }
 }

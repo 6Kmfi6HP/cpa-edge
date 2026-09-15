@@ -33,13 +33,26 @@ import type { RecordedUpstream } from './fixture-reader'
 
 const GATEWAY_API_KEYS: readonly string[] = ['oracle-local-key-1']
 const FROZEN_NOW_MS = 1_789_504_384_000
-const CREDENTIALS = [
-  {
-    apiKey: 'mock-gem-key',
-    baseUrl: 'http://host.docker.internal:19001',
-    models: [{ name: 'gemini-mock-model', alias: 'gm' }],
-  },
-]
+const DEFAULT_BASE_URL = 'http://host.docker.internal:19001'
+/**
+ * Per-case credential base URL: the bulk of the suite was recorded against
+ * the worker-1 mock (port 19001); S2d8-21 was recorded on the worker-2
+ * stack (mock port 20001, per its meta.yaml).
+ */
+const CASE_BASE_URLS: Readonly<Record<string, string>> = {
+  'S2d8-21-count-tokens-toolchoice': 'http://host.docker.internal:20001',
+}
+
+/** Credential set of one recorded case (recorded model/alias, per-case base). */
+function credentialsFor(caseId: string) {
+  return [
+    {
+      apiKey: 'mock-gem-key',
+      baseUrl: CASE_BASE_URLS[caseId] ?? DEFAULT_BASE_URL,
+      models: [{ name: 'gemini-mock-model', alias: 'gm' }],
+    },
+  ]
+}
 const encoder = new TextEncoder()
 
 const CASES = [
@@ -63,6 +76,7 @@ const CASES = [
   'S2d8-18-stream-error-before-first-chunk',
   'S2d8-19-alias-rejection',
   'S2d8-20-strict-json-400',
+  'S2d8-21-count-tokens-toolchoice',
 ] as const
 
 /** Demand-driven byte stream; the read after the last chunk errors or closes. */
@@ -159,10 +173,15 @@ function headerValue(headers: ReadonlyArray<readonly [string, string]>, name: st
   return undefined
 }
 
-function assertUpstreamWire(recorded: RecordedUpstream, call: Cla2GemUpstreamRequest, caseId: string): void {
+function assertUpstreamWire(
+  recorded: RecordedUpstream,
+  call: Cla2GemUpstreamRequest,
+  baseUrl: string,
+  caseId: string,
+): void {
   const context = `${caseId} upstream wire`
   expect(call.method, `${context}: method`).toBe(recorded.method)
-  expect(call.url, `${context}: url`).toBe(`${CREDENTIALS[0]?.baseUrl ?? ''}${recorded.path}`)
+  expect(call.url, `${context}: url`).toBe(`${baseUrl}${recorded.path}`)
   const expectedPairs: Array<[string, string]> = []
   for (const [name, value] of Object.entries(recorded.headers)) {
     if (name.toLowerCase() === 'content-length') continue
@@ -205,9 +224,10 @@ async function assertDownstream(response: Cla2GemResponse, caseId: string): Prom
 describe('S2d8 golden replay — service-level', () => {
   for (const caseId of CASES) {
     it(`${caseId}: upstream wire + downstream surface byte-exact`, async () => {
+      const baseUrl = CASE_BASE_URLS[caseId] ?? DEFAULT_BASE_URL
       const service = createCla2GemService({
         apiKeys: GATEWAY_API_KEYS,
-        credentials: CREDENTIALS,
+        credentials: credentialsFor(caseId),
         store: new MemoryStore(),
         now: () => FROZEN_NOW_MS,
         requestRetry: 0,
@@ -236,7 +256,7 @@ describe('S2d8 golden replay — service-level', () => {
         expect(expected).toBeDefined()
         expect(actual).toBeDefined()
         if (expected === undefined || actual === undefined) continue
-        assertUpstreamWire(expected, actual, caseId)
+        assertUpstreamWire(expected, actual, baseUrl, caseId)
       }
     })
   }

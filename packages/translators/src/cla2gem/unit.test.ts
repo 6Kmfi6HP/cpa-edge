@@ -13,7 +13,8 @@
  * the 429 cooldown slice).
  */
 import { describe, expect, it } from 'vitest'
-import { MemoryStore } from '@cpa-edge/core'
+import { CpaError, MemoryStore } from '@cpa-edge/core'
+import type { Store } from '@cpa-edge/core'
 import { serializeOrdered } from './json'
 import {
   buildFunctionDeclarations,
@@ -176,6 +177,39 @@ describe('schema cleaning and identifiers', () => {
       '{"properties":{"u":{"enum": ["x"]},"v":{"enum": []},"w":{"enum": [1,2]},"nested":{"enum":["k"]}}}',
     )
     expect(cleaned).toBe('{"properties":{"u":{"enum": ["x"],"description":"Allowed: x"},"v":{"enum": []},"w":{"enum": [1,2]},"nested":{"enum":["k"],"description":"Allowed: k"}}}')
+  })
+
+  it('enum hint: hostile values (quotes, <, &) stay JSON-encoded and HTML-escaped in the upstream body', () => {
+    const raw = '{"enum": ["AT&T", "5\\" socket", "a<b>"]}'
+    const cleaned = cleanGeminiSchema(raw)
+    // Both gateway-written strings go through the ordered serializer:
+    // quotes are escaped, < > & HTML-escaped, so the body stays valid JSON.
+    expect(cleaned).toBe(
+      '{"enum": ["AT\\u0026T","5\\" socket","a\\u003cb\\u003e"],' +
+        '"description":"Allowed: AT\\u0026T, 5\\" socket, a\\u003cb\\u003e"}',
+    )
+    const parsed = JSON.parse(cleaned) as { enum: string[]; description: string }
+    expect(parsed.enum).toEqual(['AT&T', '5" socket', 'a<b>'])
+    expect(parsed.description).toBe('Allowed: AT&T, 5" socket, a<b>')
+    // Byte-stable: the same input re-cleans to identical bytes.
+    expect(cleanGeminiSchema(raw)).toBe(cleaned)
+
+    // End to end: the upstream body embeds the cleaned schema and still
+    // parses as JSON (raw splicing corrupted it before the fix).
+    const requestText =
+      '{"model":"gm","tools":[{"name":"t","input_schema":{"type":"object","properties":{"q":' +
+      '{"enum": ["AT&T", "5\\" socket", "a<b>"]}}}],' +
+      '"messages":[{"role":"user","content":"go"}]}'
+    const upstream = translate(requestText)
+    expect(() => JSON.parse(upstream)).not.toThrow()
+    const body = JSON.parse(upstream) as {
+      tools: Array<{ functionDeclarations: Array<{ parametersJsonSchema: Record<string, unknown> }> }>
+    }
+    const schema = body.tools[0]?.functionDeclarations[0]?.parametersJsonSchema
+    const property = (schema['properties'] as Record<string, { description?: string }>)['q']
+    expect(property?.description).toBe('Allowed: AT&T, 5" socket, a<b>')
+    expect(upstream).toContain('\\u0026')
+    expect(upstream).toBe(translate(requestText))
   })
 
   it('functionDeclarations preserve client member bytes and skip schema-less tools', () => {
@@ -458,21 +492,36 @@ describe('tool_choice and thinking', () => {
 // ---------------------------------------------------------------------------
 
 describe('countTokens body variant', () => {
-  it('tools, generationConfig and safetySettings are deleted; systemInstruction stays; boundary is prepend-only', () => {
+  it('the strip list is exactly {tools, generationConfig, safetySettings}; toolConfig is RETAINED (S2d8-21)', () => {
     const raw =
       '{"model":"gm","system":"sys","temperature":0.5,"tool_choice":{"type":"auto"},' +
       '"tools":[{"name":"t","input_schema":{"type":"object"}}],' +
       '"messages":[{"role":"assistant","content":"prefill"}]}'
     const translated = translateClaudeToGemini(raw, ctx(), { forCountTokens: true })
     const value = JSON.parse(translated.body) as Record<string, unknown>
-    expect(Object.keys(value)).toEqual(['contents', 'model', 'systemInstruction'])
+    // S2d8-21 pins toolConfig.functionCallingConfig on the :countTokens
+    // wire when the client carries tool_choice.
+    expect(Object.keys(value)).toEqual(['contents', 'model', 'systemInstruction', 'toolConfig'])
     expect(value['systemInstruction']).toEqual({ parts: [{ text: 'sys' }] })
+    expect(value['toolConfig']).toEqual({ functionCallingConfig: { mode: 'AUTO' } })
     // Prepend-only boundary: the model-first request gains the leading user
     // turn but NO trailing one in this variant.
     const contents = value['contents'] as Array<{ role: string }>
     expect(contents.map((turn) => turn.role)).toEqual(['user', 'model'])
     const normal = translateClaudeToGemini(raw, ctx())
     expect((JSON.parse(normal.body) as Record<string, unknown>)['contents']).toHaveLength(3)
+    // The absent side (S2d8-13): a request without tool_choice emits no
+    // toolConfig key on either path.
+    const bare = translateClaudeToGemini(
+      '{"model":"gm","system":"s","messages":[{"role":"user","content":"hi"}]}',
+      ctx(),
+      { forCountTokens: true },
+    )
+    expect(Object.keys(JSON.parse(bare.body) as Record<string, unknown>)).toEqual([
+      'contents',
+      'model',
+      'systemInstruction',
+    ])
   })
 })
 
@@ -568,6 +617,20 @@ describe('non-stream response mapping', () => {
     expect(body).toBe(
       '{"id":"","type":"message","role":"assistant","model":"","content":[],"stop_reason":"end_turn","stop_sequence":null}',
     )
+  })
+
+  it('an over-deep functionCall input surfaces invalid-input instead of an escaping RangeError', () => {
+    const deepArgs = '{"a":'.repeat(15_000) + '1' + '}'.repeat(15_000)
+    const upstream =
+      '{"candidates":[{"content":{"parts":[{"functionCall":{"name":"f","args":' + deepArgs + '}}]},"finishReason":"STOP"}]}'
+    let caught: unknown
+    try {
+      translateGeminiResponseToClaude(responseContext(upstream))
+    } catch (error) {
+      caught = error
+    }
+    expect(caught).toBeInstanceOf(CpaError)
+    expect((caught as CpaError).code).toBe('invalid-input')
   })
 })
 
@@ -1030,5 +1093,175 @@ describe('service facade', () => {
       send,
     )
     expect(calls[0]?.url).toBe(`${BASE}/v1beta/models/${UPSTREAM_MODEL}:streamGenerateContent?alt=sse`)
+  })
+
+  it('a failing Store READ fails the cooldown gate OPEN and surfaces through reportError (B1)', async () => {
+    const failingStore: Store = {
+      get: async () => {
+        throw new Error('store read down')
+      },
+      put: async () => undefined,
+      delete: async () => false,
+      list: async () => [],
+      update: async () => {
+        throw new Error('unused')
+      },
+      enqueue: async () => 'id',
+      claim: async () => undefined,
+      ack: async () => true,
+      release: async () => true,
+      ringAppend: async () => undefined,
+      ringRead: async () => [],
+    }
+    const reported: unknown[] = []
+    const original = globalThis.reportError
+    globalThis.reportError = (error: unknown) => {
+      reported.push(error)
+    }
+    try {
+      const service = facade(failingStore)
+      const send: Cla2GemUpstreamSender = async () =>
+        jsonResponse(
+          200,
+          '{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":1}}',
+        )
+      const response = await service.handleV1Messages(
+        serviceRequest('/v1/messages', '{"model":"gm","messages":[{"role":"user","content":"a"}]}'),
+        send,
+      )
+      expect(response.status).toBe(200)
+      expect(await readBody(response)).toBe(
+        '{"id":"","type":"message","role":"assistant","model":"","content":[{"type":"text","text":"ok"}],' +
+          '"stop_reason":"end_turn","stop_sequence":null,"usage":{"input_tokens":3,"output_tokens":1}}',
+      )
+      expect(reported.length).toBe(1)
+      expect((reported[0] as Error).message).toBe('store read down')
+    } finally {
+      globalThis.reportError = original
+    }
+  })
+
+  it('a cooling credential with a healthy Store still gates the request (zero dispatch)', async () => {
+    const store = new MemoryStore()
+    await store.put('cla2gem', 'credential-cooldown:0', {
+      until_ms: 1_789_504_384_000 + 60_000,
+      last_upstream_error: 'rate limited',
+    })
+    const service = facade(store)
+    const response = await service.handleV1Messages(
+      serviceRequest('/v1/messages', '{"model":"gm","messages":[{"role":"user","content":"a"}]}'),
+      async () => {
+        throw new Error('must not be called')
+      },
+    )
+    expect(response.status).toBe(500)
+    expect(response.body).toBe(
+      '{"type":"error","error":{"type":"api_error","message":"All credentials for model gm are cooling down via provider gemini (last error: rate limited)"}}',
+    )
+  })
+
+  it('an over-deep tool argument renders the 400 envelope with zero upstream dispatch, stream or not (N3)', async () => {
+    const service = facade()
+    const calls: Cla2GemUpstreamRequest[] = []
+    const send: Cla2GemUpstreamSender = async (call) => {
+      calls.push(call)
+      throw new Error('must not be called')
+    }
+    const deepInput = '{"a":'.repeat(15_000) + '1' + '}'.repeat(15_000)
+    const streamed = await service.handleV1Messages(
+      serviceRequest(
+        '/v1/messages',
+        '{"model":"gm","stream":true,"messages":[{"role":"user","content":[{"type":"tool_use","id":"t","name":"f","input":' +
+          deepInput +
+          '}]}]}',
+      ),
+      send,
+    )
+    expect(streamed.status).toBe(400)
+    expect(streamed.body).toBe(
+      '{"type":"error","error":{"type":"invalid_request_error","message":"JSON nesting exceeds the maximum depth of 10000 levels"}}',
+    )
+    const aggregated = await service.handleV1Messages(
+      serviceRequest(
+        '/v1/messages',
+        '{"model":"gm","messages":[{"role":"user","content":[{"type":"tool_use","id":"t","name":"f","input":' +
+          deepInput +
+          '}]}]}',
+      ),
+      send,
+    )
+    expect(aggregated.status).toBe(400)
+    expect(aggregated.body).toBe(streamed.body)
+    expect(calls.length).toBe(0)
+  })
+
+  it('a deep-but-legal tool argument still translates and streams (the cap does not over-reject)', async () => {
+    const service = facade()
+    const deepInput = '{"a":'.repeat(2_000) + '1' + '}'.repeat(2_000)
+    const sseReply = 'data: {"candidates":[{"content":{"parts":[{"text":"hi"}]}}]}
+
+'
+    const send: Cla2GemUpstreamSender = async () => ({
+      status: 200,
+      headers: [['Content-Type', 'text/event-stream']],
+      body: new Response(sseReply).body as ReadableStream<Uint8Array>,
+    })
+    const response = await service.handleV1Messages(
+      serviceRequest(
+        '/v1/messages',
+        '{"model":"gm","stream":true,"messages":[{"role":"user","content":[{"type":"tool_use","id":"t","name":"f","input":' +
+          deepInput +
+          '}]}]}',
+      ),
+      send,
+    )
+    expect(response.status).toBe(200)
+    const text = await readBody(response)
+    expect(text).toContain('event: message_start')
+    expect(text).toContain('"type":"text_delta","text":"hi"')
+  })
+
+  it('an over-deep upstream functionCall in a streamed reply renders the pre-commit 500, not a crash', async () => {
+    const service = facade()
+    const deepArgs = '{"a":'.repeat(15_000) + '1' + '}'.repeat(15_000)
+    const sseReply =
+      'data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"f","args":' + deepArgs + '}}]}}]}
+
+'
+    const send: Cla2GemUpstreamSender = async () => ({
+      status: 200,
+      headers: [['Content-Type', 'text/event-stream']],
+      body: new Response(sseReply).body as ReadableStream<Uint8Array>,
+    })
+    const response = await service.handleV1Messages(
+      serviceRequest('/v1/messages', '{"model":"gm","stream":true,"messages":[{"role":"user","content":"a"}]}'),
+      send,
+    )
+    expect(response.status).toBe(500)
+    expect(await readBody(response)).toBe(
+      '{"type":"error","error":{"type":"api_error","message":"unexpected EOF"}}',
+    )
+  })
+
+  it('count_tokens: a 2xx non-JSON body still renders {"input_tokens":0} and surfaces the parse failure (N7)', async () => {
+    const reported: unknown[] = []
+    const original = globalThis.reportError
+    globalThis.reportError = (error: unknown) => {
+      reported.push(error)
+    }
+    try {
+      const service = facade()
+      const send: Cla2GemUpstreamSender = async () => jsonResponse(200, '<html>not json</html>')
+      const response = await service.handleV1Messages(
+        serviceRequest('/v1/messages/count_tokens', '{"model":"gm","messages":[{"role":"user","content":"a"}]}'),
+        send,
+      )
+      expect(response.status).toBe(200)
+      expect(await readBody(response)).toBe('{"input_tokens":0}')
+      expect(reported.length).toBe(1)
+      expect((reported[0] as Error).name).toBe('SyntaxError')
+    } finally {
+      globalThis.reportError = original
+    }
   })
 })

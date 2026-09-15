@@ -10,13 +10,16 @@
  * / `:countTokens` dispatch with the recorded URL and header contract, the
  * input-token estimate injection into streamed `message_start` events
  * (R-TOK), the SSE commit rule (no headers before the first translated
- * event), the disconnect terminal frame, the Claude error ladder, and the
+ * event), the disconnect terminal frame, the Claude error ladder, the 400
+ * Claude envelope for translation-stage invalid input (over-deep request
+ * JSON included; zero upstream dispatch), and the
  * 429 -> credential rate-limit cooldown slice (state flows exclusively
  * through the injected Store; `transient-error-cooldown-seconds: -1` does
  * not disable it). No transport happens here: the caller supplies `send`,
  * so the same facade runs on every runtime.
  */
 import type { JsonValue, Store } from '@cpa-edge/core'
+import { CpaError } from '@cpa-edge/core'
 import { isPlainObject } from './json'
 import {
   buildClaudeErrorEnvelope,
@@ -231,17 +234,27 @@ export function createCla2GemService(options: Cla2GemServiceOptions): Cla2GemSer
       const streaming = route === 'messages' && parsedBody?.['stream'] === true
       let lastCooldown: CooldownRecord | undefined
       let attempts = 0
-      for (const candidate of candidates) {
-        const record = await readCooldown(options.store, candidate.credentialIndex)
-        if (record !== undefined && now() < record.untilMs) {
-          lastCooldown = record
-          continue
+      try {
+        for (const candidate of candidates) {
+          const record = await readCooldown(options.store, candidate.credentialIndex)
+          if (record !== undefined && now() < record.untilMs) {
+            lastCooldown = record
+            continue
+          }
+          attempts += 1
+          const outcome = await attempt(candidate, parsedBody, request, route, streaming, send)
+          if (!outcome.retryable || attempts >= maxAttempts) return outcome.response
+          // request-retry: fall through to the next credential for retryable
+          // upstream failures (429 / pre-commit transport failures).
         }
-        attempts += 1
-        const outcome = await attempt(candidate, parsedBody, request, route, streaming, send)
-        if (!outcome.retryable || attempts >= maxAttempts) return outcome.response
-        // request-retry: fall through to the next credential for retryable
-        // upstream failures (429 / pre-commit transport failures).
+      } catch (error) {
+        // Translation-stage invalid input (malformed JSON, over-deep
+        // nesting) renders the Claude 400 envelope; nothing else is
+        // masked here.
+        if (error instanceof CpaError && error.code === 'invalid-input') {
+          return jsonBody(400, buildClaudeErrorEnvelope('invalid_request_error', error.message))
+        }
+        throw error
       }
       if (lastCooldown !== undefined) {
         const cooldown = buildModelCooldownResponse({
@@ -378,7 +391,13 @@ export function createCla2GemService(options: Cla2GemServiceOptions): Cla2GemSer
     return { retryable: false, response: jsonBody(200, translateGeminiResponseToClaude(ctx)) }
   }
 
-  /** count_tokens: consume the upstream totalTokens (a REAL upstream call). */
+  /**
+   * count_tokens: consume the upstream totalTokens (a REAL upstream call).
+   * A 2xx body that is not JSON is consumed leniently - the rendered
+   * `{"input_tokens":0}` fallback is the spec'd surface - but the parse
+   * failure is surfaced on the runtime's global error channel (console
+   * fallback) rather than swallowed.
+   */
   async function countTokensOutcome(upstream: Cla2GemUpstreamResponse): Promise<AttemptOutcome> {
     let bodyText: string
     try {
@@ -392,8 +411,9 @@ export function createCla2GemService(options: Cla2GemServiceOptions): Cla2GemSer
       if (isPlainObject(parsed) && typeof parsed['totalTokens'] === 'number' && Number.isFinite(parsed['totalTokens'])) {
         totalTokens = parsed['totalTokens'] as number
       }
-    } catch {
-      totalTokens = 0
+    } catch (error) {
+      if (typeof reportError === 'function') reportError(error)
+      else console.error(error)
     }
     const body = JSON.stringify({ input_tokens: totalTokens })
     return { retryable: false, response: jsonBody(200, body) }
@@ -476,8 +496,22 @@ function jsonBody(status: number, body: string): Cla2GemResponse {
 // Cooldown persistence (Store-backed; no other mutable state exists)
 // ---------------------------------------------------------------------------
 
+/**
+ * Reads the cooldown record. FAIL-OPEN: the gate mirrors the write path's
+ * guard class - a Store outage must not invent a cooldown (or reject the
+ * request), so a failing read surfaces on the runtime's global error
+ * channel (console fallback) and reads as "not cooling".
+ */
 async function readCooldown(store: Store, credentialIndex: number): Promise<CooldownRecord | undefined> {
-  return cooldownFromDocument(await store.get(COOLDOWN_NAMESPACE, `${COOLDOWN_KEY_PREFIX}${credentialIndex}`))
+  let document: JsonValue | undefined
+  try {
+    document = await store.get(COOLDOWN_NAMESPACE, `${COOLDOWN_KEY_PREFIX}${credentialIndex}`)
+  } catch (error) {
+    if (typeof reportError === 'function') reportError(error)
+    else console.error(error)
+    return undefined
+  }
+  return cooldownFromDocument(document)
 }
 
 /**

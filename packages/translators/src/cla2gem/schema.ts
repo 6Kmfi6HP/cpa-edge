@@ -153,11 +153,16 @@ function collectRewrites(value: unknown, prefix: readonly string[], out: Rewrite
   const span = rawSpanAt(rawText, [...prefix, 'enum'])
   if (span === undefined) return
   const values = enumValue as readonly string[]
+  // The inserted member is gateway-written text, so both its key and its
+  // value go through the ordered serializer's string encoding (HTML
+  // escaping included) - raw splicing would let hostile enum values
+  // corrupt the upstream body (§3.2.13 MUST).
+  const hint = `Allowed: ${values.join(', ')}`
   out.push({
     start: span.valueStart,
     end: span.valueEnd,
     value: serializeOrdered(values),
-    inserted: `,"description":"Allowed: ${values.join(', ')}"`,
+    inserted: `,${serializeOrdered('description')}:${serializeOrdered(hint)}`,
   })
 }
 

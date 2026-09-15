@@ -47,7 +47,7 @@
 | I-exec-grok | packages/executors: grok executor | 2 | — | merged | 0 | OUT OF RECORDED SCOPE v1 per R-EXECS (native-wire degradation registered; credential lifecycle covered by S3/S4/S6) |
 | I-exec-antigravity | packages/executors: antigravity executor | 2 | — | merged | 0 | SATISFIED via direction modules per R-EXECS |
 | I-exec-custom-openai | packages/executors: custom-openai executor | 2 | — | merged | 0 | SATISFIED via direction modules per R-EXECS |
-| I-mgmt | packages/management: /v0/management | 2 | impl-i-mgmt | impl-adv | 0 | delivered: S5 21/22 + S6 17/17 (harness defect being fixed); impl-review running on adv-impl-3 |
+| I-mgmt | packages/management: /v0/management | 2 | impl-i-mgmt | fix | 1 | adv-impl-3 R1: FAIL (B1 provider snapshot races; B2 retention; B3 unsubscribe fan-out; B4 cds update; B5 slow-subscriber cap); fixer 7-item list; N3-N10 ledger |
 | T1 | runtimes/node integration + full contract tests | 3 | integrator-t1 | impl | 0 |  |
 | T2 | runtimes/cloudflare (DO store, alarms, WS hibernation) | 3 | — | pending | 0 |  |
 | T3 | runtimes/vercel (degraded per S7) | 3 | — | pending | 0 |  |

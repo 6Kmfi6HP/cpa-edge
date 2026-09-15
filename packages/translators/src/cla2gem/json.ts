@@ -42,13 +42,48 @@ export type WireObject = { [key: string]: WireValue }
 
 /**
  * Parses a client body under the strict request boundary (NE-LENIENT).
- * Anything that is not valid JSON is rejected with `invalid-input`.
+ * Anything that is not valid JSON is rejected with `invalid-input`;
+ * valid JSON that nests deeper than {@link MAX_JSON_DEPTH} containers is
+ * rejected the same way (mirroring Go's `encoding/json` decoder).
  */
 export function parseStrictJson(text: string): unknown {
+  assertWithinJsonDepth(text)
   try {
     return JSON.parse(text)
   } catch {
     throw new CpaError('invalid-input', 'Invalid request: malformed JSON body')
+  }
+}
+
+/** Maximum container nesting this direction accepts (Go's encoding/json cap). */
+export const MAX_JSON_DEPTH = 10_000
+
+/** Shared message of the depth cap (parse-time rejections and the backstop). */
+const DEPTH_MESSAGE = `JSON nesting exceeds the maximum depth of ${MAX_JSON_DEPTH} levels`
+
+/**
+ * Parse-time depth cap: counts container nesting of RAW text with an
+ * iterative scan (strings are skipped verbatim), so the check itself never
+ * recurses and cannot exhaust the stack it guards. Over-deep documents are
+ * rejected with `invalid-input` before any recursive walk or
+ * re-serialization of the parsed value can run.
+ */
+export function assertWithinJsonDepth(text: string): void {
+  let depth = 0
+  let index = 0
+  while (index < text.length) {
+    const current = text[index]
+    if (current === '"') {
+      index = scanString(text, index)
+      continue
+    }
+    if (current === '{' || current === '[') {
+      depth += 1
+      if (depth > MAX_JSON_DEPTH) throw new CpaError('invalid-input', DEPTH_MESSAGE)
+    } else if (current === '}' || current === ']') {
+      depth -= 1
+    }
+    index += 1
   }
 }
 
@@ -179,6 +214,24 @@ export function serializeOrdered(value: WireValue): string {
     out += serializeString(key) + ':' + serializeOrdered(member as WireValue)
   }
   return out + '}'
+}
+
+/**
+ * Compact serialization for the re-serialized positions - values that
+ * arrived as parsed JSON and are re-written by the gateway (the request
+ * estimator's tool input/input_schema, the downstream tool_use input).
+ * The parse-time cap rejects documents deeper than {@link MAX_JSON_DEPTH};
+ * this backstop additionally converts the stack-exhaustion `RangeError`
+ * that a runtime with a smaller recursion budget would raise into the same
+ * `invalid-input` error, so no `RangeError` escapes the translation.
+ */
+export function serializeOrderedCapped(value: unknown): string {
+  try {
+    return serializeOrdered(value as WireValue)
+  } catch (error) {
+    if (error instanceof RangeError) throw new CpaError('invalid-input', DEPTH_MESSAGE)
+    throw error
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -10,8 +10,7 @@
  * byte-exact contract material - never masked (ruling S2d8-1).
  */
 import { getEncoding } from 'js-tiktoken'
-import { isPlainObject, serializeOrdered } from './json'
-import type { WireValue } from './json'
+import { isPlainObject, serializeOrderedCapped } from './json'
 
 /** Lazily built O200k tokenizer (the rank table is large). */
 let tokenizer: ReturnType<typeof getEncoding> | undefined
@@ -28,14 +27,18 @@ function push(segments: string[], value: unknown): void {
   if (trimmed.length > 0) segments.push(trimmed)
 }
 
-/** Pushes a value as compacted JSON (objects and arrays the table names). */
+/**
+ * Pushes a value as compacted JSON (objects and arrays the table names).
+ * The capped serializer keeps over-deep nesting an `invalid-input`
+ * failure instead of an escaping stack-exhaustion `RangeError`.
+ */
 function pushJson(segments: string[], value: unknown): void {
   if (value === undefined) return
   if (typeof value === 'string') {
     push(segments, value)
     return
   }
-  const compact = serializeOrdered(value as WireValue)
+  const compact = serializeOrderedCapped(value)
   push(segments, compact)
 }
 

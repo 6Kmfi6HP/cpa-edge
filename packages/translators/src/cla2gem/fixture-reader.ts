@@ -101,8 +101,11 @@ export function readRecordedUpstreams(caseId: string): readonly RecordedUpstream
  * Reads the recorded downstream response. The `.md` transcript carries the
  * status line plus headers in one fence and the exact body bytes in a
  * second fence (`## body` for JSON surfaces, `## full SSE byte stream` for
- * SSE). The recorder's markdown template appends two trailing newlines
- * after SSE byte streams; they are not part of the stream itself.
+ * SSE). The worker-2 recorder (S2d8-21 on) splits the head into
+ * `## Status line` and `## Response headers` fences and spells the body
+ * section `## Body (exact bytes ...)`; both templates parse here. The
+ * recorder's markdown template appends two trailing newlines after SSE
+ * byte streams; they are not part of the stream itself.
  */
 export function readRecordedDownstream(caseId: string): RecordedDownstream {
   const text = readText(`${FIXTURE_ROOT}/${caseId}/downstream.md`)
@@ -120,7 +123,9 @@ export function readRecordedDownstream(caseId: string): RecordedDownstream {
     }
     return content.join('\n')
   }
-  const head = fenced('## Status + headers')
+  const head = text.includes('## Status line')
+    ? [fenced('## Status line'), fenced('## Response headers')].join('\n')
+    : fenced('## Status + headers')
   const headLines = head.split('\n')
   const statusMatch = /HTTP\/1\.1 (\d+)/.exec(headLines[0] ?? '')
   if (statusMatch === null) throw new Error(`downstream.md of ${caseId} has no status line`)
@@ -132,8 +137,10 @@ export function readRecordedDownstream(caseId: string): RecordedDownstream {
   }
   const sseMarker = '## full SSE byte stream'
   const hasSse = text.includes(sseMarker)
-  const bodyMarker = hasSse ? sseMarker : '## body'
-  let body = fenced(bodyMarker)
+  let body: string
+  if (hasSse) body = fenced(sseMarker)
+  else if (text.includes('## Body (exact bytes')) body = fenced('## Body (exact bytes')
+  else body = fenced('## body')
   // The line-join drops the terminator of the last content line, so the
   // joined fence content carries exactly one newline more than the
   // recorded bytes; strip it.

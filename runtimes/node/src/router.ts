@@ -99,9 +99,9 @@ export const ROUTES: readonly RouteEntry[] = [
   { method: 'POST', pattern: '/v1/realtime/client_secrets', group: 'realtime-standard', id: 'realtime-client-secrets' },
   { method: 'POST', pattern: '/v1/realtime/sessions', group: 'realtime-standard', id: 'realtime-sessions' },
   { method: 'POST', pattern: '/v1/realtime/transcription_sessions', group: 'realtime-standard', id: 'realtime-transcription-sessions' },
-  { method: 'GET', pattern: '/v1/realtime/translations', group: 'realtime-standard', id: 'realtime-translations-stub' },
-  { method: 'POST', pattern: '/v1/realtime/translations', group: 'realtime-standard', id: 'realtime-translations-stub' },
-  { method: 'POST', pattern: '/v1/realtime/translations/client_secrets', group: 'realtime-standard', id: 'realtime-translations-stub' },
+  { method: 'GET', pattern: '/v1/realtime/translations', group: 'realtime', id: 'realtime-translations-stub' },
+  { method: 'POST', pattern: '/v1/realtime/translations', group: 'realtime', id: 'realtime-translations-stub' },
+  { method: 'POST', pattern: '/v1/realtime/translations/client_secrets', group: 'realtime-standard', id: 'realtime-translations-client-secrets' },
   // 3.4 Gemini-compatible surface
   { method: 'GET', pattern: '/v1beta/models', group: 'client', id: 'v1beta-models-list' },
   { method: 'GET', pattern: '/v1beta/models/*action', group: 'client', id: 'v1beta-models-action' },
