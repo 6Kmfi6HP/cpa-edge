@@ -1221,7 +1221,14 @@ function assertUpstreamClauses(
     expect(Object.hasOwn(body, 'store'), `${context}: compact bodies never gain a forced store`).toBe(false)
     expect(Object.hasOwn(body, 'include'), `${context}: compact bodies never gain a forced include`).toBe(false)
     expect(Object.hasOwn(body, 'tools'), `${context}: compact bodies never gain injected tools`).toBe(false)
-    expect(Object.hasOwn(body, 'instructions') && body.instructions === client.instructions, `${context}: compact instructions pass through`).toBe(true)
+    if (isLite && typeof client.instructions !== 'string') {
+      // §6 + §3.3: a native-Lite compact request with no instructions gains no default.
+      expect(Object.hasOwn(body, 'instructions'), `${context}: Lite compact bodies gain no defaulted instructions`).toBe(false)
+    } else {
+      expect(body.instructions, `${context}: compact instructions (client value or the §3.2 default)`).toBe(
+        typeof client.instructions === 'string' ? client.instructions : '',
+      )
+    }
     expect(body.input, `${context}: compact input passes verbatim`).toEqual(client.input)
     expect(headerValue(captured.call.headers, 'accept'), `${context}: compact upstream Accept`).toBe('application/json')
     expect(asString(body.prompt_cache_key), `${context}: compact attaches the same derived cache key`).toBeDefined()
@@ -1236,9 +1243,14 @@ function assertUpstreamClauses(
   expect(body.store, `${context}: store forced false`).toBe(false)
   expect(body.include, `${context}: include forced`).toEqual(['reasoning.encrypted_content'])
   expect(body.parallel_tool_calls, `${context}: parallel_tool_calls (Lite forces false, §3.3)`).toBe(!isLite)
-  expect(body.instructions, `${context}: instructions (client value preserved, else defaulted "")`).toBe(
-    typeof client.instructions === 'string' ? client.instructions : '',
-  )
+  if (isLite && typeof client.instructions !== 'string') {
+    // §3.3: native Lite leaves absent instructions ABSENT (no "" default).
+    expect(Object.hasOwn(body, 'instructions'), `${context}: Lite requests gain no defaulted instructions`).toBe(false)
+  } else {
+    expect(body.instructions, `${context}: instructions (client value preserved, else defaulted "")`).toBe(
+      typeof client.instructions === 'string' ? client.instructions : '',
+    )
+  }
 
   if (isLite) {
     // §3.3 native Lite: NO image_generation injection, Lite header forwarded upstream
@@ -1352,7 +1364,7 @@ function assertDownstreamClauses(
         expect(error?.code, `${context}: 401 rewritten to auth_unavailable`).toBe('auth_unavailable')
         expect(error?.message, `${context}: upstream message preserved`).toBe('Invalid token')
         expect(error?.type, `${context}: upstream type preserved`).toBe('authentication_error')
-        expect(result.body, `${context}: body is the canonical alphabetical-compact re-serialization}`).toBe(
+        expect(result.body, `${context}: body is the canonical alphabetical-compact re-serialization`).toBe(
           canonicalCompact(parseJsonRecord(result.body, context)),
         )
         return
@@ -1376,7 +1388,7 @@ function assertDownstreamClauses(
         expect(error?.last_upstream_error, `${context}: last_upstream_error == "<error.code>: <error.message>"`).toBe(
           'usage_limit_reached: You have exceeded your usage limit',
         )
-        expect(result.body, `${context}: body is the canonical alphabetical-compact re-serialization}`).toBe(
+        expect(result.body, `${context}: body is the canonical alphabetical-compact re-serialization`).toBe(
           canonicalCompact(parseJsonRecord(result.body, context)),
         )
         return

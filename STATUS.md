@@ -40,13 +40,13 @@
 | I-tr-S2d8 | packages/translators: Claude→Gemini | 2 | impl-i-tr-s2d8 | fix | 1 | adv-impl-3 R1: FAIL (B1 cooldown read fail-open; B2 enum-hint encoding); fixer dispatched B1/B2/N3/N7 |
 | I-tr-S2d9 | packages/translators: Codex passthrough | 2 | impl-i-tr-s2d9 | impl | 0 |  |
 | I-tr-S2d10 | packages/translators: Antigravity redirect | 2 | — | pending | 0 |  |
-| I-exec-openai | packages/executors: openai executor | 2 | — | pending | 0 |  |
-| I-exec-claude | packages/executors: claude executor | 2 | — | pending | 0 |  |
-| I-exec-gemini | packages/executors: gemini executor | 2 | — | pending | 0 |  |
-| I-exec-kimi | packages/executors: kimi executor | 2 | — | pending | 0 |  |
-| I-exec-grok | packages/executors: grok executor | 2 | — | pending | 0 |  |
-| I-exec-antigravity | packages/executors: antigravity executor | 2 | — | pending | 0 |  |
-| I-exec-custom-openai | packages/executors: custom-openai executor | 2 | — | pending | 0 |  |
+| I-exec-openai | packages/executors: openai executor | 2 | — | merged | 0 | SATISFIED via direction modules per R-EXECS |
+| I-exec-claude | packages/executors: claude executor | 2 | — | merged | 0 | SATISFIED via direction modules per R-EXECS |
+| I-exec-gemini | packages/executors: gemini executor | 2 | — | merged | 0 | SATISFIED via direction modules per R-EXECS |
+| I-exec-kimi | packages/executors: kimi executor | 2 | — | merged | 0 | OUT OF RECORDED SCOPE v1 per R-EXECS (native-wire degradation registered; credential lifecycle covered by S3/S4/S6) |
+| I-exec-grok | packages/executors: grok executor | 2 | — | merged | 0 | OUT OF RECORDED SCOPE v1 per R-EXECS (native-wire degradation registered; credential lifecycle covered by S3/S4/S6) |
+| I-exec-antigravity | packages/executors: antigravity executor | 2 | — | merged | 0 | SATISFIED via direction modules per R-EXECS |
+| I-exec-custom-openai | packages/executors: custom-openai executor | 2 | — | merged | 0 | SATISFIED via direction modules per R-EXECS |
 | I-mgmt | packages/management: /v0/management | 2 | impl-i-mgmt | impl-adv | 0 | delivered: S5 21/22 + S6 17/17 (harness defect being fixed); impl-review running on adv-impl-3 |
 | T1 | runtimes/node integration + full contract tests | 3 | integrator-t1 | impl | 0 |  |
 | T2 | runtimes/cloudflare (DO store, alarms, WS hibernation) | 3 | — | pending | 0 |  |

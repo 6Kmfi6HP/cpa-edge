@@ -168,10 +168,11 @@
  *   expectations while the recorded wire pins the capability-stripped shape.
  * • Two oracle workers recorded this fixture set and their downstream.md layouts differ:
  *   worker-1's house style (one "## Status + headers" fence + one payload fence) and
- *   worker-2's split style ("## Status line" / "## Response headers…" / "## Body…" fences,
- *   S2d8-21). The parser accepts both; byte truth is enforced by the recorded Content-Length
- *   (JSON bodies) and the SSE framing decoder (stream bodies). Worker-2's wire log also
- *   omits the optional response_status field, so that cross-check runs only when present.
+ *   worker-2's s2d3-family style (plain "## Status line" + "## Response headers…" sections
+ *   plus a fenced "## Body…", S2d8-21). The parser accepts both; byte truth is enforced by
+ *   the recorded Content-Length (JSON bodies) and the SSE framing decoder (stream bodies).
+ *   Worker-2's wire log also omits the optional response_status field, so that cross-check
+ *   runs only when present.
  *
  * ─────────────────────────────────────────────────────────────────────────────────────
  * COMPARISON RULES
@@ -472,9 +473,25 @@ function parseDownstreamMarkdown(text: string, caseId: string): RecordedResponse
     const bodyMarker = text.includes('## full SSE byte stream') ? '## full SSE byte stream' : '## body'
     body = fencedSection(text, bodyMarker, caseId)
   } else {
-    // worker-2 style: separate fenced blocks per status line, header list, and payload.
-    statusLineText = fencedSection(text, '## Status line', caseId)
-    headerLines = fencedSection(text, '## Response headers', caseId).split('\n')
+    // worker-2 style (the s2d3-family layout): plain-text status + header lines under
+    // their section markers, and the payload inside a "## Body…" fence.
+    const lines = text.split('\n')
+    const statusIndex = lines.findIndex((line) => line.startsWith('HTTP/1.1 '))
+    if (statusIndex === -1) {
+      throw new Error(`S2d8[${caseId}]: downstream.md has no status line`)
+    }
+    statusLineText = lines[statusIndex] ?? ''
+    const headersIndex = lines.findIndex((line) => line.startsWith('## Response headers'))
+    if (headersIndex === -1) {
+      throw new Error(`S2d8[${caseId}]: downstream.md has no response-headers section`)
+    }
+    const collected: string[] = []
+    for (let cursor = headersIndex + 1; cursor < lines.length; cursor += 1) {
+      const line = lines[cursor] ?? ''
+      if (line.trim() === '' || line.startsWith('## ')) break
+      collected.push(line)
+    }
+    headerLines = collected
     body = fencedSection(text, '## Body', caseId)
   }
   if (!statusLineText.startsWith('HTTP/1.1 ')) {
@@ -515,7 +532,8 @@ function maskProfile(caseId: string, dynamicFields: readonly string[]): MaskProf
     }
     if (
       field === 'reference/mock port numbers in upstream.jsonl Host fields' ||
-      field === 'ports (worker-local): reference 18317, mock 19001' ||
+      // worker-local ports vary per recording stack (worker-1: 18317/19001, worker-2: 8387/20001)
+      field.startsWith('ports (worker-local): reference ') ||
       field === 'Host/port numbers'
     ) {
       port = true
