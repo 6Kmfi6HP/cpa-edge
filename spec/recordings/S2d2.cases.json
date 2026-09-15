@@ -134,7 +134,8 @@
         ],
         "downstream_body": "{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Hello from mock openai upstream more\"}],\"role\":\"model\"},\"index\":0,\"finishReason\":\"STOP\"}],\"model\":\"mock-gpt-model\",\"usageMetadata\":{\"promptTokenCount\":9,\"candidatesTokenCount\":6,\"totalTokenCount\":15}}"
       },
-      "re_record_note": "ROUND 2: round-1 recording used a truncated body (missing closing brace; lenient-parse witness — see section 7 entry 9). Re-record with this WELL-FORMED body; contract tests replay well-formed bodies only."
+      "re_record_note": "ROUND 2: round-1 recording used a truncated body (missing closing brace; lenient-parse witness — see section 7 entry 9). Re-record with this WELL-FORMED body; contract tests replay well-formed bodies only.",
+      "recorded_outcome": "RE-RECORDED round 2 with well-formed body; request.http carries the fixed bytes; upstream/downstream byte-identical to round-1 (truncated body had lenient-parsed to identical semantics)"
     },
     {
       "id": "gem2oai-system-snake-multimodal",
@@ -823,7 +824,8 @@
         "Cache-Control: no-cache",
         "Connection: keep-alive"
       ],
-      "expected_status": 200
+      "expected_status": 200,
+      "recorded_outcome": "Content-Type: text/plain; charset=utf-8 (transport default sniffing); body = 4 byte-adjacent JSON objects, no framing; no SSE headers"
     },
     {
       "id": "gem2oai-auth-transports",
@@ -847,8 +849,7 @@
           "method": "POST",
           "path": "/v1beta/models/mock-model:countTokens?key=<gateway-api-key>",
           "headers": {
-            "Content-Type": "application/json",
-            "x-goog-api-key": "<gateway-api-key>"
+            "Content-Type": "application/json"
           },
           "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}]}",
           "note": "R2: ?key= query param (drop x-goog-api-key from headers)"
@@ -857,8 +858,7 @@
           "method": "POST",
           "path": "/v1beta/models/mock-model:countTokens?auth_token=<gateway-api-key>",
           "headers": {
-            "Content-Type": "application/json",
-            "x-goog-api-key": "<gateway-api-key>"
+            "Content-Type": "application/json"
           },
           "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}]}",
           "note": "R3: ?auth_token= query param"
@@ -881,7 +881,8 @@
           "body_shape": "{\"totalTokens\":<N>,\"promptTokensDetails\":[{\"modality\":\"TEXT\",\"tokenCount\":<N>}]}"
         },
         "note": "use header sets EXACTLY as given per request (R2/R3 must NOT carry any auth header)"
-      }
+      },
+      "recorded_outcome": "all four 200, totalTokens=3 each; verbatim non-Bearer Authorization accepted; query-param transports carried Content-Type only"
     },
     {
       "id": "gem2oai-thinking-clamps",
@@ -971,7 +972,8 @@
         "R5": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"user\",\"content\":\"Hi.\"}],\"reasoning_effort\":\"low\",\"stream\":false}",
         "R6": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"user\",\"content\":\"Hi.\"}],\"reasoning_effort\":\"low\",\"stream\":false}",
         "R7": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"user\",\"content\":\"Hi.\"}],\"reasoning_effort\":\"high\",\"stream\":false}"
-      }
+      },
+      "recorded_outcome": "upstream reasoning_effort = low/low/high/high/low/low/high for none/minimal/xhigh/max/budget0/budget300/budget30000 — matches predictions"
     },
     {
       "id": "gem2oai-thinking-invalid",
@@ -1027,7 +1029,8 @@
           "body": "same shape as R1",
           "note": "if the recorded message differs (e.g. model name suffix), record actual - recorded bytes are authoritative"
         }
-      }
+      },
+      "recorded_outcome": "all three 400s byte-equal to expected; R3 identical to R1; upstream wire delta 0"
     },
     {
       "id": "gem2oai-count-tokens-tools",
@@ -1051,7 +1054,8 @@
       "expected": {
         "body_shape": "{\"totalTokens\":<N>,\"promptTokensDetails\":[{\"modality\":\"TEXT\",\"tokenCount\":<N>]}]}",
         "note": "record the integer N; do not re-derive"
-      }
+      },
+      "recorded_outcome": "totalTokens=79; upstream delta 0"
     },
     {
       "id": "gem2oai-stream-toolcall-multi",
@@ -1078,11 +1082,12 @@
         "{\"functionCall\":{\"id\":\"call_multi_a\",\"name\":\"get_weather\",\"args\":{\"city\":\"Paris\"}}}",
         "{\"functionCall\":{\"id\":\"call_multi_b\",\"name\":\"get_time\",\"args\":{\"tz\":\"UTC\"}}}"
       ],
-      "volatility_whitelist": "candidates[0].content.parts compared as a sorted set for 2+ functionCall parts (section 7 entry 10)"
+      "volatility_whitelist": "candidates[0].content.parts compared as a sorted set for 2+ functionCall parts (section 7 entry 10)",
+      "recorded_outcome": "single finish frame, both functionCall parts + STOP; observed order [get_weather, get_time] this run; sort-comparison whitelist is the contract"
     }
   ],
   "recording_status": {
-    "state": "COMPLETE — all 20 fixtures recorded",
+    "state": "COMPLETE — 26/26 fixtures recorded (20 in round 1 + 6 new + basic-params re-recorded in round 2)",
     "recorded_by": "oracle-runner-3",
     "fixture_dir": "tests/fixtures/S2d2/<case-id>/",
     "raw_transcripts": "_cpa_edge_ref/run3/probes/S2d2/",
@@ -1091,6 +1096,10 @@
       "gem2oai-thinking-config R3: thinkingLevel 'auto' -> upstream reasoning_effort 'medium' (NO 'auto' passthrough); root cause: default ThinkingSupport{low,medium,high} on openai-compat config models, dynamic not allowed -> convertAutoToMidRange clamps to medium",
       "gem2oai-cooldown-after-429 R2: HTTP 429 (not 500) + Retry-After: 4; reset_seconds 4 / reset_time '4s' (escalated backoff at the 3rd consecutive 429; body otherwise exactly as predicted)",
       "gem2oai-models-list R3: GET with models/-prefixed id -> 404 not_found (bare id only resolves)"
+    ],
+    "round2_deviances": [
+      "gem2oai-stream-alt-json: Content-Type is text/plain; charset=utf-8 (not application/json or text/event-stream) — recorded as the transport default",
+      "gem2oai-stream-toolcall-multi: observed part order [get_weather, get_time]; contract remains the sorted-set comparison per the volatility whitelist"
     ]
   }
 }

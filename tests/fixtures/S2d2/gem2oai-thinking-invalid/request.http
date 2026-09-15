@@ -1,0 +1,37 @@
+# Exact downstream requests, in order (R1..Rn)
+
+### R1: POST /v1beta/models/mock-model:generateContent
+POST /v1beta/models/mock-model:generateContent HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Type: application/json
+x-goog-api-key: oracle-local-key-1
+Content-Length: 119
+
+
+{"contents":[{"role":"user","parts":[{"text":"Hi."}]}],"generationConfig":{"thinkingConfig":{"thinkingLevel":"ultra"}}}
+
+### R2: POST /v1beta/models/mock-model:generateContent
+POST /v1beta/models/mock-model:generateContent HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Type: application/json
+x-goog-api-key: oracle-local-key-1
+Content-Length: 115
+
+
+{"contents":[{"role":"user","parts":[{"text":"Hi."}]}],"generationConfig":{"thinkingConfig":{"thinkingBudget":-5}}}
+
+### R3: POST /v1beta/models/mock-model:countTokens
+POST /v1beta/models/mock-model:countTokens HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Type: application/json
+x-goog-api-key: oracle-local-key-1
+Content-Length: 119
+
+
+{"contents":[{"role":"user","parts":[{"text":"Hi."}]}],"generationConfig":{"thinkingConfig":{"thinkingLevel":"ultra"}}}

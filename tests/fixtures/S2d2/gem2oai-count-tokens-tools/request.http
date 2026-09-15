@@ -1,0 +1,13 @@
+# Exact downstream requests, in order (R1..Rn)
+
+### R1: POST /v1beta/models/mock-model:countTokens
+POST /v1beta/models/mock-model:countTokens HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Type: application/json
+x-goog-api-key: oracle-local-key-1
+Content-Length: 537
+
+
+{"systemInstruction":{"parts":[{"text":"Be helpful."}]},"contents":[{"role":"user","parts":[{"text":"Read a.txt"}]},{"role":"model","parts":[{"functionCall":{"name":"read_file","args":{"path":"a.txt"}}}]},{"role":"function","parts":[{"functionResponse":{"name":"read_file","response":{"result":"ok"}}}]}],"tools":[{"functionDeclarations":[{"name":"read_file","description":"Read a file","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}]}],"toolConfig":{"functionCallingConfig":{"mode":"AUTO"}}}

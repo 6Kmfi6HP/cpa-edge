@@ -8,13 +8,13 @@ Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS
 Access-Control-Allow-Origin: *
 Access-Control-Expose-Headers: X-CPA-TRACE-ID, X-CPA-VERSION, X-CPA-COMMIT, X-CPA-BUILD-DATE, X-CPA-SUPPORT-PLUGIN, X-CPA-HOME-VERSION, X-CPA-HOME-BUILD-DATE, X-SERVER-VERSION, X-SERVER-BUILD-DATE, Location, Retry-After, X-Request-Id, OpenAI-Request-Id
 Content-Type: application/json
-X-Cpa-Trace-Id: 20260916021340-88c6027083ccc8bc-943d060d
-Date: Tue, 15 Sep 2026 18:13:40 GMT
-Content-Length: 245
+X-Cpa-Trace-Id: 20260916021342-88c6027083ccc8bc-b5e38b61
+Date: Tue, 15 Sep 2026 18:13:42 GMT
+Content-Length: 78
 
 ```
 
-### Body (245 bytes, exact)
+### Body (78 bytes, exact)
 ```
-{"candidates":[{"content":{"parts":[{"text":"Hello from mock openai upstream more"}],"role":"model"},"index":0,"finishReason":"STOP"}],"model":"mock-gpt-model","usageMetadata":{"promptTokenCount":9,"candidatesTokenCount":6,"totalTokenCount":15}}
+{"totalTokens":79,"promptTokensDetails":[{"modality":"TEXT","tokenCount":79}]}
 ```

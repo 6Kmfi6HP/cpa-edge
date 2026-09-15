@@ -14,7 +14,7 @@
 | ORACLE | reference env at _cpa_edge_ref (outside repo) | — | — | merged | 0 | v7.3.4 anchor; image digest recorded; 17 probes; recordable/credentialed table; harness proven |
 | S1 | spec: endpoint inventory | 1 | spec-s1-endpoints | merged | 2 | ADMITTED round 2. 25 goldens (283 files). Feeds T1 routing + all handler contracts. 4 residual nits -> writer cleanup, no re-gate per reviewer. |
 | S2d1 | spec: OpenAI client → Gemini upstream | 1 | spec-s2d1-oai2gem | spec | 0 |  |
-| S2d2 | spec: Gemini client → OpenAI upstream | 1 | spec-s2d2-gem2oai | spec-fix | 1 | R1: adv-spec-4 FAIL (B1 alt=json raw mode; B2 auth transports; B3 post-translation thinking pipeline; B4 countTokens formula; B5 truncated-body re-record); NE-LENIENT registered |
+| S2d2 | spec: Gemini client → OpenAI upstream | 1 | spec-s2d2-gem2oai | spec-adv-r2 | 1 | fixes + 26 goldens; round-2 running on adv-spec-4; R-ORDER registered in SPEC |
 | S2d3 | spec: OpenAI client → Claude upstream | 1 | spec-s2d3-oai2cla | spec-adv | 0 | section+18 goldens done; review assigned adv-spec-1 |
 | S2d4 | spec: Claude client → OpenAI upstream | 1 | spec-s2d4-cla2oai | spec | 0 |  |
 | S2d5 | spec: OpenAI client → Codex/Responses upstream | 1 | spec-s2d5-oai2codex | spec-adv | 0 | section+24 goldens done; review assigned adv-spec-5; wire-note cooldown correction recorded |
@@ -26,7 +26,7 @@
 | S3 | spec: auth flows | 1 | spec-s3-auth | merged | 3 | ADMITTED after 3 rounds. Goldens: 44 dirs. Unlocked I-auth + S3 contract tests. |
 | S4 | spec: scheduling | 1 | spec-s4-scheduling | spec-fix | 1 | R1: adv-spec-1 FAIL (B1 per-family ID parts; B2 auth_index seeds; B3 WS preference MIRROR ruling; B4 route overrides); 3-golden batch authorized |
 | S5 | spec: management API | 1 | spec-s5-mgmt | merged | 2 | ADMITTED round 2. 22 goldens / 168 steps. Unlocks I-mgmt (after I-auth interfaces land) + S5 contract tests. |
-| S6 | spec: state & storage schemas | 1 | spec-s6-state | spec-adv | 0 | section+17 goldens done; S7 amendments applied; review assigned adv-spec-6 |
+| S6 | spec: state & storage schemas | 1 | spec-s6-state | spec-fix | 1 | R1: adv-spec-6 FAIL (B1 catalog pipelines; B2 PING nil-frame; B3 cloak key; B4 indented writes; B5 vertex row; B6 logs limit). All text fixes |
 | S7 | spec: platform degradation matrix | 1 | spec-s7-platform | merged | 3 | ADMITTED after 3 rounds. NE registry feeds SPEC §5. RuntimeCapabilities -> I-core; T2/T3/D1 bindings recorded. |
 | I-core | packages/core: scheduling algorithms | 2 | — | pending | 0 |  |
 | I-auth | packages/auth: OAuth/device/refresh | 2 | impl-i-auth | impl | 0 |  |
@@ -57,4 +57,3 @@
 
 ## Verdict / escalation log
 (appended by orchestrator)
-- 2026-09-16 01:4x S5 GATE: PASS (round 2). Management API admitted: 143 routes, two marshaling regimes, config/secrets mirror ruling, canonical header casing.

@@ -1,0 +1,13 @@
+# Exact downstream requests, in order (R1..Rn)
+
+### R1: POST /v1beta/models/mock-model:streamGenerateContent?alt=json
+POST /v1beta/models/mock-model:streamGenerateContent?alt=json HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Type: application/json
+x-goog-api-key: oracle-local-key-1
+Content-Length: 61
+
+
+{"contents":[{"role":"user","parts":[{"text":"Say hello"}]}]}

@@ -1,0 +1,85 @@
+# Exact downstream requests, in order (R1..Rn)
+
+### R1: POST /v1beta/models/mock-model:generateContent
+POST /v1beta/models/mock-model:generateContent HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Type: application/json
+x-goog-api-key: oracle-local-key-1
+Content-Length: 118
+
+
+{"contents":[{"role":"user","parts":[{"text":"Hi."}]}],"generationConfig":{"thinkingConfig":{"thinkingLevel":"none"}}}
+
+### R2: POST /v1beta/models/mock-model:generateContent
+POST /v1beta/models/mock-model:generateContent HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Type: application/json
+x-goog-api-key: oracle-local-key-1
+Content-Length: 121
+
+
+{"contents":[{"role":"user","parts":[{"text":"Hi."}]}],"generationConfig":{"thinkingConfig":{"thinkingLevel":"minimal"}}}
+
+### R3: POST /v1beta/models/mock-model:generateContent
+POST /v1beta/models/mock-model:generateContent HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Type: application/json
+x-goog-api-key: oracle-local-key-1
+Content-Length: 119
+
+
+{"contents":[{"role":"user","parts":[{"text":"Hi."}]}],"generationConfig":{"thinkingConfig":{"thinkingLevel":"xhigh"}}}
+
+### R4: POST /v1beta/models/mock-model:generateContent
+POST /v1beta/models/mock-model:generateContent HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Type: application/json
+x-goog-api-key: oracle-local-key-1
+Content-Length: 117
+
+
+{"contents":[{"role":"user","parts":[{"text":"Hi."}]}],"generationConfig":{"thinkingConfig":{"thinkingLevel":"max"}}}
+
+### R5: POST /v1beta/models/mock-model:generateContent
+POST /v1beta/models/mock-model:generateContent HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Type: application/json
+x-goog-api-key: oracle-local-key-1
+Content-Length: 114
+
+
+{"contents":[{"role":"user","parts":[{"text":"Hi."}]}],"generationConfig":{"thinkingConfig":{"thinkingBudget":0}}}
+
+### R6: POST /v1beta/models/mock-model:generateContent
+POST /v1beta/models/mock-model:generateContent HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Type: application/json
+x-goog-api-key: oracle-local-key-1
+Content-Length: 116
+
+
+{"contents":[{"role":"user","parts":[{"text":"Hi."}]}],"generationConfig":{"thinkingConfig":{"thinkingBudget":300}}}
+
+### R7: POST /v1beta/models/mock-model:generateContent
+POST /v1beta/models/mock-model:generateContent HTTP/1.1
+Host: 127.0.0.1:8397
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Type: application/json
+x-goog-api-key: oracle-local-key-1
+Content-Length: 118
+
+
+{"contents":[{"role":"user","parts":[{"text":"Hi."}]}],"generationConfig":{"thinkingConfig":{"thinkingBudget":30000}}}

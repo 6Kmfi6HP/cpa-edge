@@ -1,5 +1,5 @@
 {
-  "case": "gem2oai-basic-params",
+  "case": "gem2oai-stream-alt-json",
   "recorded_at": "2026-09-15T18:13:40Z",
   "recorder": "oracle-runner-3",
   "version": {
@@ -10,11 +10,11 @@
   },
   "client_protocol": "gemini (/v1beta, x-goog-api-key or Bearer)",
   "upstream_provider_type": "openai-compatibility (mock_openai.py, worker-3 port 20999)",
-  "stream": false,
+  "stream": true,
   "base_url": "http://127.0.0.1:8397",
   "port_adaptation": "cases file 18317->8397 (reference); upstream mock 18999->20999 (worker-3)",
   "gateway_key": "oracle-local-key-1 (cases-file placeholder <gateway-api-key>)",
-  "purpose": "generationConfig mapping table; systemInstruction -> system message with array content; user text -> string content; upstream wire contract (headers, alias rewrite, stream:false, NO stream_options); non-stream response envelope + usageMetadata; client headers are NOT forwarded upstream",
+  "purpose": "B1: raw-chunk mode for non-sse alt values: no SSE headers, translated chunks concatenated byte-adjacent with NO data: framing, keep-alives force-disabled",
   "dynamic_fields": [
     "Date",
     "X-Cpa-Trace-Id",
@@ -29,7 +29,7 @@
   "layout": "request.http: R1..Rn blocks; downstream.md: ## R1..Rn sections; upstream.jsonl: entries in request order",
   "notes": [
     "upstream wire entries per request: [1]",
-    "RE-RECORD (round-2): request body now the complete well-formed JSON (round-1 typo fixed). Upstream wire byte-identical to the round-1 recording (the truncated body had lenient-parsed to the same semantics); request.http now carries the exact fixed bytes."
+    "DIVERGENCE FLAG (you asked): Content-Type is text/plain; charset=utf-8 — NOT text/event-stream, NOT application/json. Body: 4 byte-adjacent translated JSON objects, no data:/event: framing (same raw-chunk mode as S2d7-18)."
   ],
   "files": [
     "meta.yaml",

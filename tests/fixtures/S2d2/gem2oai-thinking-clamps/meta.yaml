@@ -1,6 +1,6 @@
 {
-  "case": "gem2oai-basic-params",
-  "recorded_at": "2026-09-15T18:13:40Z",
+  "case": "gem2oai-thinking-clamps",
+  "recorded_at": "2026-09-15T18:13:41Z",
   "recorder": "oracle-runner-3",
   "version": {
     "image": "eceasy/cli-proxy-api:v7.3.4",
@@ -14,7 +14,7 @@
   "base_url": "http://127.0.0.1:8397",
   "port_adaptation": "cases file 18317->8397 (reference); upstream mock 18999->20999 (worker-3)",
   "gateway_key": "oracle-local-key-1 (cases-file placeholder <gateway-api-key>)",
-  "purpose": "generationConfig mapping table; systemInstruction -> system message with array content; user text -> string content; upstream wire contract (headers, alias rewrite, stream:false, NO stream_options); non-stream response envelope + usageMetadata; client headers are NOT forwarded upstream",
+  "purpose": "B3: effective thinking mapping after the stage-2 pipeline clamp for the openai-compat default capability (levels low/medium/high, no dynamic, no disable)",
   "dynamic_fields": [
     "Date",
     "X-Cpa-Trace-Id",
@@ -22,14 +22,20 @@
     "mock wire log ts field",
     "createTime / responseId-like ids where present"
   ],
-  "upstream_wire_delta_lines": 1,
+  "upstream_wire_delta_lines": 7,
   "upstream_wire_lines_per_request": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
     1
   ],
   "layout": "request.http: R1..Rn blocks; downstream.md: ## R1..Rn sections; upstream.jsonl: entries in request order",
   "notes": [
-    "upstream wire entries per request: [1]",
-    "RE-RECORD (round-2): request body now the complete well-formed JSON (round-1 typo fixed). Upstream wire byte-identical to the round-1 recording (the truncated body had lenient-parsed to the same semantics); request.http now carries the exact fixed bytes."
+    "upstream wire entries per request: [1, 1, 1, 1, 1, 1, 1]",
+    "CONFIRMED upstream reasoning_effort sequence: none->low, minimal->low, xhigh->high, max->high, budget 0->low, budget 300->low, budget 30000->high (exactly low/low/high/high/low/low/high)."
   ],
   "files": [
     "meta.yaml",

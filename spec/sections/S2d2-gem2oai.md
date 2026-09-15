@@ -101,7 +101,7 @@ MUST (evidence: `sdk/api/handlers/gemini/gemini_handlers.go` `GeminiModels` / `G
   - WriteErrorResponse bodies (upstream errors, cooldown, thinking 400s): bare `application/json`;
   - gin `c.JSON` responses (model LIST, single-model GET, JSON 404 not-found): `application/json; charset=utf-8`;
   - SSE streams: `text/event-stream`;
-  - raw-chunk streams (§4.1, non-`sse` alt): NO SSE headers; Content-Type is the transport default (recorded in `gem2oai-stream-alt-json`).
+  - raw-chunk streams (§4.1, non-`sse` alt): NO SSE headers; Content-Type is the transport sniffing default `text/plain; charset=utf-8` (recorded in `gem2oai-stream-alt-json`).
 - Upstream response headers are NOT forwarded downstream (passthrough disabled by default; evidence: `sdk/api/handlers/handlers_interceptors.go` `downstreamHeadersFromExecutor` returns nil unless configured).
 - Stream responses set `Content-Type: text/event-stream`, `Cache-Control: no-cache`, `Connection: keep-alive`, `Access-Control-Allow-Origin: *` only once the first chunk is ready (not on pre-stream errors).
 - Non-stream keep-alive (`StartNonStreamingKeepAlive`) and streaming SSE heartbeats are config-gated and disabled in the golden configuration (`non-stream-keep-alive-interval` unset, `streaming.keep-alive-seconds` unset); raw-chunk mode force-disables streaming keep-alives (§4.1).
@@ -251,7 +251,7 @@ The stage-2 rewrite explains the round-1 recorded deviance: `thinkingLevel: "aut
 - Counting formula (evidence: `internal/runtime/executor/helps/token_helpers.go`): collect text segments from the TRANSLATED OpenAI body — per message: `role`, `name`, and content parts (`text`/`input_text`/`output_text` → their text; `image_url` → its `url` string; `input_audio`/`output_audio`/`audio` → their `id` string ONLY, the audio DATA is NOT counted; nested arrays/objects of content are walked); per tool call: `id`, `type`, `function.name`, `function.description`, `function.arguments` (string), `function.parameters` (raw); per `tools[]` entry: the tool payload; per `functions[]` entry: `name`, `description`, `parameters` (raw); plus `tool_choice` (string or raw), `response_format` (raw), `input`, `prompt`. Each segment is trimmed, empty segments dropped, the rest JOINED with `\n`, and the whole string tokenized.
 - Tokenizer selection by upstream-model prefix: `gpt-5*`→GPT5, `gpt-4.1*`→GPT41, `gpt-4o*`→GPT4o, `gpt-4*`→GPT4, `gpt-3.5*`/`gpt-3*`→GPT35Turbo, `o1*`→O1, `o3*`→O3, `o4*`→O4Mini, EMPTY model→`cl100k_base`, everything else (incl. `mock-gpt-model`)→`o200k_base`.
 - Response body, byte-exact: `{"totalTokens":<N>,"promptTokensDetails":[{"modality":"TEXT","tokenCount":<N>}]}` (evidence: `internal/translator/common/bytes.go`).
-- `<N>` is deterministic for a fixed input body; goldens pin the recorded integers: plain body → **4** (`gem2oai-count-tokens`); tool-call history body → the recorded value in `gem2oai-count-tokens-tools`.
+- `<N>` is deterministic for a fixed input body; goldens pin the recorded integers: plain body `{"contents":[{"role":"user","parts":[{"text":"Say hello"}]}]}` → **4** (`gem2oai-count-tokens`); body `{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}` → **3** (`gem2oai-auth-styles`, `gem2oai-auth-transports`); tool-call history + tools body → **79** (`gem2oai-count-tokens-tools`).
 
 ---
 
@@ -269,7 +269,7 @@ MUST (evidence: `sdk/api/handlers/gemini/gemini_handlers.go` `handleStreamGenera
 
 **Raw-chunk mode** (effective alt non-empty and not `sse`, e.g. `?alt=json` — golden `gem2oai-stream-alt-json`):
 - Translated chunks are written VERBATIM, concatenated with NO separator bytes and NO `data:` framing: the response body is byte-adjacent JSON objects.
-- NO SSE headers are set (no `text/event-stream`); Content-Type is the transport default (recorded in the golden).
+- NO SSE headers are set (no `text/event-stream`); Content-Type is the transport sniffing default — recorded as `text/plain; charset=utf-8` in the golden.
 - Streaming keep-alives are FORCE-disabled in this mode.
 - Terminal in-stream errors append the error body bytes RAW (no `event: error` line).
 - The chunks themselves are identical to SSE mode — only the framing differs.
@@ -375,7 +375,7 @@ For gateway-built error bodies (evidence: `BuildErrorResponseBodyWithError`): if
 
 ## 6. Golden samples index
 
-**Status: 20 fixtures recorded (2026-09-15/16, round 1) by @oracle-runner-3 against CLIProxyAPI v7.3.4; round 2 adds cases 21-26 (alt=json raw mode, auth transports, thinking clamps + 400 pair, tool-call countTokens, multi-tool-call stream) and re-records case 1 with a well-formed body.** (image `eceasy/cli-proxy-api:v7.3.4`, digest `sha256:97825da3...4266`) with the openai mock upstream (`_cpa_edge_ref/mock/mock_openai.py`, port 18999) wired as:
+**Status: ALL 26 fixtures RECORDED by @oracle-runner-3 against CLIProxyAPI v7.3.4 (20 in round 1; round 2 added cases 21-26 and re-recorded case 1 with a well-formed body).** (image `eceasy/cli-proxy-api:v7.3.4`, digest `sha256:97825da3...4266`) with the openai mock upstream (`_cpa_edge_ref/mock/mock_openai.py`, port 18999) wired as:
 
 ```yaml
 openai-compatibility:
@@ -392,7 +392,7 @@ Recording requests: `spec/recordings/S2d2.cases.json`. Layout per RECIPES (`repo
 
 | # | Case id | Pins | Mode / scenario |
 |---|---|---|---|
-| 1 | `gem2oai-basic-params` | generationConfig mapping table; systemInstruction→system array; user text→string content; upstream wire (headers, alias rewrite, `"stream":false`, no stream_options); non-stream response envelope + usageMetadata; client headers not forwarded. Round-1 recording accidentally used a truncated body (lenient-parsing witness, §7); RE-RECORDED well-formed in round 2 | happy / `s2d2-nonstream-text` |
+| 1 | `gem2oai-basic-params` | generationConfig mapping table; systemInstruction→system array; user text→string content; upstream wire (headers, alias rewrite, `"stream":false`, no stream_options); non-stream response envelope + usageMetadata; client headers not forwarded. Round-1 recording used a truncated body (lenient-parsing witness, §7); RE-RECORDED well-formed in round 2 (upstream/downstream bytes identical) | happy / `s2d2-nonstream-text` |
 | 2 | `gem2oai-system-snake-multimodal` | `system_instruction` snake key; system inline image → data: URL; user thought part dropped; user inline audio → `input_audio`; mixed turn → content array | happy / `s2d2-nonstream-text` |
 | 3 | `gem2oai-tools-toolconfig` | functionDeclarations (parameters + parametersJsonSchema); tool_choice NONE/AUTO/ANY-single/ANY-multi mappings; upstream tools bytes | happy / `s2d2-nonstream-text` |
 | 4 | `gem2oai-tool-roundtrip-request` | functionCall→tool_calls with deterministic sha256 ids; functionResponse→tool messages FIFO; content JSON-stringification; empty function-role turn quirk; upstream messages bytes | happy / `s2d2-nonstream-text` |

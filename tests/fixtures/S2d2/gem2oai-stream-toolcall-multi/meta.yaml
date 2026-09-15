@@ -1,6 +1,6 @@
 {
-  "case": "gem2oai-basic-params",
-  "recorded_at": "2026-09-15T18:13:40Z",
+  "case": "gem2oai-stream-toolcall-multi",
+  "recorded_at": "2026-09-15T18:13:42Z",
   "recorder": "oracle-runner-3",
   "version": {
     "image": "eceasy/cli-proxy-api:v7.3.4",
@@ -10,11 +10,11 @@
   },
   "client_protocol": "gemini (/v1beta, x-goog-api-key or Bearer)",
   "upstream_provider_type": "openai-compatibility (mock_openai.py, worker-3 port 20999)",
-  "stream": false,
+  "stream": true,
   "base_url": "http://127.0.0.1:8397",
   "port_adaptation": "cases file 18317->8397 (reference); upstream mock 18999->20999 (worker-3)",
   "gateway_key": "oracle-local-key-1 (cases-file placeholder <gateway-api-key>)",
-  "purpose": "generationConfig mapping table; systemInstruction -> system message with array content; user text -> string content; upstream wire contract (headers, alias rewrite, stream:false, NO stream_options); non-stream response envelope + usageMetadata; client headers are NOT forwarded upstream",
+  "purpose": "N5 volatility whitelist: 2 buffered tool calls flush into ONE finish frame; functionCall parts order is nondeterministic (Go map iteration) - contract compares parts SORTED (by functionCall.name, then functionCall.id)",
   "dynamic_fields": [
     "Date",
     "X-Cpa-Trace-Id",
@@ -29,7 +29,7 @@
   "layout": "request.http: R1..Rn blocks; downstream.md: ## R1..Rn sections; upstream.jsonl: entries in request order",
   "notes": [
     "upstream wire entries per request: [1]",
-    "RE-RECORD (round-2): request body now the complete well-formed JSON (round-1 typo fixed). Upstream wire byte-identical to the round-1 recording (the truncated body had lenient-parsed to the same semantics); request.http now carries the exact fixed bytes."
+    "OBSERVED part order in the single finish frame: [get_weather (call_multi_a), get_time (call_multi_b)] — matches upstream arrival order in this recording. Order is map-iteration nondeterministic per your note; contract compares parts SORTED (functionCall.name, then functionCall.id). Frame carries BOTH functionCall parts plus finishReason STOP, index 0, role model."
   ],
   "files": [
     "meta.yaml",
