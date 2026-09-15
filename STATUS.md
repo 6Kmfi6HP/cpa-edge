@@ -57,4 +57,5 @@
 
 ## Verdict / escalation log
 (appended by orchestrator)
+- 2026-09-16 06:4x gem2cla open-when-unconfigured micro-fix ACCEPTED without re-gate (4-line mirror of the reviewed gem2oai pattern; S1-25 cited; contract 33/33 + package green). Fixture-ownership audit: clean (fixer misread implementer WIP).
 - 2026-09-16 06:3x I-tr-S2d5 MERGED (impl gate PASS round 1). oai2codex complete: 6 modules merged (5 directions + auth). 4 directions remain: cla2gem (fix round), codex-passthrough + cla2oai + oai2gem (implementing).
