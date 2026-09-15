@@ -57,4 +57,4 @@
 
 ## Verdict / escalation log
 (appended by orchestrator)
-- 2026-09-16 08:4x I-core MERGED (impl gate round 2 PASS). ALL 13 PACKAGE MODULES COMPLETE (core, auth, management, 10 translator directions incl. oai2oai passthrough). Remaining gates: oai2oai B1 fix, T2 review, T3 review, T4 smoke, D2 audit.
+- 2026-09-16 08:5x I-tr-oai2oai MERGED (B1 terminator fixed per cross-golden evidence; s1-routes 150/150 zero skips). ALL 13 PACKAGE MODULES THROUGH GATES + s1-routes COMPLETE.
