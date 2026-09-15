@@ -1,0 +1,10 @@
+POST /v1/messages HTTP/1.1
+Host: 127.0.0.1:18317
+Accept: */*
+Authorization: Bearer oracle-local-key-1
+Content-Type: application/json
+User-Agent: claude-cli/2.1.63 (external, cli)
+Content-Length: 422
+
+
+{"model": "gm", "max_tokens": 1024, "tools": [{"name": "get weather", "description": "Get current weather for a city", "input_schema": {"type": "object", "properties": {"city": {"type": "string", "description": "City name"}, "unit": {"type": "string", "enum": ["celsius", "fahrenheit"]}}, "required": ["city"]}}], "tool_choice": {"type": "auto"}, "messages": [{"role": "user", "content": "What is the weather in Paris?"}]}

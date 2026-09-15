@@ -1,0 +1,84 @@
+{
+ "id": "S2d8-17-disconnect",
+ "purpose": "Upstream hard-close mid-stream: client HTTP stays 200; translated chunks complete; message_stop STILL fires (stream-end [DONE] pass with HasContent); then exactly one terminal event: error api_error 'unexpected EOF'.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6 (docker eceasy/cli-proxy-api:v7.3.4, digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266)",
+ "recorded_at": "2026-09-16T03:33:09",
+ "config": "tests config: run/config.s2d8.yaml (gemini-api-key mock-gem-key -> host.docker.internal:19001, models gemini-mock-model/gm)",
+ "mock_control": {
+  "mode": "disconnect",
+  "after": 2,
+  "canned_stream": [
+   {
+    "candidates": [
+     {
+      "content": {
+       "parts": [
+        {
+         "text": "Hello from mock gemini upstream"
+        }
+       ],
+       "role": "model"
+      },
+      "index": 0
+     }
+    ],
+    "modelVersion": "gemini-mock-model"
+   },
+   {
+    "candidates": [
+     {
+      "content": {
+       "parts": [
+        {
+         "text": " more"
+        }
+       ],
+       "role": "model"
+      },
+      "index": 0
+     }
+    ]
+   },
+   {
+    "candidates": [
+     {
+      "content": {
+       "parts": [],
+       "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 0
+     }
+    ],
+    "usageMetadata": {
+     "promptTokenCount": 9,
+     "candidatesTokenCount": 6,
+     "totalTokenCount": 15
+    }
+   }
+  ]
+ },
+ "record": [
+  "downstream full SSE stream (including the terminal error event)"
+ ],
+ "dynamic_fields": [
+  "Date, X-Cpa-Trace-Id, Content-Length headers",
+  "reference/mock port numbers in upstream.jsonl Host fields",
+  "content_block.id digits in stream tool_use events (process counter; orchestrator ruling S2d8-2 accepts masking)",
+  "terminal transport-error text if it differs from 'unexpected EOF' (record what the reference emits)",
+  "ports (worker-local): reference 18317, mock 19001"
+ ],
+ "byte_exact_fields": [
+  "message_start.usage.input_tokens (o200k_base estimate): NOT masked; asserted byte-exactly per orchestrator ruling S2d8-1 \u2014 record the actual value in the fixture; do NOT list it as a masked dynamic field"
+ ],
+ "expected_upstream": null,
+ "expected_downstream_body": null,
+ "notes": [
+  "no message_delta (final usage chunk never arrived)",
+  "terminal event framing: 'event: error\\ndata: {...}\\n\\n' (TWO newlines, unlike translated events)",
+  "record the exact transport error text; expected 'unexpected EOF' per fleet recording"
+ ],
+ "http_status": "200",
+ "request_model_substituted": "gemini-mock-model -> gm (client-visible alias; the cases file used the upstream name, which the reference rejects with 400 unknown provider)",
+ "upstream_hits": 1
+}

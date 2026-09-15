@@ -1,0 +1,41 @@
+{
+ "id": "S2d8-14-err-429",
+ "purpose": "Upstream 429: status passes through verbatim; body is the CLAUDE envelope (NOT the upstream body verbatim): rate_limit_error + message extracted from error.message (numeric error.code ignored).",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6 (docker eceasy/cli-proxy-api:v7.3.4, digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266)",
+ "recorded_at": "2026-09-16T03:33:10",
+ "config": "tests config: run/config.s2d8.yaml (gemini-api-key mock-gem-key -> host.docker.internal:19001, models gemini-mock-model/gm)",
+ "mock_control": {
+  "mode": "error",
+  "status": 429,
+  "error_body": {
+   "error": {
+    "code": 429,
+    "message": "mock rate limit",
+    "status": "RESOURCE_EXHAUSTED"
+   }
+  }
+ },
+ "record": [
+  "downstream status+headers+body",
+  "upstream wire request"
+ ],
+ "dynamic_fields": [
+  "Date, X-Cpa-Trace-Id, Content-Length headers",
+  "reference/mock port numbers in upstream.jsonl Host fields",
+  "content_block.id digits in stream tool_use events (process counter; orchestrator ruling S2d8-2 accepts masking)",
+  "terminal transport-error text if it differs from 'unexpected EOF' (record what the reference emits)",
+  "ports (worker-local): reference 18317, mock 19001"
+ ],
+ "byte_exact_fields": [
+  "message_start.usage.input_tokens (o200k_base estimate): NOT masked; asserted byte-exactly per orchestrator ruling S2d8-1 \u2014 record the actual value in the fixture; do NOT list it as a masked dynamic field"
+ ],
+ "expected_upstream": null,
+ "expected_downstream_body": null,
+ "notes": [
+  "RUN THIS CASE ABSOLUTELY LAST: a 429 puts the credential into a ~1s rate-limit cooldown",
+  "credential cooldown is NOT disabled by transient-error-cooldown-seconds: -1"
+ ],
+ "http_status": "429",
+ "request_model_substituted": "gemini-mock-model -> gm (client-visible alias; the cases file used the upstream name, which the reference rejects with 400 unknown provider)",
+ "upstream_hits": 1
+}

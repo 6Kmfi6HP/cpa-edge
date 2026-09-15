@@ -5,12 +5,13 @@
  * The translator stage builds the ordered upstream body from a fixed
  * template (`model`, `messages`, generation-config keys, `stream`,
  * `service_tier`, `tools`, `tool_choice`), maps contents to messages with
- * the recorded part rules (thought parts dropped, text-only turns
- * concatenated, function calls becoming `tool_calls` with deterministic
- * sha256 ids, function responses emitting separate `tool` messages with
- * FIFO id reuse), and converts the thinking config to a first-pass
- * `reasoning_effort`. The composed entry point then runs the stage-2
- * thinking pipeline, whose EFFECTIVE mapping is the recorded contract.
+ * the recorded part rules (thought parts dropped and thought-only turns
+ * dropped entirely, text-only turns concatenated, function calls becoming
+ * `tool_calls` with deterministic sha256 ids, function responses emitting
+ * separate `tool` messages with FIFO id reuse), and converts the thinking
+ * config to a first-pass `reasoning_effort`. The composed entry point then
+ * runs the stage-2 thinking pipeline, whose EFFECTIVE mapping is the
+ * recorded contract (section 3.3).
  */
 import { CpaError } from '@cpa-edge/core'
 import {
@@ -21,7 +22,6 @@ import {
   readString,
   serializeOrdered,
   sortKeysDeep,
-  wireObject,
 } from './json'
 import { applyRequestThinking, convertBudgetToLevel, extractSourceThinkingConfig } from './thinking'
 import { DEFAULT_OPENAI_COMPAT_THINKING } from './types'
@@ -41,7 +41,8 @@ export async function sha256Hex(seed: string): Promise<string> {
 /**
  * Deterministic tool-call id: `call_` + the first 12 sha256 bytes (24 hex
  * chars) of `<kind>|<turnIndex>|<partIndex>|<name>|<raw>`. The raw payload
- * bytes are the client's own, spacing included.
+ * bytes are the client's own, spacing included. The turn index counts
+ * every client turn, including thought-only turns that are dropped later.
  */
 export async function deriveToolCallId(
   kind: 'call' | 'response',
@@ -70,8 +71,12 @@ function firstString(record: Record<string, unknown>, keys: readonly string[]): 
   return undefined
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 // ---------------------------------------------------------------------------
-// Stage 1: translator conversion
+// Entry points
 // ---------------------------------------------------------------------------
 
 /**
@@ -89,10 +94,10 @@ export async function translateGeminiToOpenAI(
 }
 
 /**
- * Translates one client request into the final upstream body: stage 1
- * plus the stage-2 thinking pipeline (section 3.3). Throws
- * `CpaError('invalid-input', ...)` for unknown thinking levels and
- * unconvertible budgets; the message is the recorded wire text.
+ * Translates one client request into the final upstream body: stage 1 plus
+ * the stage-2 thinking pipeline. Throws `CpaError('invalid-input', ...)`
+ * with the recorded wire message for unknown thinking levels and
+ * unconvertible budgets.
  */
 export async function translateGeminiRequest(
   rawBody: string,
@@ -109,6 +114,10 @@ export function withStreamOptions(body: WireObject): void {
   body['stream_options'] = { include_usage: true }
 }
 
+// ---------------------------------------------------------------------------
+// Body assembly
+// ---------------------------------------------------------------------------
+
 function buildBody(
   request: Record<string, unknown>,
   rawBody: string,
@@ -124,11 +133,15 @@ function buildBody(
 
   const callQueues = new Map<string, string[]>()
   const contents = readArray(request, 'contents') ?? []
+  const turns: Array<Promise<void>> = []
   for (let turnIndex = 0; turnIndex < contents.length; turnIndex++) {
     const content = contents[turnIndex]
-    if (typeof content !== 'object' || content === null || Array.isArray(content)) continue
-    appendTurn(messages, callQueues, content as Record<string, unknown>, turnIndex, rawBody)
+    if (!isRecord(content)) continue
+    turns.push(appendTurn(messages, callQueues, content, turnIndex, rawBody))
   }
+  // Turn order is part of the wire contract; awaiting in sequence keeps the
+  // emitted message order deterministic.
+  for (const turn of turns) await turn
 
   const body: WireObject = {
     model: ctx.upstreamModel,
@@ -150,10 +163,7 @@ function buildBody(
   return body
 }
 
-// ---------------------------------------------------------------------------
-// generationConfig -> sampling keys (recorded order)
-// ---------------------------------------------------------------------------
-
+/** generationConfig -> sampling keys, in the recorded wire order. */
 function generationConfigKeys(request: Record<string, unknown>): WireObject {
   const config = readObject(request, 'generationConfig')
   const out: WireObject = {}
@@ -229,72 +239,65 @@ async function appendTurn(
   turnIndex: number,
   rawBody: string,
 ): Promise<void> {
+  const parts = readArray(content, 'parts') ?? []
+  if (parts.length > 0 && parts.every((part) => isRecord(part) && part['thought'] === true)) {
+    // A turn whose parts are all thought parts is dropped entirely.
+    return
+  }
+
   const rawRole = readString(content, 'role') ?? ''
   const role = rawRole === 'model' ? 'assistant' : rawRole
 
   const rendered: RenderedPart[] = []
   const toolCalls: WireObject[] = []
-  let sawFunctionResponse = false
-  let sawAnyPart = false
 
-  const parts = readArray(content, 'parts') ?? []
   for (let partIndex = 0; partIndex < parts.length; partIndex++) {
     const part = parts[partIndex]
-    if (typeof part !== 'object' || part === null || Array.isArray(part)) continue
-    const record = part as Record<string, unknown>
-    if (record['thought'] === true) continue
-    sawAnyPart = true
+    if (!isRecord(part)) continue
+    if (part['thought'] === true) continue
 
-    const functionCall = readObject(record, 'functionCall')
+    const functionCall = readObject(part, 'functionCall')
     if (functionCall !== undefined) {
       toolCalls.push(await functionCallEntry(callQueues, functionCall, turnIndex, partIndex, rawBody))
       continue
     }
 
-    const functionResponse = readObject(record, 'functionResponse')
+    const functionResponse = readObject(part, 'functionResponse')
     if (functionResponse !== undefined) {
-      sawFunctionResponse = true
+      // Separate tool message, emitted immediately (before this turn's own).
       messages.push(await toolResultMessage(callQueues, functionResponse, turnIndex, partIndex, rawBody))
       continue
     }
 
-    const text = readString(record, 'text')
+    const text = readString(part, 'text')
     if (text !== undefined) {
       rendered.push({ kind: 'text', text })
       continue
     }
 
-    const inline = readObject(record, 'inlineData') ?? readObject(record, 'inline_data')
+    const inline = readObject(part, 'inlineData') ?? readObject(part, 'inline_data')
     if (inline !== undefined) {
       const value = inlineDataPart(inline)
       if (value !== undefined) rendered.push({ kind: 'media', value })
       continue
     }
 
-    const file = readObject(record, 'fileData') ?? readObject(record, 'file_data')
+    const file = readObject(part, 'fileData') ?? readObject(part, 'file_data')
     if (file !== undefined) {
-      const value = fileDataPart(file)
-      if (value !== undefined) rendered.push({ kind: 'text', text: value.text, mediaText: true } as RenderedPart)
-      continue
+      const value = fileDataRendered(file)
+      if (value !== undefined) rendered.push(value)
     }
   }
 
-  if (!sawAnyPart && toolCalls.length === 0 && !sawFunctionResponse) {
-    // Empty turn: still emitted with an empty content string (recorded).
-    messages.push({ role, content: '' })
-    return
-  }
-
   const message: WireObject = { role }
-  const onlyText = rendered.every((part) => part.kind === 'text')
-  if (rendered.length === 0) {
-    message['content'] = ''
-  } else if (onlyText) {
+  if (rendered.every((part) => part.kind === 'text') && rendered.length > 0) {
     message['content'] = rendered.map((part) => (part.kind === 'text' ? part.text : '')).join('')
-  } else {
+  } else if (rendered.length > 0) {
     message['content'] = rendered.map((part) =>
       part.kind === 'text' ? { type: 'text', text: part.text } : part.value,
     )
+  } else {
+    message['content'] = ''
   }
   if (toolCalls.length > 0) message['tool_calls'] = toolCalls
   messages.push(message)
@@ -342,19 +345,17 @@ async function toolResultMessage(
     removeQueued(callQueues, name, declared)
     toolCallId = declared
   } else {
-    const queue = callQueues.get(name)
-    const queued = queue !== undefined && queue.length > 0 ? queue.shift() : undefined
-    toolCallId =
-      queued ?? (await deriveToolCallId('response', turnIndex, partIndex, name, responseRaw))
+    const entries = callQueues.get(name)
+    const queued = entries !== undefined && entries.length > 0 ? entries.shift() : undefined
+    toolCallId = queued ?? (await deriveToolCallId('response', turnIndex, partIndex, name, responseRaw))
   }
 
-  const payload =
-    typeof response === 'object' && response !== null && !Array.isArray(response)
-      ? 'content' in (response as Record<string, unknown>)
-        ? (response as Record<string, unknown>)['content']
-        : response
-      : null
-  const content = serializeOrdered(sortKeysDeep(wireValue(payload)))
+  // Content: the response's `content` member when the object carries one,
+  // else the whole response value, JSON-stringified (Go map marshal order).
+  let payload: unknown = response
+  if (isRecord(response) && 'content' in response) payload = response['content']
+  const content = serializeOrdered(sortKeysDeep((payload ?? null) as WireValue))
+
   return { role: 'tool', tool_call_id: toolCallId, content }
 }
 
@@ -375,12 +376,6 @@ function removeQueued(callQueues: Map<string, string[]>, name: string, id: strin
   if (index >= 0) entries.splice(index, 1)
 }
 
-function wireValue(value: unknown): WireValue {
-  return value === undefined || value === null
-    ? null
-    : (value as WireValue)
-}
-
 // ---------------------------------------------------------------------------
 // Media parts
 // ---------------------------------------------------------------------------
@@ -388,11 +383,7 @@ function wireValue(value: unknown): WireValue {
 /** Normalizes an inline-data mime: empty or non-media prefixes become octet-stream. */
 function normalizedMime(mime: string): string {
   const lower = mime.toLowerCase()
-  if (
-    lower.startsWith('image/') ||
-    lower.startsWith('audio/') ||
-    lower.startsWith('video/')
-  ) {
+  if (lower.startsWith('image/') || lower.startsWith('audio/') || lower.startsWith('video/')) {
     return mime
   }
   return 'application/octet-stream'
@@ -435,13 +426,33 @@ function audioFormat(mime: string): string {
   }
 }
 
-function fileDataPart(file: Record<string, unknown>): { readonly text: string } | undefined {
+/** Filename derived from the (normalized) mime for file parts. */
+function fileFilename(mime: string): string {
+  if (mime.includes('pdf')) return 'document.pdf'
+  if (mime.includes('txt')) return 'document.txt'
+  if (mime.includes('csv')) return 'document.csv'
+  if (mime.includes('json')) return 'document.json'
+  if (mime.includes('xml')) return 'document.xml'
+  if (mime.includes('video')) return 'video'
+  return 'document'
+}
+
+function fileDataRendered(file: Record<string, unknown>): RenderedPart | undefined {
   const uri = readString(file, 'fileUri') ?? readString(file, 'file_uri')
   if (uri === undefined || uri.length === 0) return undefined
   const mime = readString(file, 'mimeType') ?? readString(file, 'mime_type') ?? ''
   const lower = mime.toLowerCase()
-  if (lower.startsWith('image/')) return { text: '' } // replaced below; image urls carry the uri directly
-  throw new Error('unreachable')
+  if (lower.startsWith('image/')) {
+    return { kind: 'media', value: { type: 'image_url', image_url: { url: uri } } }
+  }
+  if (lower.startsWith('video/')) {
+    return { kind: 'media', value: { type: 'video_url', video_url: { url: uri } } }
+  }
+  if (lower.startsWith('application/') || lower.startsWith('text/')) {
+    return { kind: 'media', value: { type: 'file', file: { filename: fileFilename(lower), file_url: uri } } }
+  }
+  const suffix = mime.length > 0 ? ` (Type: ${mime})` : ''
+  return { kind: 'text', text: `File: ${uri}${suffix}` }
 }
 
 // ---------------------------------------------------------------------------
@@ -451,18 +462,17 @@ function fileDataPart(file: Record<string, unknown>): { readonly text: string } 
 function translateTools(tools: readonly unknown[]): WireObject[] {
   const out: WireObject[] = []
   for (const entry of tools) {
-    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) continue
-    const declarations = readArray(entry as Record<string, unknown>, 'functionDeclarations')
+    if (!isRecord(entry)) continue
+    const declarations = readArray(entry, 'functionDeclarations')
     if (declarations === undefined) continue
     for (const declaration of declarations) {
-      if (typeof declaration !== 'object' || declaration === null || Array.isArray(declaration)) continue
-      const record = declaration as Record<string, unknown>
-      const fn = readObject(record, 'parameters') ?? readObject(record, 'parametersJsonSchema')
+      if (!isRecord(declaration)) continue
+      const parameters = readObject(declaration, 'parameters') ?? readObject(declaration, 'parametersJsonSchema')
       const function_: WireObject = {
-        name: readString(record, 'name') ?? '',
-        description: readString(record, 'description') ?? '',
+        name: readString(declaration, 'name') ?? '',
+        description: readString(declaration, 'description') ?? '',
       }
-      if (fn !== undefined) function_['parameters'] = wireObject(fn)
+      if (parameters !== undefined) function_['parameters'] = parameters
       out.push({ type: 'function', function: function_ })
     }
   }
@@ -492,25 +502,24 @@ function systemParts(parts: unknown): WireObject[] {
   const out: WireObject[] = []
   if (!Array.isArray(parts)) return out
   for (const part of parts) {
-    if (typeof part !== 'object' || part === null || Array.isArray(part)) continue
-    const record = part as Record<string, unknown>
-    if (record['thought'] === true) continue
+    if (!isRecord(part)) continue
+    if (part['thought'] === true) continue
 
-    const text = readString(record, 'text')
+    const text = readString(part, 'text')
     if (text !== undefined) {
       out.push({ type: 'text', text })
       continue
     }
-    const inline = readObject(record, 'inlineData') ?? readObject(record, 'inline_data')
+    const inline = readObject(part, 'inlineData') ?? readObject(part, 'inline_data')
     if (inline !== undefined) {
       const value = inlineDataPart(inline)
       if (value !== undefined) out.push(value)
       continue
     }
-    const file = readObject(record, 'fileData') ?? readObject(record, 'file_data')
+    const file = readObject(part, 'fileData') ?? readObject(part, 'file_data')
     if (file !== undefined) {
-      const value = fileDataMediaPart(file)
-      if (value !== undefined) out.push(value)
+      const rendered = fileDataRendered(file)
+      if (rendered !== undefined) out.push(rendered.kind === 'text' ? { type: 'text', text: rendered.text } : rendered.value)
     }
   }
   return out

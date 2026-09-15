@@ -1,0 +1,122 @@
+{
+ "id": "S2d8-03-nostream-system-array",
+ "purpose": "system array form (carries role:user parts) + Claude-Code attribution block stripped; mid-conversation system message becomes a <system-reminder> user turn; consecutive user turns merged into one content.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6 (docker eceasy/cli-proxy-api:v7.3.4, digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266)",
+ "recorded_at": "2026-09-16T03:33:04",
+ "config": "tests config: run/config.s2d8.yaml (gemini-api-key mock-gem-key -> host.docker.internal:19001, models gemini-mock-model/gm)",
+ "mock_control": {
+  "mode": "happy",
+  "canned_nonstream": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "ok"
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 12,
+    "candidatesTokenCount": 1,
+    "totalTokenCount": 13
+   },
+   "modelVersion": "gemini-mock-model"
+  }
+ },
+ "record": [
+  "downstream status+headers+body",
+  "upstream wire request"
+ ],
+ "dynamic_fields": [
+  "Date, X-Cpa-Trace-Id, Content-Length headers",
+  "reference/mock port numbers in upstream.jsonl Host fields",
+  "content_block.id digits in stream tool_use events (process counter; orchestrator ruling S2d8-2 accepts masking)",
+  "terminal transport-error text if it differs from 'unexpected EOF' (record what the reference emits)",
+  "ports (worker-local): reference 18317, mock 19001"
+ ],
+ "byte_exact_fields": [
+  "message_start.usage.input_tokens (o200k_base estimate): NOT masked; asserted byte-exactly per orchestrator ruling S2d8-1 \u2014 record the actual value in the fixture; do NOT list it as a masked dynamic field"
+ ],
+ "expected_upstream": {
+  "body": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "First question"
+      },
+      {
+       "text": "<system-reminder>\nRemember the rules.\n</system-reminder>"
+      },
+      {
+       "text": "Second question"
+      }
+     ]
+    }
+   ],
+   "model": "gemini-mock-model",
+   "systemInstruction": {
+    "role": "user",
+    "parts": [
+     {
+      "text": "You are a helpful assistant."
+     }
+    ]
+   },
+   "safetySettings": [
+    {
+     "category": "HARM_CATEGORY_HARASSMENT",
+     "threshold": "OFF"
+    },
+    {
+     "category": "HARM_CATEGORY_HATE_SPEECH",
+     "threshold": "OFF"
+    },
+    {
+     "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+     "threshold": "OFF"
+    },
+    {
+     "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+     "threshold": "OFF"
+    },
+    {
+     "category": "HARM_CATEGORY_CIVIC_INTEGRITY",
+     "threshold": "BLOCK_NONE"
+    }
+   ]
+  }
+ },
+ "expected_downstream_body": {
+  "id": "",
+  "type": "message",
+  "role": "assistant",
+  "model": "gemini-mock-model",
+  "content": [
+   {
+    "type": "text",
+    "text": "ok"
+   }
+  ],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {
+   "input_tokens": 12,
+   "output_tokens": 1
+  }
+ },
+ "notes": [
+  "Array-form systemInstruction includes role:user; string form (case 01) does not",
+  "attribution text must NOT appear anywhere in the upstream body"
+ ],
+ "http_status": "200",
+ "request_model_substituted": "gemini-mock-model -> gm (client-visible alias; the cases file used the upstream name, which the reference rejects with 400 unknown provider)",
+ "upstream_hits": 1
+}

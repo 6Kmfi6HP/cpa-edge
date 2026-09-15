@@ -112,7 +112,7 @@ function serializeString(text: string): string {
       case 0x2028:
       case 0x2029:
         out +=
-          '\u' +
+          '\\u' +
           HEX[(code >>> 12) & 0xf] +
           HEX[(code >>> 8) & 0xf] +
           HEX[(code >>> 4) & 0xf] +
@@ -120,7 +120,7 @@ function serializeString(text: string): string {
         break
       default:
         if (code < 0x20) {
-          out += '\u00' + HEX[(code >>> 4) & 0xf] + HEX[code & 0xf]
+          out += '\\u00' + HEX[(code >>> 4) & 0xf] + HEX[code & 0xf]
         } else {
           out += text[i]
         }

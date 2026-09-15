@@ -10,7 +10,7 @@
  * Every duration decision is a pure function; the tracker only sequences
  * reads and writes. All timing flows through the injected clock.
  */
-import type { Store, JsonValue } from '../store'
+import type { JsonValue, Store } from '../store'
 import type { FailureClassification } from './classification'
 
 /** 401 / 402 / 403 / invalid_grant cool down for 30 minutes. */
@@ -69,9 +69,15 @@ export interface ModelBlock {
   readonly quota?: QuotaBlock | undefined
 }
 
+/** Credential-wide 401-class gate: the credential is unauthorized until `until`. */
+export interface UnauthorizedBlock {
+  readonly until: number
+}
+
 /** Whole cooldown state of one credential. */
 export interface CooldownDocument {
-  readonly unauthorized: boolean
+  /** Set while a 401-class failure makes the whole credential unschedulable. */
+  readonly unauthorized?: UnauthorizedBlock | undefined
   readonly credentialQuota?: QuotaBlock | undefined
   /** Ladder block applying to the whole credential (no model key). */
   readonly credentialWide?: ModelBlock | undefined
@@ -95,7 +101,6 @@ export interface CooldownPolicy {
 }
 
 const EMPTY_DOCUMENT: CooldownDocument = Object.freeze({
-  unauthorized: false,
   models: Object.freeze({}) as Readonly<Record<string, ModelBlock>>,
 })
 
@@ -112,29 +117,67 @@ function isQuotaBlock(value: unknown): value is QuotaBlock {
   )
 }
 
+function isLastError(value: unknown): value is LastErrorBlock {
+  if (typeof value !== 'object' || value === null) return false
+  const record = value as Record<string, unknown>
+  if (typeof record['message'] !== 'string') return false
+  const status = record['httpStatus']
+  return status === undefined || typeof status === 'number'
+}
+
 function isModelBlock(value: unknown): value is ModelBlock {
   if (typeof value !== 'object' || value === null) return false
   const record = value as Record<string, unknown>
-  return typeof record['unavailable'] === 'boolean' && typeof record['statusMessage'] === 'string'
-}
-
-function isDocument(value: unknown): value is CooldownDocument {
-  if (typeof value !== 'object' || value === null) return false
-  const record = value as Record<string, unknown>
-  if (typeof record['unauthorized'] !== 'boolean') return false
-  if (record['credentialQuota'] !== undefined && !isQuotaBlock(record['credentialQuota'])) return false
-  if (record['credentialWide'] !== undefined && !isModelBlock(record['credentialWide'])) return false
-  const models = record['models']
-  if (typeof models !== 'object' || models === null || Array.isArray(models)) return false
-  for (const block of Object.values(models as Record<string, unknown>)) {
-    if (!isModelBlock(block)) return false
-  }
+  if (typeof record['unavailable'] !== 'boolean') return false
+  if (typeof record['statusMessage'] !== 'string') return false
+  if (record['lastError'] !== undefined && !isLastError(record['lastError'])) return false
+  const nextRetryAfter = record['nextRetryAfter']
+  if (nextRetryAfter !== undefined && typeof nextRetryAfter !== 'number') return false
+  if (record['quota'] !== undefined && !isQuotaBlock(record['quota'])) return false
   return true
 }
 
+function toQuotaBlock(value: unknown): QuotaBlock | undefined {
+  return isQuotaBlock(value) ? value : undefined
+}
+
+function toModelBlock(value: unknown): ModelBlock | undefined {
+  return isModelBlock(value) ? value : undefined
+}
+
+function toUnauthorizedBlock(value: unknown): UnauthorizedBlock | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const until = (value as Record<string, unknown>)['until']
+  return typeof until === 'number' ? { until } : undefined
+}
+
 function toDocument(value: JsonValue | undefined): CooldownDocument {
-  if (value !== undefined && isDocument(value)) return value
-  return EMPTY_DOCUMENT
+  if (value === undefined || typeof value !== 'object' || Array.isArray(value)) return EMPTY_DOCUMENT
+  const record = value as Record<string, unknown>
+  const models = record['models']
+  if (typeof models !== 'object' || models === null || Array.isArray(models)) {
+    return EMPTY_DOCUMENT
+  }
+  const parsedModels: Record<string, ModelBlock> = {}
+  for (const [key, block] of Object.entries(models)) {
+    const modelBlock = toModelBlock(block)
+    if (modelBlock !== undefined) parsedModels[key] = modelBlock
+  }
+  return {
+    unauthorized: toUnauthorizedBlock(record['unauthorized']),
+    credentialQuota: toQuotaBlock(record['credentialQuota']),
+    credentialWide: toModelBlock(record['credentialWide']),
+    models: parsedModels,
+  }
+}
+
+/**
+ * Encodes a document for the Store. Documents are plain JSON data by
+ * construction; the round-trip both detaches the value and guarantees the
+ * stored shape is assignable to `JsonValue`.
+ */
+function encodeDocument(document: CooldownDocument): JsonValue {
+  return JSON.parse(JSON.stringify(document)) as JsonValue
 }
 
 /**
@@ -147,23 +190,23 @@ export function nextQuotaCooldown(
   existing: QuotaBlock | undefined,
   retryAfterMs: number | undefined,
   now: number,
-  reason: 'quota' | 'credential_quota' = 'quota',
+  reason: 'quota' | 'credential_quota' | 'cloudflare challenge' = 'quota',
 ): QuotaBlock {
   const live = existing !== undefined && existing.nextRecoverAt > now
-  const level = live ? (existing!.steppedInWindow ? existing!.backoffLevel : existing!.backoffLevel + 1) : 0
-  const stepped = live
+  const level =
+    existing !== undefined && live ? (existing.steppedInWindow ? existing.backoffLevel : existing.backoffLevel + 1) : 0
   const ladderMs = Math.min(QUOTA_BACKOFF_BASE_MS * 2 ** level, QUOTA_BACKOFF_MAX_MS)
   const duration = retryAfterMs !== undefined ? Math.max(retryAfterMs, QUOTA_RETRY_AFTER_FLOOR_MS) : ladderMs
   const candidate = now + duration
   const nextRecoverAt =
-    live && existing !== undefined && existing.nextRecoverAt > candidate ? existing.nextRecoverAt : candidate
+    existing !== undefined && existing.nextRecoverAt > candidate ? existing.nextRecoverAt : candidate
   return {
     exceeded: true,
     reason,
     nextRecoverAt,
     backoffLevel: level,
     observedAt: now,
-    steppedInWindow: stepped,
+    steppedInWindow: live,
   }
 }
 
@@ -215,6 +258,9 @@ export interface CooldownFailureDetail {
   readonly lastErrorHttpStatus?: number | undefined
 }
 
+/** Store namespace holding one cooldown document per credential ID. */
+export const COOLDOWN_NAMESPACE = 'cpa-scheduling-cooldown'
+
 /**
  * Store-backed cooldown tracker. One instance per gateway; the constructor
  * arguments are the only state it touches.
@@ -230,11 +276,8 @@ export class CooldownTracker {
     this.policy = policy
   }
 
-  /** Store namespace holding one cooldown document per credential ID. */
-  static readonly NAMESPACE = 'cpa-scheduling-cooldown'
-
   /**
-   * Whether cooldowns are disabled for a credential:
+   * Whether cooldowns are enabled for a credential:
    * per-credential override > per-provider override > global flag.
    * Force-cooldowns bypass this decision.
    */
@@ -251,7 +294,8 @@ export class CooldownTracker {
    * classification says `none` record the error text but set no block.
    * Ladder failures set the model-scoped (or, without a model,
    * credential-wide) block; force failures set a 60 s block that survives
-   * disabled cooling. A credential-scoped quota failure also propagates
+   * disabled cooling; 401-class failures additionally mark the credential
+   * unauthorized. A credential-scoped quota failure also propagates
    * `credential_quota` to every sibling model state.
    */
   async markFailure(
@@ -264,61 +308,72 @@ export class CooldownTracker {
     if (classification.neutral) return
     const now = this.now()
     const coolingEnabled = this.coolingEnabledFor(authId, provider)
-    await this.store.update<CooldownDocument>(CooldownTracker.NAMESPACE, authId, (current) => {
-      const document = toDocument(current)
-      const next: CooldownDocument = applyFailure(document, {
-        model,
-        classification,
-        detail,
-        now,
-        coolingEnabled,
-        transientCooldownSeconds: this.policy.transientCooldownSeconds,
-      })
-      return next as unknown as CooldownDocument & JsonValue
-    })
+    await this.store.update<JsonValue>(COOLDOWN_NAMESPACE, authId, (current) =>
+      encodeDocument(
+        applyFailure(toDocument(current), {
+          model,
+          classification,
+          detail,
+          now,
+          coolingEnabled,
+          transientCooldownSeconds: this.policy.transientCooldownSeconds,
+        }),
+      ),
+    )
   }
 
-  /** Records a success: the model state clears, and the credential-wide
-   * state clears once no other model is blocked and no live credential
-   * quota window remains. */
+  /**
+   * Records a success: the model state clears, and the credential-wide
+   * state clears once no other model state remains and no live credential
+   * quota window is open.
+   */
   async markSuccess(authId: string, model: string | undefined): Promise<void> {
     const now = this.now()
-    await this.store.update<CooldownDocument>(CooldownTracker.NAMESPACE, authId, (current) => {
-      const document = toDocument(current)
-      return applySuccess(document, model, now) as unknown as CooldownDocument & JsonValue
-    })
+    await this.store.update<JsonValue>(COOLDOWN_NAMESPACE, authId, (current) =>
+      encodeDocument(applySuccess(toDocument(current), model, now)),
+    )
   }
 
   /** Availability of one credential for one model at the current time. */
   async availability(authId: string, model: string): Promise<Availability | undefined> {
-    const raw = await this.store.get(CooldownTracker.NAMESPACE, authId)
-    const document = toDocument(raw)
-    return availabilityOf(document, model, this.now())
+    return availabilityOf(toDocument(await this.store.get(COOLDOWN_NAMESPACE, authId)), model, this.now())
   }
 
-  /** Quota reset (`POST /v0/management/reset-quota`): clears every
-   * per-model state and the credential-wide fields; resolves with the
-   * model keys that were cleared. */
+  /**
+   * Quota reset (`POST /v0/management/reset-quota`): clears every per-model
+   * state and the credential-wide fields; resolves with the model keys that
+   * were cleared before the reset.
+   */
   async resetCredential(authId: string): Promise<string[]> {
-    const result = await this.store.update<CooldownDocument>(CooldownTracker.NAMESPACE, authId, (current) => {
+    const cleared: string[] = []
+    await this.store.update<JsonValue>(COOLDOWN_NAMESPACE, authId, (current) => {
       const document = toDocument(current)
-      return (EMPTY_DOCUMENT as unknown) as CooldownDocument & JsonValue
+      cleared.push(...Object.keys(document.models))
+      return encodeDocument(EMPTY_DOCUMENT)
     })
-    return Object.keys(toDocument(result as unknown as JsonValue | undefined).models)
+    return cleared
   }
 
   /** The stored document of one credential (detached copy via the store). */
   async document(authId: string): Promise<CooldownDocument> {
-    return toDocument(await this.store.get(CooldownTracker.NAMESPACE, authId))
+    return toDocument(await this.store.get(COOLDOWN_NAMESPACE, authId))
   }
 
-  /**
-   * Cooldown projection for management surfaces: one entry per live block.
-   */
+  /** Cooldown projection for management surfaces: one entry per live block. */
   async snapshot(authId: string): Promise<CooldownViewEntry[]> {
-    const document = toDocument(await this.store.get(CooldownTracker.NAMESPACE, authId))
+    const document = toDocument(await this.store.get(COOLDOWN_NAMESPACE, authId))
     const now = this.now()
     const entries: CooldownViewEntry[] = []
+    const unauthorized = document.unauthorized
+    if (unauthorized !== undefined && unauthorized.until > now) {
+      entries.push({
+        scope: 'credential',
+        modelKey: '',
+        reason: 'unauthorized',
+        retryAt: unauthorized.until,
+        remainingSeconds: Math.ceil((unauthorized.until - now) / 1000),
+      })
+    }
     const quota = document.credentialQuota
     if (quota !== undefined && quota.nextRecoverAt > now) {
       entries.push({
@@ -331,7 +386,10 @@ export class CooldownTracker {
       })
     }
     for (const [modelKey, block] of Object.entries(document.models)) {
-      const blockedUntil = block.nextRetryAfter ?? (block.quota !== undefined ? block.quota.nextRecoverAt : 0)
+      const blockedUntil = Math.max(
+        block.nextRetryAfter ?? 0,
+        block.quota !== undefined && block.quota.exceeded ? block.quota.nextRecoverAt : 0,
+      )
       if (blockedUntil <= now) continue
       entries.push({
         scope: 'model',
@@ -392,26 +450,20 @@ interface FailureApplication {
   readonly transientCooldownSeconds: number
 }
 
-function lastErrorOf(application: FailureApplication): LastErrorBlock | undefined {
-  const message = application.detail.lastErrorMessage
-  if (message === undefined || message === '') return undefined
-  const block: LastErrorBlock = { message, httpStatus: application.detail.lastErrorHttpStatus }
-  return block
-}
-
 function applyFailure(document: CooldownDocument, application: FailureApplication): CooldownDocument {
   const { classification, now, detail } = application
-  const lastError = lastErrorOf(application)
-  const withError = (block: ModelBlock | undefined): ModelBlock => {
-    const base: ModelBlock = block ?? {
-      unavailable: false,
-      statusMessage: classification.statusMessage,
-    }
-    return { ...base, statusMessage: classification.statusMessage, lastError }
-  }
+  const lastError: LastErrorBlock | undefined =
+    detail.lastErrorMessage !== undefined && detail.lastErrorMessage !== ''
+      ? { message: detail.lastErrorMessage, httpStatus: detail.lastErrorHttpStatus }
+      : undefined
+  const withError = (block: ModelBlock | undefined): ModelBlock => ({
+    ...(block ?? { unavailable: false, statusMessage: classification.statusMessage }),
+    statusMessage: classification.statusMessage,
+    lastError,
+  })
 
-  // Credential-scoped quota: credential-wide window plus propagation to
-  // every model state.
+  // Credential-scoped quota: one credential-wide window, propagated to
+  // every model state (including the failing one).
   if (classification.credentialScoped && classification.kind === 'quota') {
     const credentialQuota = nextQuotaCooldown(
       document.credentialQuota,
@@ -420,23 +472,16 @@ function applyFailure(document: CooldownDocument, application: FailureApplicatio
       'credential_quota',
     )
     const models: Record<string, ModelBlock> = {}
-    const propagated: QuotaBlock = { ...credentialQuota, reason: 'credential_quota' }
     for (const [key, block] of Object.entries(document.models)) {
-      models[key] = {
-        ...block,
-        quota: mergeQuota(block.quota, propagated, now),
-      }
-    }
-    if (application.model !== undefined && models[application.model] === undefined) {
-      models[application.model] = withError(undefined)
+      models[key] = { ...block, quota: mergeQuota(block.quota, credentialQuota) }
     }
     if (application.model !== undefined) {
-      const existing = models[application.model]
-      if (existing !== undefined) {
-        models[application.model] = {
-          ...existing,
-          quota: mergeQuota(existing.quota, propagated, now),
-        }
+      const base = models[application.model] ?? withError(undefined)
+      models[application.model] = {
+        ...base,
+        statusMessage: classification.statusMessage,
+        lastError,
+        quota: mergeQuota(base.quota, credentialQuota),
       }
     }
     return { ...document, credentialQuota, models }
@@ -447,115 +492,105 @@ function applyFailure(document: CooldownDocument, application: FailureApplicatio
 
   let next: ModelBlock
   if (classification.cooldown === 'force') {
-    const base = withError(target)
-    next = { ...base, unavailable: true, nextRetryAfter: now + FORCE_COOLDOWN_MS }
+    next = { ...withError(target), unavailable: true, nextRetryAfter: now + FORCE_COOLDOWN_MS }
   } else if (classification.cooldown === 'none') {
     next = withError(target)
+  } else if (!application.coolingEnabled) {
+    // Disabled cooling: the error text is recorded, but no block is set.
+    next = withError(target)
   } else {
-    // Ladder cooldowns; disabled cooling records the error without a block.
-    if (!application.coolingEnabled) {
+    const ladder = ladderBlock(classification.kind, target, application)
+    if (ladder === undefined) {
       next = withError(target)
     } else {
-      const duration = ladderDurationMs(classification, application)
-      if (duration === undefined) {
-        next = withError(target)
-      } else {
-        const base = withError(target)
-        const quota =
-          classification.kind === 'quota'
-            ? nextQuotaCooldown(target?.quota, detail.retryAfterMs, now)
-            : classification.kind === 'cloudflare'
-              ? nextCloudflareCooldown(target?.quota, now)
-              : undefined
-        next = {
-          ...base,
-          unavailable: true,
-          nextRetryAfter: now + duration,
-          quota: quota !== undefined ? { ...quota, exceeded: true } : base.quota,
-        }
-      }
+      next = { ...withError(target), unavailable: true, nextRetryAfter: ladder.nextRetryAfter, quota: ladder.quota }
     }
   }
 
-  if (classification.kind === 'unauthorized' || classification.kind === 'invalid_grant') {
-    const unauthorized = true
-    if (application.model === undefined) {
-      return { ...document, unauthorized, credentialWide: next }
-    }
-    return {
-      ...document,
-      unauthorized,
-      models: { ...document.models, [application.model]: next },
-    }
-  }
+  const unauthorizedKind = classification.kind === 'unauthorized' || classification.kind === 'invalid_grant'
+  // A 401-class failure gates the WHOLE credential for 30 minutes (cleared
+  // by a refresh, a success on a clean credential, or a quota reset); the
+  // ladder block additionally lands on the failing scope. The gate applies
+  // regardless of `disable-cooling`: it is an authorization fact, not a
+  // cooldown timestamp.
+  const unauthorized = unauthorizedKind
+    ? { until: now + UNAUTHORIZED_COOLDOWN_MS }
+    : document.unauthorized
   if (application.model === undefined) {
-    return { ...document, credentialWide: next }
+    return { ...document, unauthorized, credentialWide: next }
   }
-  return { ...document, models: { ...document.models, [application.model]: next } }
+  return {
+    ...document,
+    unauthorized,
+    models: { ...document.models, [application.model]: next },
+  }
 }
 
-function mergeQuota(existing: QuotaBlock | undefined, propagated: QuotaBlock, _now: number): QuotaBlock {
+function mergeQuota(existing: QuotaBlock | undefined, propagated: QuotaBlock): QuotaBlock {
   if (existing === undefined) return propagated
-  const nextRecoverAt = Math.max(existing.nextRecoverAt, propagated.nextRecoverAt)
-  return { ...propagated, nextRecoverAt }
+  return { ...propagated, nextRecoverAt: Math.max(existing.nextRecoverAt, propagated.nextRecoverAt) }
 }
 
-function ladderDurationMs(
-  classification: FailureClassification,
+/**
+ * Ladder decision: the resolved `nextRetryAfter` (epoch ms) plus, for the
+ * quota and Cloudflare kinds, the quota block that carries the window.
+ * `undefined` means "no cooldown" (transient cooldowns disabled).
+ */
+function ladderBlock(
+  kind: FailureClassification['kind'],
+  target: ModelBlock | undefined,
   application: FailureApplication,
-): number | undefined {
-  switch (classification.kind) {
+): { nextRetryAfter: number; quota: QuotaBlock | undefined } | undefined {
+  const { now, detail } = application
+  switch (kind) {
     case 'unauthorized':
     case 'invalid_grant':
     case 'payment_required':
-      return UNAUTHORIZED_COOLDOWN_MS
+      return { nextRetryAfter: now + UNAUTHORIZED_COOLDOWN_MS, quota: undefined }
     case 'not_found':
     case 'model_not_found':
-      return NOT_FOUND_COOLDOWN_MS
-    case 'quota':
+      return { nextRetryAfter: now + NOT_FOUND_COOLDOWN_MS, quota: undefined }
+    case 'quota': {
+      const quota = nextQuotaCooldown(target?.quota, detail.retryAfterMs, now)
+      return { nextRetryAfter: quota.nextRecoverAt, quota }
+    }
     case 'cloudflare': {
-      const block = nextQuotaCooldown(
-        undefined,
-        application.detail.retryAfterMs,
-        application.now,
-        classification.kind === 'cloudflare' ? 'cloudflare challenge' : 'quota',
-      )
-      if (classification.kind === 'cloudflare') {
-        return Math.max(block.nextRecoverAt - application.now, CLOUDFLARE_STEP_FLOOR_MS)
-      }
-      return block.nextRecoverAt - application.now
+      const quota = nextCloudflareCooldown(target?.quota, now)
+      return { nextRetryAfter: quota.nextRecoverAt, quota }
     }
     case 'transient':
-    case 'request_failed':
-      return transientCooldownMs(application.transientCooldownSeconds, application.detail.retryAfterMs)
-    case 'force_cooldown':
-      return FORCE_COOLDOWN_MS
+    case 'request_failed': {
+      const duration = transientCooldownMs(application.transientCooldownSeconds, detail.retryAfterMs)
+      if (duration === undefined) return undefined
+      return { nextRetryAfter: now + duration, quota: undefined }
+    }
     default:
       return undefined
   }
 }
 
 function applySuccess(document: CooldownDocument, model: string | undefined, now: number): CooldownDocument {
-  let models = document.models
-  if (model !== undefined) {
-    const rest: Record<string, ModelBlock> = { ...models }
-    delete rest[model]
-    models = rest
-  }
+  const models: Record<string, ModelBlock> = { ...document.models }
+  if (model !== undefined) delete models[model]
   const liveCredentialQuota =
     document.credentialQuota !== undefined && document.credentialQuota.nextRecoverAt > now
-  const remainingBlocks = Object.values(models).some(
-    (block) => (block.nextRetryAfter ?? 0) > now || (block.quota !== undefined && block.quota.nextRecoverAt > now),
-  )
-  const credentialWideLive =
-    document.credentialWide !== undefined && (document.credentialWide.nextRetryAfter ?? 0) > now
-  if (Object.keys(models).length === 0 && !liveCredentialQuota && !remainingBlocks && !credentialWideLive) {
-    return { unauthorized: false, models: {} }
+  if (Object.keys(models).length === 0 && !liveCredentialQuota) {
+    return { models: {} }
   }
-  return { ...document, models, credentialWide: liveCredentialQuota ? document.credentialWide : undefined }
+  return { ...document, models }
 }
 
 function availabilityOf(document: CooldownDocument, model: string, now: number): Availability | undefined {
+  const unauthorized = document.unauthorized
+  if (unauthorized !== undefined && unauthorized.until > now) {
+    return {
+      blocked: true,
+      blockedAs: 'unavailable',
+      reason: 'unauthorized',
+      until: unauthorized.until,
+      remainingMs: unauthorized.until - now,
+    }
+  }
   const credentialQuota = document.credentialQuota
   if (credentialQuota !== undefined && credentialQuota.nextRecoverAt > now) {
     return {
@@ -581,10 +616,10 @@ function availabilityOf(document: CooldownDocument, model: string, now: number):
   const quotaUntil = block.quota !== undefined && block.quota.exceeded ? block.quota.nextRecoverAt : 0
   const until = Math.max(block.nextRetryAfter ?? 0, quotaUntil)
   if (until <= now) return undefined
-  const quotaBlock = quotaUntil >= (block.nextRetryAfter ?? 0)
+  const quotaDominates = quotaUntil >= (block.nextRetryAfter ?? 0)
   return {
     blocked: true,
-    blockedAs: quotaBlock ? 'cooldown' : 'unavailable',
+    blockedAs: quotaDominates ? 'cooldown' : 'unavailable',
     reason: reasonOf(block),
     until,
     remainingMs: until - now,

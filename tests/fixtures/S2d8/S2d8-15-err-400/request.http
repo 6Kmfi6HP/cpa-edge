@@ -1,0 +1,10 @@
+POST /v1/messages HTTP/1.1
+Host: 127.0.0.1:18317
+Accept: */*
+Authorization: Bearer oracle-local-key-1
+Content-Type: application/json
+User-Agent: claude-cli/2.1.63 (external, cli)
+Content-Length: 90
+
+
+{"model": "gm", "max_tokens": 100, "messages": [{"role": "user", "content": "Say hello"}]}

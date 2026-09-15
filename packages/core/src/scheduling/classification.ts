@@ -343,7 +343,7 @@ export function classifyFailure(input: FailureInput): FailureClassification {
     const force = ruleAction === 'stop-and-cooldown' || ruleAction === 'continue-and-cooldown'
     const stop = ruleAction === 'stop' || ruleAction === 'stop-and-cooldown'
     return {
-      kind: stop ? 'request_scoped' : 'force_cooldown',
+      kind: force ? 'force_cooldown' : 'request_scoped',
       rotation: stop ? 'stop' : 'continue',
       cooldown: force ? 'force' : 'none',
       neutral: false,

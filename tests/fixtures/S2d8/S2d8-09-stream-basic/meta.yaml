@@ -1,0 +1,121 @@
+{
+ "id": "S2d8-09-stream-basic",
+ "purpose": "Streaming happy path: exact Claude SSE event sequence and framing (event:/data:/3 newlines), message_start defaults + modelVersion override, message_delta usage, message_stop; upstream stream via ?alt=sse with no Accept header.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6 (docker eceasy/cli-proxy-api:v7.3.4, digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266)",
+ "recorded_at": "2026-09-16T03:33:07",
+ "config": "tests config: run/config.s2d8.yaml (gemini-api-key mock-gem-key -> host.docker.internal:19001, models gemini-mock-model/gm)",
+ "mock_control": {
+  "mode": "happy",
+  "canned_stream": [
+   {
+    "candidates": [
+     {
+      "content": {
+       "parts": [
+        {
+         "text": "Hello from mock gemini upstream"
+        }
+       ],
+       "role": "model"
+      },
+      "index": 0
+     }
+    ],
+    "modelVersion": "gemini-mock-model"
+   },
+   {
+    "candidates": [
+     {
+      "content": {
+       "parts": [
+        {
+         "text": " more"
+        }
+       ],
+       "role": "model"
+      },
+      "index": 0
+     }
+    ]
+   },
+   {
+    "candidates": [
+     {
+      "content": {
+       "parts": [],
+       "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 0
+     }
+    ],
+    "usageMetadata": {
+     "promptTokenCount": 9,
+     "candidatesTokenCount": 6,
+     "totalTokenCount": 15
+    }
+   }
+  ]
+ },
+ "record": [
+  "downstream full SSE stream (status+headers+all bytes)",
+  "upstream wire request"
+ ],
+ "dynamic_fields": [
+  "Date, X-Cpa-Trace-Id, Content-Length headers",
+  "reference/mock port numbers in upstream.jsonl Host fields",
+  "content_block.id digits in stream tool_use events (process counter; orchestrator ruling S2d8-2 accepts masking)",
+  "terminal transport-error text if it differs from 'unexpected EOF' (record what the reference emits)",
+  "ports (worker-local): reference 18317, mock 19001"
+ ],
+ "byte_exact_fields": [
+  "message_start.usage.input_tokens (o200k_base estimate): NOT masked; asserted byte-exactly per orchestrator ruling S2d8-1 \u2014 record the actual value in the fixture; do NOT list it as a masked dynamic field"
+ ],
+ "expected_upstream": {
+  "path": "/v1beta/models/gemini-mock-model:streamGenerateContent?alt=sse",
+  "body": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "Say hello"
+      }
+     ]
+    }
+   ],
+   "model": "gemini-mock-model",
+   "safetySettings": [
+    {
+     "category": "HARM_CATEGORY_HARASSMENT",
+     "threshold": "OFF"
+    },
+    {
+     "category": "HARM_CATEGORY_HATE_SPEECH",
+     "threshold": "OFF"
+    },
+    {
+     "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+     "threshold": "OFF"
+    },
+    {
+     "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+     "threshold": "OFF"
+    },
+    {
+     "category": "HARM_CATEGORY_CIVIC_INTEGRITY",
+     "threshold": "BLOCK_NONE"
+    }
+   ]
+  }
+ },
+ "expected_downstream_body": null,
+ "notes": [
+  "message_start.usage.input_tokens is the deterministic o200k_base estimate of THIS request; record the actual emitted value (asserted byte-exactly by contract tests per ruling S2d8-1; do NOT mask)",
+  "framing: 'event: <name>\\ndata: <json>\\n\\n\\n' for every event",
+  "upstream headers must NOT include Accept: text/event-stream"
+ ],
+ "http_status": "200",
+ "request_model_substituted": "gemini-mock-model -> gm (client-visible alias; the cases file used the upstream name, which the reference rejects with 400 unknown provider)",
+ "upstream_hits": 1
+}

@@ -1,0 +1,10 @@
+POST /v1/messages HTTP/1.1
+Host: 127.0.0.1:18317
+Accept: */*
+Authorization: Bearer oracle-local-key-1
+Content-Type: application/json
+User-Agent: claude-cli/2.1.63 (external, cli)
+Content-Length: 900
+
+
+{"model": "gm", "max_tokens": 1024, "tools": [{"name": "get_weather", "description": "Get current weather", "input_schema": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}}], "messages": [{"role": "user", "content": "Weather in Paris and London?"}, {"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_01", "name": "get_weather", "input": {"city": "Paris"}}, {"type": "tool_use", "id": "toolu_02", "name": "get_weather", "input": {"city": "London"}}]}, {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_02", "content": "12C rainy"}, {"type": "tool_result", "tool_use_id": "toolu_01", "content": [{"type": "text", "text": "18C sunny"}, {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "aGVsbG8="}}]}, {"type": "text", "text": "Thanks, now summarize."}]}, {"role": "user", "content": "Bye"}]}

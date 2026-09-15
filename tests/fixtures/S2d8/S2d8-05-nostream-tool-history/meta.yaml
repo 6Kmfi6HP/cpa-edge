@@ -1,0 +1,192 @@
+{
+ "id": "S2d8-05-nostream-tool-history",
+ "purpose": "Tool round-trip: assistant tool_use -> functionCall (id passthrough + bypass thoughtSignature on FIRST call only); user tool_results reordered to match tool_use order; string vs array tool_result content encodings; image extraction to inline_data; trailing text moved before functionResponses; adjacent user turns merged.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6 (docker eceasy/cli-proxy-api:v7.3.4, digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266)",
+ "recorded_at": "2026-09-16T03:33:05",
+ "config": "tests config: run/config.s2d8.yaml (gemini-api-key mock-gem-key -> host.docker.internal:19001, models gemini-mock-model/gm)",
+ "mock_control": {
+  "mode": "happy",
+  "canned_nonstream": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "Paris 18C sunny, London 12C rainy."
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 40,
+    "candidatesTokenCount": 9,
+    "totalTokenCount": 49
+   },
+   "modelVersion": "gemini-mock-model"
+  }
+ },
+ "record": [
+  "downstream status+headers+body",
+  "upstream wire request"
+ ],
+ "dynamic_fields": [
+  "Date, X-Cpa-Trace-Id, Content-Length headers",
+  "reference/mock port numbers in upstream.jsonl Host fields",
+  "content_block.id digits in stream tool_use events (process counter; orchestrator ruling S2d8-2 accepts masking)",
+  "terminal transport-error text if it differs from 'unexpected EOF' (record what the reference emits)",
+  "ports (worker-local): reference 18317, mock 19001"
+ ],
+ "byte_exact_fields": [
+  "message_start.usage.input_tokens (o200k_base estimate): NOT masked; asserted byte-exactly per orchestrator ruling S2d8-1 \u2014 record the actual value in the fixture; do NOT list it as a masked dynamic field"
+ ],
+ "expected_upstream": {
+  "body": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "Weather in Paris and London?"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "thoughtSignature": "skip_thought_signature_validator",
+       "functionCall": {
+        "id": "toolu_01",
+        "name": "get_weather",
+        "args": {
+         "city": "Paris"
+        }
+       }
+      },
+      {
+       "functionCall": {
+        "id": "toolu_02",
+        "name": "get_weather",
+        "args": {
+         "city": "London"
+        }
+       }
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "Thanks, now summarize."
+      },
+      {
+       "text": "Bye"
+      },
+      {
+       "functionResponse": {
+        "id": "toolu_01",
+        "name": "get_weather",
+        "response": {
+         "result": "18C sunny"
+        }
+       }
+      },
+      {
+       "functionResponse": {
+        "id": "toolu_02",
+        "name": "get_weather",
+        "response": {
+         "result": {
+          "type": "text",
+          "text": "12C rainy"
+         }
+        }
+       }
+      },
+      {
+       "inline_data": {
+        "mime_type": "image/png",
+        "data": "aGVsbG8="
+       }
+      }
+     ]
+    }
+   ],
+   "model": "gemini-mock-model",
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "get_weather",
+       "description": "Get current weather",
+       "parametersJsonSchema": {
+        "type": "object",
+        "properties": {
+         "city": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "city"
+        ]
+       }
+      }
+     ]
+    }
+   ],
+   "safetySettings": [
+    {
+     "category": "HARM_CATEGORY_HARASSMENT",
+     "threshold": "OFF"
+    },
+    {
+     "category": "HARM_CATEGORY_HATE_SPEECH",
+     "threshold": "OFF"
+    },
+    {
+     "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+     "threshold": "OFF"
+    },
+    {
+     "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+     "threshold": "OFF"
+    },
+    {
+     "category": "HARM_CATEGORY_CIVIC_INTEGRITY",
+     "threshold": "BLOCK_NONE"
+    }
+   ]
+  }
+ },
+ "expected_downstream_body": {
+  "id": "",
+  "type": "message",
+  "role": "assistant",
+  "model": "gemini-mock-model",
+  "content": [
+   {
+    "type": "text",
+    "text": "Paris 18C sunny, London 12C rainy."
+   }
+  ],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {
+   "input_tokens": 40,
+   "output_tokens": 9
+  }
+ },
+ "notes": [
+  "tool_results arrive reversed (toolu_02 first) and MUST be reordered to toolu_01, toolu_02",
+  "the SECOND functionCall part carries NO thoughtSignature (sanitizer strips sibling signatures)",
+  "single-text-block tool_result content becomes the RAW block object as response.result"
+ ],
+ "http_status": "200",
+ "request_model_substituted": "gemini-mock-model -> gm (client-visible alias; the cases file used the upstream name, which the reference rejects with 400 unknown provider)",
+ "upstream_hits": 1
+}

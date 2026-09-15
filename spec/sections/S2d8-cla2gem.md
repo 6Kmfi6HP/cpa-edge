@@ -82,7 +82,7 @@ Keys that do not apply are absent (not `null`). `safetySettings` is always prese
 
 | Claude field | Mapped to Gemini | Rule |
 |---|---|---|
-| `model` | top-level `model` | Set to the credential-resolved upstream model (executor `SetStringIfDifferent`). The client string itself is not forwarded. |
+| `model` | top-level `model` | Set to the credential-resolved upstream model (executor `SetStringIfDifferent`). The client string itself is not forwarded. Routing note (recorded S2d8, routing algorithm owned by S4): when a model entry defines an alias, the ALIAS is the only client-addressable id — requesting the upstream NAME client-side is rejected with `400 {"type":"error","error":{"type":"invalid_request_error","message":"unknown provider for model <name>"}}` and NO upstream dispatch (evidence: `_cpa_edge_ref/probes/S2d8-as-written/`). All golden requests therefore use the alias `gm`; the upstream wire shows the resolved name. The `model` field is NOT part of the input-token estimate segments (§3.5.2), so alias vs name does not change the estimate. |
 | `system` (string) | `systemInstruction` = `{"parts":[{"text":<s>}]}` | No `role` key. Dropped entirely if the text is a Claude-Code attribution block. |
 | `system` (array of `{type:"text",text}`) | `systemInstruction` = `{"role":"user","parts":[{"text":...},...]}` | Only `type:"text"` items; attribution items skipped; empty result → key absent. NOTE: array form carries `role:"user"`, string form does not. |
 | `messages[].role` | `contents[].role` | `assistant`→`model`; `user`→`user`; `system`/`developer`→`user` reminder turn (below); any non-string role: message skipped. |
@@ -124,6 +124,13 @@ Keys that do not apply are absent (not `null`). `safetySettings` is always prese
 10. **`thoughtSignature` policy on generated `functionCall` parts**: the translator stamps the fixed sentinel `skip_thought_signature_validator` on every `functionCall` part it synthesizes; a pre-send sanitizer then keeps it only on the FIRST `functionCall` of each `model` turn and strips it from later sibling `functionCall` parts (unsigned sibling calls match native Gemini parallel-call history). `functionResponse` parts never carry signatures (evidence: `internal/signature/gemini_sanitize.go`).
 11. **Tool identifier sanitization** (evidence: `internal/util/util.go` `SanitizeFunctionName`): replace `[^a-zA-Z0-9_.:-]` with `_`; if the first character is not a letter/underscore, truncate to 63 and prepend `_`; truncate to 64. Applies to outgoing `functionDeclarations[].name`, `functionCall.name`, `functionResponse.name`, and `allowedFunctionNames` entries.
 12. **count_tokens body variant**: same translation, then `tools`, `generationConfig`, `safetySettings` are deleted; leading-user boundary (rule 7, prepend-only) is applied; trailing-user is NOT. (evidence: `internal/runtime/executor/gemini_executor.go` `CountTokens`.)
+
+Byte-encoding rules (all RECORDED, contract-test material):
+
+13. **String encoding**: every string the gateway WRITES into the upstream body uses standard JSON string encoding WITH HTML escaping: `<` → `\u003c`, `>` → `\u003e`, `&` → `\u0026` (recorded case 03: the injected `<system-reminder>` text arrives upstream as `\u003csystem-reminder\u003e`).
+14. **Raw passthrough preserves client bytes**: values copied verbatim — `functionCall.args` (from `tool_use.input`), `functionResponse.response.result` when raw (from `tool_result` blocks), and the schema passed to `parametersJsonSchema` — keep the CLIENT's original byte formatting (key spacing, key order). Keys the gateway ADDS or MODIFIES are serialized compactly (recorded case 04: schema keeps client spacing while the enum hint `"description":"Allowed: celsius, fahrenheit"` is appended compactly; case 05: `args":{"city": "Paris"}` keeps client spacing). An implementation that re-serializes these values will NOT be byte-exact.
+15. **Generated key order** (pinned by fixtures): a `functionCall` part is `{"thoughtSignature":...,"functionCall":{"name":...,"args":...,"id":...}}` (id appended after args; `thoughtSignature` only on the first call of a turn, rule 10); a `functionResponse` part is `{"functionResponse":{"name":...,"response":...,"id":...}}`; `inline_data` parts are `{"inline_data":{"mime_type":...,"data":...}}`.
+16. **Image placement within user turns**: images extracted from a `tool_result` stay immediately AFTER their own `functionResponse` part (recorded case 05: order is text, text, functionResponse(tolu_01), inline_data, functionResponse(tolu_02)); `ReorderGeminiUserParts` then only moves TEXT parts ahead of all non-text parts, preserving non-text relative order.
 
 ### 3.3 Gemini response fields consumed (both modes)
 
@@ -230,6 +237,7 @@ S1's bytes apply verbatim: 401 `{"error":"Missing API key"}` / `{"error":"Invali
 
 - Byte-exact comparison of the downstream SSE body against fixtures, masking ONLY these volatile fields (orchestrator ruling S2d8-2 accepts the counter mask):
   - `X-Cpa-Trace-Id`, `Date`, `Content-Length` headers;
+  - worker-local reference/mock port numbers (in `Host` headers and upstream wire logs);
   - the digits of `content_block.id` in `content_block_start` events (`<name>-<N>` — the reference uses a process-scoped counter; a per-request counter matching the `<name>-<digits>` shape is acceptable).
 - `message.usage.input_tokens` inside `message_start` is NOT masked — it is a deterministic o200k_base estimate and is asserted byte-exactly (ruling S2d8-1).
 - Everything else — event names, order, JSON field order, the 3-newline framing, index numbering, delta payloads — MUST be byte-equal.
@@ -240,32 +248,36 @@ S1's bytes apply verbatim: 401 `{"error":"Missing API key"}` / `{"error":"Invali
 
 ## 6. Golden samples index
 
-Recorded by @oracle-runner against CLIProxyAPI v7.3.4 (image digest sha256:97825da…) with the gemini mock fleet. Layout per RECIPES (BOOTSTRAP.md §7): `tests/fixtures/S2d8/<case-id>/{meta.yaml,request.http,downstream.md,upstream.jsonl,mock-response.json}`.
+All 18 cases RECORDED 2026-09-16 by @oracle-runner against CLIProxyAPI v7.3.4 (image digest sha256:97825da…) with the gemini mock fleet (per-case canned replies via mock control file). Layout per RECIPES (BOOTSTRAP.md §7): `tests/fixtures/S2d8/<case-id>/{meta.yaml,request.http,downstream.md,upstream.jsonl}` (mock control mirrored in `meta.yaml`).
 
-| Case | Pins | Fixture |
-|---|---|---|
-| S2d8-01-nostream-basic | system string form, gen params, safetySettings, response mapping, usage | tests/fixtures/S2d8/S2d8-01-nostream-basic/ |
-| S2d8-02-nostream-alias | alias `gm` → upstream `gemini-mock-model`; response model keeps upstream name | tests/fixtures/S2d8/S2d8-02-nostream-alias/ |
-| S2d8-03-nostream-system-array | system array form (role:user), attribution strip, mid-conversation system → reminder turn, user-turn merge | tests/fixtures/S2d8/S2d8-03-nostream-system-array/ |
-| S2d8-04-nostream-tool-call | tools→functionDeclarations, schema cleaning, tool name sanitize+restore round-trip, tool_use block, stop_reason tool_use | tests/fixtures/S2d8/S2d8-04-nostream-tool-call/ |
-| S2d8-05-nostream-tool-history | tool_use/tool_result round-trip, result encoding variants, images, part reordering, alignment, merge, boundary turn | tests/fixtures/S2d8/S2d8-05-nostream-tool-history/ |
-| S2d8-06-nostream-image | image block → inline_data | tests/fixtures/S2d8/S2d8-06-nostream-image/ |
-| S2d8-07-nostream-thinking | thinking request mapping; thinking+signature blocks; cached tokens; thoughtsTokenCount | tests/fixtures/S2d8/S2d8-07-nostream-thinking/ |
-| S2d8-08-nostream-maxtokens | MAX_TOKENS → max_tokens; usage deletion when usageMetadata absent | tests/fixtures/S2d8/S2d8-08-nostream-maxtokens/ |
-| S2d8-09-stream-basic | full happy SSE sequence + framing + message_delta + message_stop | tests/fixtures/S2d8/S2d8-09-stream-basic/ |
-| S2d8-10-stream-thinking | thinking blocks in stream, signature_delta, MAX_TOKENS stop | tests/fixtures/S2d8/S2d8-10-stream-thinking/ |
-| S2d8-11-stream-tool-call | tool_use stream events, input_json_delta, stop_reason tool_use | tests/fixtures/S2d8/S2d8-11-stream-tool-call/ |
-| S2d8-12-stream-empty | HasContent gating: message_start only | tests/fixtures/S2d8/S2d8-12-stream-empty/ |
-| S2d8-13-count-tokens | count_tokens end-to-end + upstream body variant | tests/fixtures/S2d8/S2d8-13-count-tokens/ |
-| S2d8-14-err-429 | 429 → Claude envelope (not verbatim) | tests/fixtures/S2d8/S2d8-14-err-429/ |
-| S2d8-15-err-400 | 400 INVALID_ARGUMENT → invalid_request_error | tests/fixtures/S2d8/S2d8-15-err-400/ |
-| S2d8-16-slow-chunks | no heartbeat injection under delay | tests/fixtures/S2d8/S2d8-16-slow-chunks/ |
-| S2d8-17-disconnect | mid-stream EOF: message_stop + event: error, HTTP stays 200 | tests/fixtures/S2d8/S2d8-17-disconnect/ |
-| S2d8-18-stream-error-before-first-chunk | upstream 429 on stream → JSON error, no SSE headers | tests/fixtures/S2d8/S2d8-18-stream-error-before-first-chunk/ |
+Recorded routing fact (affects every golden): the canonical recordings use client model `gm` (the alias). The as-written run (client model = upstream name `gemini-mock-model`) is preserved as evidence at `_cpa_edge_ref/probes/S2d8-as-written/` — the reference rejects those client-side with `400 unknown provider for model gemini-mock-model` and zero upstream hits; see §3.1 routing note. Affected `meta.yaml` files carry `request_model_substituted: "gemini-mock-model -> gm"`.
 
-FIXTURE-DEFERRED (R-FIXTURE): none of the 18 cases require real credentials; the CREDENTIALED-ONLY surfaces of this direction are listed in §7 and have no fixtures by design. Error paths that ARE recordable are all recorded above.
+`input_tokens(msg-start)` = the recorded byte-exact `message_start.usage.input_tokens` o200k_base estimate (ruling S2d8-1).
 
----
+| Case | Status | Pins (recorded) | Fixture |
+|---|---|---|---|
+| S2d8-01-nostream-basic | 200 | string systemInstruction (no role), temperature/topP, safetySettings, response mapping; downstream body byte-matches spec template | tests/fixtures/S2d8/S2d8-01-nostream-basic/ |
+| S2d8-02-nostream-alias | 200 | alias `gm` → upstream `gemini-mock-model`; response model keeps upstream name | tests/fixtures/S2d8/S2d8-02-nostream-alias/ |
+| S2d8-03-nostream-system-array | 200 | array systemInstruction (role:user), attribution strip, reminder turn HTML-escaped (`\u003csystem-reminder\u003e`), user-turn merge | tests/fixtures/S2d8/S2d8-03-nostream-system-array/ |
+| S2d8-04-nostream-tool-call | 200 | functionDeclarations + cleaned schema (enum hint), toolConfig AUTO, tool_use `get_weather-1`/`get weather`, stop tool_use | tests/fixtures/S2d8/S2d8-04-nostream-tool-call/ |
+| S2d8-05-nostream-tool-history | 200 | functionCall{id passthrough, bypass signature on FIRST call only}, aligned+reordered tool_results, raw-block result, inline_data placement, merge | tests/fixtures/S2d8/S2d8-05-nostream-tool-history/ |
+| S2d8-06-nostream-image | 200 | image → inline_data; part order preserved | tests/fixtures/S2d8/S2d8-06-nostream-image/ |
+| S2d8-07-nostream-thinking | 200 | thinkingBudget mapping; thinking block + signature; cache_read 3; usage 17/10 | tests/fixtures/S2d8/S2d8-07-nostream-thinking/ |
+| S2d8-08-nostream-maxtokens | 200 | stop_reason max_tokens; usage key ABSENT | tests/fixtures/S2d8/S2d8-08-nostream-maxtokens/ |
+| S2d8-09-stream-basic | 200 | full happy SSE (7 events, 3-newline framing); input_tokens(msg-start)=4; message_delta 9/6 | tests/fixtures/S2d8/S2d8-09-stream-basic/ |
+| S2d8-10-stream-thinking | 200 | thinking/signature_delta stream; MAX_TOKENS stop; input_tokens(msg-start)=9 | tests/fixtures/S2d8/S2d8-10-stream-thinking/ |
+| S2d8-11-stream-tool-call | 200 | tool_use stream events, compact input_json_delta, stop tool_use; input_tokens(msg-start)=32; tool id `get_weather-1` (digits masked) | tests/fixtures/S2d8/S2d8-11-stream-tool-call/ |
+| S2d8-12-stream-empty | 200 | message_start ONLY (HasContent gate); input_tokens(msg-start)=4; no message_delta/message_stop | tests/fixtures/S2d8/S2d8-12-stream-empty/ |
+| S2d8-13-count-tokens | 200 | REAL upstream :countTokens (tools/genConfig/safetySettings stripped); `{"input_tokens":42}` | tests/fixtures/S2d8/S2d8-13-count-tokens/ |
+| S2d8-14-err-429 | 429 | status passthrough + Claude envelope (NOT verbatim): rate_limit_error/"mock rate limit" | tests/fixtures/S2d8/S2d8-14-err-429/ |
+| S2d8-15-err-400 | 400 | invalid_request_error mapping | tests/fixtures/S2d8/S2d8-15-err-400/ |
+| S2d8-16-slow-chunks | 200 | byte-identical to 09 under 300ms delays; no heartbeat frames; input_tokens(msg-start)=4 | tests/fixtures/S2d8/S2d8-16-slow-chunks/ |
+| S2d8-17-disconnect | 200 | text deltas → message_stop → terminal `event: error` api_error "unexpected EOF" (message_stop PRECEDES the error; HTTP stays 200); input_tokens(msg-start)=4 | tests/fixtures/S2d8/S2d8-17-disconnect/ |
+| S2d8-18-stream-error-before-first-chunk | 500 | JSON error (api_error "Internal error."), Content-Type application/json, NO SSE headers | tests/fixtures/S2d8/S2d8-18-stream-error-before-first-chunk/ |
+
+Upstream wire (recorded for every case; 1 hit per request): path/header/body bytes match §2.2–§3.2 exactly — `Content-Type` + `x-goog-api-key` + `Accept-Encoding: gzip` + `User-Agent: Go-http-client/1.1`, no `Accept` on stream calls, body key order per §2.3, safetySettings always injected.
+
+FIXTURE-DEFERRED (R-FIXTURE): none of the 18 cases required real credentials. The CREDENTIALED-ONLY surfaces of this direction (Gemini CLI/AIStudio OAuth, §7.2) have no fixtures by design. Error paths that ARE recordable are all recorded.
 
 ## 7. Open questions and deferred items
 

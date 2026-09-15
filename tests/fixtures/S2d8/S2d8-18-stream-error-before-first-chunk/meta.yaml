@@ -1,0 +1,40 @@
+{
+ "id": "S2d8-18-stream-error-before-first-chunk",
+ "purpose": "Upstream 500 on a stream request: error arrives before the first translated chunk -> plain JSON error response (upstream status), NO SSE headers. 500 chosen to avoid the 429 cooldown coupling with case 14.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6 (docker eceasy/cli-proxy-api:v7.3.4, digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266)",
+ "recorded_at": "2026-09-16T03:33:09",
+ "config": "tests config: run/config.s2d8.yaml (gemini-api-key mock-gem-key -> host.docker.internal:19001, models gemini-mock-model/gm)",
+ "mock_control": {
+  "mode": "error",
+  "status": 500,
+  "error_body": {
+   "error": {
+    "code": 500,
+    "message": "Internal error.",
+    "status": "INTERNAL"
+   }
+  }
+ },
+ "record": [
+  "downstream status+headers+body",
+  "upstream wire request"
+ ],
+ "dynamic_fields": [
+  "Date, X-Cpa-Trace-Id, Content-Length headers",
+  "reference/mock port numbers in upstream.jsonl Host fields",
+  "content_block.id digits in stream tool_use events (process counter; orchestrator ruling S2d8-2 accepts masking)",
+  "terminal transport-error text if it differs from 'unexpected EOF' (record what the reference emits)",
+  "ports (worker-local): reference 18317, mock 19001"
+ ],
+ "byte_exact_fields": [
+  "message_start.usage.input_tokens (o200k_base estimate): NOT masked; asserted byte-exactly per orchestrator ruling S2d8-1 \u2014 record the actual value in the fixture; do NOT list it as a masked dynamic field"
+ ],
+ "expected_upstream": null,
+ "expected_downstream_body": null,
+ "notes": [
+  "response Content-Type must be application/json (NOT text/event-stream)"
+ ],
+ "http_status": "500",
+ "request_model_substituted": "gemini-mock-model -> gm (client-visible alias; the cases file used the upstream name, which the reference rejects with 400 unknown provider)",
+ "upstream_hits": 1
+}

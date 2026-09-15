@@ -209,8 +209,10 @@ function toolAccumulator(block: Record<string, unknown>): ToolAccumulator {
 
 /** Joins and trims the accumulated fragments; empty runs default to `{}`. */
 function assembledToolArgs(acc: ToolAccumulator): { readonly text: string; readonly valid: boolean } {
-  const trimmed = acc.parts.join('').trim()
+  const joined = acc.parts.join('')
+  const trimmed = joined.trim()
   const text = trimmed.length > 0 ? trimmed : '{}'
+  console.log('DEBUG assembled joined:', JSON.stringify(joined), 'len:', joined.length, 'text:', JSON.stringify(text))
   return { text, valid: isValidJson(text) }
 }
 
@@ -302,6 +304,7 @@ export class ClaudeToGeminiStreamTranslator {
     if (kind === 'input_json_delta') {
       // The only delta that never emits: fragments accumulate by index.
       const partial = readString(delta, 'partial_json')
+      console.log('DEBUG partial:', JSON.stringify(partial), 'index:', index)
       if (typeof index === 'number' && partial !== undefined) {
         const acc = this.tools.get(index)
         if (acc !== undefined) acc.parts.push(partial)

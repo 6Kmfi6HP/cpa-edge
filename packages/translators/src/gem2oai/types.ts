@@ -21,6 +21,9 @@ export type WireValue =
 /** Ordered JSON object builder: key insertion order is the wire order. */
 export type WireObject = { [key: string]: WireValue }
 
+/** Ordered header list: `[name, value]` pairs, original casing. */
+export type HeaderList = ReadonlyArray<readonly [string, string]>
+
 /**
  * Thinking capability of the selected model entry. openai-compat models
  * without explicit thinking configuration use

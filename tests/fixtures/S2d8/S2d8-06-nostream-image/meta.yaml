@@ -1,0 +1,111 @@
+{
+ "id": "S2d8-06-nostream-image",
+ "purpose": "Claude image block (base64 source) -> Gemini inline_data part; text and image parts keep their relative order within a user turn.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6 (docker eceasy/cli-proxy-api:v7.3.4, digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266)",
+ "recorded_at": "2026-09-16T03:33:06",
+ "config": "tests config: run/config.s2d8.yaml (gemini-api-key mock-gem-key -> host.docker.internal:19001, models gemini-mock-model/gm)",
+ "mock_control": {
+  "mode": "happy",
+  "canned_nonstream": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "A tiny PNG."
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 11,
+    "candidatesTokenCount": 4,
+    "totalTokenCount": 15
+   },
+   "modelVersion": "gemini-mock-model"
+  }
+ },
+ "record": [
+  "downstream status+headers+body",
+  "upstream wire request"
+ ],
+ "dynamic_fields": [
+  "Date, X-Cpa-Trace-Id, Content-Length headers",
+  "reference/mock port numbers in upstream.jsonl Host fields",
+  "content_block.id digits in stream tool_use events (process counter; orchestrator ruling S2d8-2 accepts masking)",
+  "terminal transport-error text if it differs from 'unexpected EOF' (record what the reference emits)",
+  "ports (worker-local): reference 18317, mock 19001"
+ ],
+ "byte_exact_fields": [
+  "message_start.usage.input_tokens (o200k_base estimate): NOT masked; asserted byte-exactly per orchestrator ruling S2d8-1 \u2014 record the actual value in the fixture; do NOT list it as a masked dynamic field"
+ ],
+ "expected_upstream": {
+  "body": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "inline_data": {
+        "mime_type": "image/png",
+        "data": "aGVsbG8="
+       }
+      },
+      {
+       "text": "Describe this."
+      }
+     ]
+    }
+   ],
+   "model": "gemini-mock-model",
+   "safetySettings": [
+    {
+     "category": "HARM_CATEGORY_HARASSMENT",
+     "threshold": "OFF"
+    },
+    {
+     "category": "HARM_CATEGORY_HATE_SPEECH",
+     "threshold": "OFF"
+    },
+    {
+     "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+     "threshold": "OFF"
+    },
+    {
+     "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+     "threshold": "OFF"
+    },
+    {
+     "category": "HARM_CATEGORY_CIVIC_INTEGRITY",
+     "threshold": "BLOCK_NONE"
+    }
+   ]
+  }
+ },
+ "expected_downstream_body": {
+  "id": "",
+  "type": "message",
+  "role": "assistant",
+  "model": "gemini-mock-model",
+  "content": [
+   {
+    "type": "text",
+    "text": "A tiny PNG."
+   }
+  ],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {
+   "input_tokens": 11,
+   "output_tokens": 4
+  }
+ },
+ "notes": [],
+ "http_status": "200",
+ "request_model_substituted": "gemini-mock-model -> gm (client-visible alias; the cases file used the upstream name, which the reference rejects with 400 unknown provider)",
+ "upstream_hits": 1
+}

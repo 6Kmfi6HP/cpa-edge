@@ -19,7 +19,8 @@ import {
   readString,
   serializeOrdered,
 } from './json'
-import type { RawJson, WireObject, WireValue } from './json'
+import { RawJson } from './json'
+import type { WireObject, WireValue } from './json'
 import { claudeToolObject } from './schema'
 import { deriveClaudeUserId, metadataObject } from './userid'
 import type {

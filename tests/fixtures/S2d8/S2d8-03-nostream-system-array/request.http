@@ -1,0 +1,10 @@
+POST /v1/messages HTTP/1.1
+Host: 127.0.0.1:18317
+Accept: */*
+Authorization: Bearer oracle-local-key-1
+Content-Type: application/json
+User-Agent: claude-cli/2.1.63 (external, cli)
+Content-Length: 373
+
+
+{"model": "gm", "max_tokens": 100, "system": [{"type": "text", "text": "x-anthropic-billing-header: cc_version=2.1.63; cc_entrypoint=cli; cch=12345;"}, {"type": "text", "text": "You are a helpful assistant."}], "messages": [{"role": "user", "content": "First question"}, {"role": "system", "content": "Remember the rules."}, {"role": "user", "content": "Second question"}]}

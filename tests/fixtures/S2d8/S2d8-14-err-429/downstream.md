@@ -1,0 +1,23 @@
+# S2d8-14-err-429 downstream (exact bytes; body)
+
+## Status + headers
+```
+HTTP/1.1 429 Too Many Requests
+Access-Control-Allow-Headers: *
+Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS
+Access-Control-Allow-Origin: *
+Access-Control-Expose-Headers: X-CPA-TRACE-ID, X-CPA-VERSION, X-CPA-COMMIT, X-CPA-BUILD-DATE, X-CPA-SUPPORT-PLUGIN, X-CPA-HOME-VERSION, X-CPA-HOME-BUILD-DATE, X-SERVER-VERSION, X-SERVER-BUILD-DATE, Location, Retry-After, X-Request-Id, OpenAI-Request-Id
+Content-Type: application/json
+X-Cpa-Trace-Id: 20260916043310-8003f8df5449db3b-77368837
+Date: Tue, 15 Sep 2026 20:33:10 GMT
+Content-Length: 80
+
+```
+
+## body
+```
+{"type":"error","error":{"type":"rate_limit_error","message":"mock rate limit"}}
+
+```
+
+HTTP status: 429
