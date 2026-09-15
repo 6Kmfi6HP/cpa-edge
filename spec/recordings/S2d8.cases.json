@@ -2397,6 +2397,92 @@
         "no X-Cpa-Trace-Id response header (routing-stage error)",
         "Claude envelope TRIMS the message: no model name and NO trailing space — contrast the Responses surface (S2d6 badbody golden) which relays the untrimmed trailing-space variant"
       ]
+    },
+    {
+      "id": "S2d8-21-count-tokens-toolchoice",
+      "purpose": "Wire-evidence dispute resolver (impl-review claimed toolConfig is also stripped from count bodies; source reading said no): a count_tokens request WITH tool_choice shows toolConfig IS RETAINED upstream as functionCallingConfig while tools/generationConfig/safetySettings are stripped. Together with S2d8-13 (no tool_choice -> no toolConfig key) this pins: toolConfig appears iff the client sends tool_choice.",
+      "dispute_resolution": "Recorded by oracle-runner-2; wire decided AGAINST the impl-review claim — the count strip list is exactly {tools, generationConfig, safetySettings}.",
+      "downstream_request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8417/v1/messages/count_tokens",
+        "headers": {
+          "Authorization": "Bearer oracle-local-key-1",
+          "Content-Type": "application/json",
+          "User-Agent": "claude-cli/2.1.63 (external, cli)"
+        },
+        "body": {
+          "model": "gm",
+          "tools": [
+            {
+              "name": "t1",
+              "description": "d",
+              "input_schema": {
+                "type": "object",
+                "properties": {
+                  "a": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ],
+          "tool_choice": {
+            "type": "auto"
+          },
+          "system": "You are terse.",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Hello world"
+            }
+          ]
+        }
+      },
+      "mock": {
+        "mode": "happy",
+        "canned_count": {
+          "totalTokens": 42
+        }
+      },
+      "record": [
+        "downstream status+headers+body",
+        "upstream wire request (decisive artifact)"
+      ],
+      "expected_upstream": {
+        "path": "/v1beta/models/gemini-mock-model:countTokens",
+        "body": {
+          "contents": [
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "text": "Hello world"
+                }
+              ]
+            }
+          ],
+          "model": "gemini-mock-model",
+          "systemInstruction": {
+            "parts": [
+              {
+                "text": "You are terse."
+              }
+            ]
+          },
+          "toolConfig": {
+            "functionCallingConfig": {
+              "mode": "AUTO"
+            }
+          }
+        }
+      },
+      "expected_downstream_body": {
+        "input_tokens": 42
+      },
+      "notes": [
+        "RECORDED: toolConfig RETAINED (not stripped); tools/generationConfig/safetySettings absent",
+        "1 upstream hit; key order contents, model, systemInstruction, toolConfig (construction order minus stripped keys)"
+      ]
     }
   ],
   "byte_exact_fields": [
@@ -2409,10 +2495,11 @@
     "estimate_note": "The model field is not part of the o200k input-token estimate segments, so the substitution does not change message_start.usage.input_tokens."
   },
   "gate_addenda": {
-    "note": "Cases 19 and 20 were authorized and recorded at the S2d8 adversarial gate (round 2); they are listed here so this file remains the complete case inventory.",
+    "note": "Cases 19 and 20 were authorized and recorded at the S2d8 adversarial gate; case 21 was recorded by oracle-runner-2 to resolve the impl-review toolConfig dispute. All are listed here so this file remains the complete case inventory.",
     "fixture_dirs": [
       "tests/fixtures/S2d8/S2d8-19-alias-rejection/",
-      "tests/fixtures/S2d8/S2d8-20-strict-json-400/"
+      "tests/fixtures/S2d8/S2d8-20-strict-json-400/",
+      "tests/fixtures/S2d8/S2d8-21-count-tokens-toolchoice/"
     ]
   }
 }

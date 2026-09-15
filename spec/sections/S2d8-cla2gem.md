@@ -128,7 +128,7 @@ Keys that do not apply are absent (not `null`). `safetySettings` is always prese
 (evidence: `internal/translator/gemini/common/safety.go`; recorded in `upstream.jsonl`.)
 10. **`thoughtSignature` policy on generated `functionCall` parts**: the translator stamps the fixed sentinel `skip_thought_signature_validator` on every `functionCall` part it synthesizes; a pre-send sanitizer then keeps it only on the FIRST `functionCall` of each `model` turn and strips it from later sibling `functionCall` parts (unsigned sibling calls match native Gemini parallel-call history). `functionResponse` parts never carry signatures (evidence: `internal/signature/gemini_sanitize.go`).
 11. **Tool identifier sanitization** (evidence: `internal/util/util.go` `SanitizeFunctionName`): replace `[^a-zA-Z0-9_.:-]` with `_`; if the first character is not a letter/underscore, truncate to 63 and prepend `_`; truncate to 64. Applies to outgoing `functionDeclarations[].name`, `functionCall.name`, `functionResponse.name`, and `allowedFunctionNames` entries.
-12. **count_tokens body variant**: same translation, then `tools`, `generationConfig`, `safetySettings` are deleted; leading-user boundary (rule 7, prepend-only) is applied; trailing-user is NOT. (evidence: `internal/runtime/executor/gemini_executor.go` `CountTokens`.)
+12. **count_tokens body variant**: same translation, then EXACTLY `tools`, `generationConfig`, `safetySettings` are deleted. `toolConfig` is NOT stripped: a client `tool_choice` survives as `toolConfig.functionCallingConfig` (GOLDEN-PINNED by S2d8-21: `tool_choice {"type":"auto"}` → upstream body carries `{"toolConfig":{"functionCallingConfig":{"mode":"AUTO"}}}` alongside the three stripped keys; S2d8-13 pins the complementary case — no `tool_choice` sent → no `toolConfig` key). Leading-user boundary (rule 7, prepend-only) is applied; trailing-user is NOT. (evidence: `internal/runtime/executor/gemini_executor.go` `CountTokens`; wire goldens S2d8-13/S2d8-21.)
 
 Byte-encoding rules (all RECORDED, contract-test material):
 
@@ -253,7 +253,7 @@ S1's bytes apply verbatim: 401 `{"error":"Missing API key"}` / `{"error":"Invali
 
 ## 6. Golden samples index
 
-All 20 goldens RECORDED against CLIProxyAPI v7.3.4 (image digest sha256:97825da…): 18 by @oracle-runner-5 with the gemini mock fleet (per-case canned replies via mock control file); S2d8-19 promoted from the as-written run evidence and S2d8-20 recorded fresh at the adversarial gate. Layout per RECIPES (BOOTSTRAP.md §7): `tests/fixtures/S2d8/<case-id>/{meta.yaml,request.http,downstream.md,upstream.jsonl}` (mock control mirrored in `meta.yaml`; upstream.jsonl is EMPTY — zero upstream hits — for the two routing-stage 400s, 19/20).
+All 21 goldens RECORDED against CLIProxyAPI v7.3.4 (image digest sha256:97825da…): 18 by @oracle-runner-5 with the gemini mock fleet (per-case canned replies via mock control file); S2d8-19 promoted from the as-written run evidence and S2d8-20 recorded fresh at the adversarial gate; S2d8-21 recorded by @oracle-runner-2 to resolve the impl-review `toolConfig` dispute (wire evidence: toolConfig is NOT stripped from count bodies). Layout per RECIPES (BOOTSTRAP.md §7): `tests/fixtures/S2d8/<case-id>/{meta.yaml,request.http,downstream.md,upstream.jsonl}` (mock control mirrored in `meta.yaml`; upstream.jsonl is EMPTY — zero upstream hits — for the two routing-stage 400s, 19/20).
 
 Recorded routing fact (affects every golden): the canonical recordings use client model `gm` (the alias). The as-written run (client model = upstream name `gemini-mock-model`) is preserved as evidence at `_cpa_edge_ref/probes/S2d8-as-written/` — the reference rejects those client-side with `400 unknown provider for model gemini-mock-model` and zero upstream hits; see §3.1 routing note. Affected `meta.yaml` files carry `request_model_substituted: "gemini-mock-model -> gm"`.
 
@@ -273,7 +273,7 @@ Recorded routing fact (affects every golden): the canonical recordings use clien
 | S2d8-10-stream-thinking | 200 | thinking STRIP upstream (`"generationConfig":{}`); thinking/signature_delta stream; MAX_TOKENS stop; input_tokens(msg-start)=9 | tests/fixtures/S2d8/S2d8-10-stream-thinking/ |
 | S2d8-11-stream-tool-call | 200 | tool_use stream events, compact input_json_delta, stop tool_use; input_tokens(msg-start)=32; tool id `get_weather-1` (digits masked) | tests/fixtures/S2d8/S2d8-11-stream-tool-call/ |
 | S2d8-12-stream-empty | 200 | message_start ONLY (HasContent gate); input_tokens(msg-start)=4; no message_delta/message_stop | tests/fixtures/S2d8/S2d8-12-stream-empty/ |
-| S2d8-13-count-tokens | 200 | REAL upstream :countTokens (tools/genConfig/safetySettings stripped); `{"input_tokens":42}` | tests/fixtures/S2d8/S2d8-13-count-tokens/ |
+| S2d8-13-count-tokens | 200 | REAL upstream :countTokens (tools/genConfig/safetySettings stripped; no tool_choice sent → no toolConfig key); `{"input_tokens":42}` | tests/fixtures/S2d8/S2d8-13-count-tokens/ |
 | S2d8-14-err-429 | 429 | status passthrough + Claude envelope (NOT verbatim): rate_limit_error/"mock rate limit" | tests/fixtures/S2d8/S2d8-14-err-429/ |
 | S2d8-15-err-400 | 400 | invalid_request_error mapping | tests/fixtures/S2d8/S2d8-15-err-400/ |
 | S2d8-16-slow-chunks | 200 | byte-identical to 09 under 300ms delays; no heartbeat frames; input_tokens(msg-start)=4 | tests/fixtures/S2d8/S2d8-16-slow-chunks/ |
@@ -284,8 +284,9 @@ Upstream wire (recorded for every executed case; 1 hit per request; none for 19/
 
 | S2d8-19-alias-rejection | 400 | client model = upstream NAME `gemini-mock-model` → routing 400 `unknown provider for model gemini-mock-model`, ZERO upstream hits, no X-Cpa-Trace-Id | tests/fixtures/S2d8/S2d8-19-alias-rejection/ |
 | S2d8-20-strict-json-400 | 400 | non-JSON body → routing 400 `unknown provider for model` (trimmed: no model name, no trailing space — contrast S2d6 Responses-surface trailing-space variant), ZERO upstream hits, no X-Cpa-Trace-Id | tests/fixtures/S2d8/S2d8-20-strict-json-400/ |
+| S2d8-21-count-tokens-toolchoice | 200 | count body KEEPS toolConfig: `tool_choice {"type":"auto"}` → upstream `{"toolConfig":{"functionCallingConfig":{"mode":"AUTO"}}}` while tools/generationConfig/safetySettings are stripped; `{"input_tokens":42}` | tests/fixtures/S2d8/S2d8-21-count-tokens-toolchoice/ |
 
-FIXTURE-DEFERRED (R-FIXTURE): none of the 20 cases required real credentials. The CREDENTIALED-ONLY surfaces of this direction (Gemini CLI/AIStudio OAuth, §7.2) have no fixtures by design. Error paths that ARE recordable are all recorded.
+FIXTURE-DEFERRED (R-FIXTURE): none of the 21 cases required real credentials. The CREDENTIALED-ONLY surfaces of this direction (Gemini CLI/AIStudio OAuth, §7.2) have no fixtures by design. Error paths that ARE recordable are all recorded.
 
 ## 7. Open questions and deferred items
 

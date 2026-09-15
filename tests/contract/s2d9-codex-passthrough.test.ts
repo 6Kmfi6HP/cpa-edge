@@ -1047,3 +1047,1053 @@ async function readResponseBody(body: PassthroughResponse['body']): Promise<stri
 function truncate(text: string): string {
   return text.length > 200 ? `${text.slice(0, 200)}…` : text
 }
+
+
+// ─── Upstream wire comparison (primary gold) ──────────────────────────────────────────
+
+interface CapturedUpstreamCall {
+  readonly step: number
+  readonly request: RecordedRequest
+  readonly call: UpstreamRequest
+}
+
+function assertUpstreamWire(
+  recorded: WireLine,
+  captured: CapturedUpstreamCall,
+  policy: SessionPolicy,
+  caseId: string,
+): void {
+  const context = `S2d9[${caseId}] step ${captured.step} upstream wire`
+  expect(captured.call.method, `${context}: method`).toBe(recorded.method)
+  expect(captured.call.url, `${context}: url (recording origin + recorded wire path; §3.2/§6 suffix rules)`).toBe(
+    `${UPSTREAM_ORIGIN}${recorded.path}`,
+  )
+
+  const expectedPairs: Array<[string, string]> = []
+  for (const [name, value] of Object.entries(recorded.headers)) {
+    if (name.toLowerCase() === 'content-length') continue // transport-derived; consistency-checked below
+    expectedPairs.push([name, normalizeUpstreamHeaderValue(name, value, policy)])
+  }
+  const actualPairs: Array<[string, string]> = []
+  let actualContentLength: string | undefined
+  for (const [name, value] of captured.call.headers) {
+    if (name.toLowerCase() === 'content-length') {
+      actualContentLength = value
+      continue
+    }
+    if (name.toLowerCase() === 'authorization') {
+      expect(value.startsWith('Bearer '), `${context}: Authorization must carry the Bearer scheme`).toBe(true)
+      actualPairs.push([name, '<redacted>'])
+      continue
+    }
+    actualPairs.push([name, normalizeUpstreamHeaderValue(name, value, policy)])
+  }
+  expect(actualPairs, `${context}: header list (order + names + values)`).toEqual(expectedPairs)
+  if (actualContentLength !== undefined) {
+    expect(actualContentLength, `${context}: Content-Length must match the body byte length`).toBe(
+      String(encoder.encode(captured.call.body).length),
+    )
+  }
+  expect(
+    normalizeUpstreamBody(captured.call.body, policy),
+    `${context}: translated body bytes (session-masked; raw-JSON edit discipline pinned byte-exact)`,
+  ).toBe(normalizeUpstreamBody(recorded.body, policy))
+}
+
+// ─── Downstream comparison (per step) ────────────────────────────────────────────────
+
+interface DownstreamAssertionResult {
+  readonly body: string
+  readonly decoded: DecodedSse | undefined
+}
+
+async function assertDownstreamStep(
+  produced: PassthroughResponse,
+  expected: RecordedResponse,
+  caseId: string,
+  step: number,
+): Promise<DownstreamAssertionResult> {
+  const context = `S2d9[${caseId}] step ${step} downstream`
+  const body = await readResponseBody(produced.body)
+  expect(produced.status, `${context}: status`).toBe(expected.status)
+
+  const expectedContentType = headerValue(expected.headers, 'content-type')
+  if (expectedContentType === undefined) throw new Error(`${context}: fixture must record Content-Type`)
+  expect(headerValue(produced.headers, 'content-type'), `${context}: Content-Type`).toBe(expectedContentType)
+
+  const expectedCacheControl = headerValue(expected.headers, 'cache-control')
+  const cacheControl = headerValue(produced.headers, 'cache-control')
+  if (expectedCacheControl === undefined) {
+    expect(cacheControl, `${context}: Cache-Control must be absent outside SSE commits`).toBeUndefined()
+  } else {
+    expect(cacheControl, `${context}: Cache-Control`).toBe(expectedCacheControl)
+  }
+
+  const expectedRetryAfter = headerValue(expected.headers, 'retry-after')
+  const retryAfter = headerValue(produced.headers, 'retry-after')
+  if (expectedRetryAfter === undefined) {
+    expect(retryAfter, `${context}: Retry-After must be absent when the recording has none`).toBeUndefined()
+  } else {
+    // Never masked: the only recorded value is the S2d9-12 cooldown literal "3600",
+    // deterministic under the frozen clock (see header: CLOCK).
+    expect(retryAfter, `${context}: Retry-After`).toBe(expectedRetryAfter)
+  }
+
+  const producedContentLength = headerValue(produced.headers, 'content-length')
+  if (producedContentLength !== undefined) {
+    expect(producedContentLength, `${context}: Content-Length must match the body byte length when emitted`).toBe(
+      String(encoder.encode(body).length),
+    )
+  }
+
+  if (expectedContentType === 'text/event-stream') {
+    // R-SSE: the DECODED byte stream is the comparison surface (the adapter's own
+    // transport chunking is irrelevant — the harness reads the stream to completion).
+    // S2d9-17 goldens the framing layer, so the decoded stream itself is byte-pinned.
+    expect(body, `${context}: decoded SSE byte stream (framing + payloads)`).toBe(expected.body)
+    const recordedDecoded = decodeDownstreamSse(expected.body, `${context}: recorded`)
+    const producedDecoded = decodeDownstreamSse(body, `${context}: produced`)
+    expect(producedDecoded.trailingWriteDone, `${context}: the WriteDone trailing \\n must land exactly where recorded`).toBe(
+      recordedDecoded.trailingWriteDone,
+    )
+    expect(producedDecoded.failureLead, `${context}: failure frames must carry the §5.2 leading \\n exactly where recorded`).toEqual(
+      recordedDecoded.failureLead,
+    )
+    return { body, decoded: producedDecoded }
+  }
+  expect(body, `${context}: body bytes`).toBe(expected.body)
+  return { body, decoded: undefined }
+}
+
+// ─── Clause layer (semantic MUSTs that byte equality hides as unreadable failures) ─────
+
+/** Every frame payload that carries a usage object (response.usage or usage). */
+function usageObjectsOf(payload: Record<string, unknown>): readonly Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = []
+  const responseUsage = asRecord(asRecord(payload.response)?.usage)
+  if (responseUsage !== undefined) out.push(responseUsage)
+  const topLevelUsage = asRecord(payload.usage)
+  if (topLevelUsage !== undefined) out.push(topLevelUsage)
+  return out
+}
+
+/** §4.2/§4.7: EnsureResponsesUsageDetails appends BOTH missing detail objects. */
+function assertUsageDetailsPresent(usage: Record<string, unknown>, context: string): void {
+  const outputDetails = asRecord(usage.output_tokens_details)
+  const inputDetails = asRecord(usage.input_tokens_details)
+  expect(outputDetails?.reasoning_tokens, `${context}: output_tokens_details.reasoning_tokens injected`).toBe(0)
+  expect(inputDetails?.cached_tokens, `${context}: input_tokens_details.cached_tokens injected`).toBe(0)
+}
+
+/** The §5.1 re-serialization family: gateway-generated layout, alphabetical + compact. */
+function canonicalCompact(value: unknown): string {
+  if (typeof value === 'string') return JSON.stringify(value)
+  if (typeof value === 'number' || typeof value === 'boolean' || value === null) return String(value)
+  if (Array.isArray(value)) return `[${value.map(canonicalCompact).join(',')}]`
+  const record = asRecordOrThrow(value, 'canonicalCompact')
+  const entries = Object.entries(record).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${canonicalCompact(entry)}`).join(',')}}`
+}
+
+function assertUpstreamClauses(
+  caseId: CaseId,
+  captured: CapturedUpstreamCall,
+  policy: SessionPolicy,
+): void {
+  const context = `S2d9[${caseId}] step ${captured.step} upstream clauses`
+  const body = parseJsonRecord(captured.call.body, `${context}: translated body`)
+  const client = parseJsonRecord(captured.request.body, `${context}: client body`)
+  const isLite =
+    headerValue(captured.request.headers, 'x-openai-internal-codex-responses-lite')?.trim().toLowerCase() === 'true'
+
+  // §3.2: the upstream model field is the RESOLVED name, never the client alias —
+  // force-mapping rewrites only the DOWNSTREAM echo, not the upstream request.
+  expect(body.model, `${context}: model is the resolved upstream name`).toBe(UPSTREAM_MODEL)
+
+  const sessionHeader = headerValue(captured.call.headers, 'session-id')
+  const bodyCacheKey = asString(body.prompt_cache_key)
+  const clientCacheKey = asString(client.prompt_cache_key)
+  if (clientCacheKey !== undefined) {
+    // §3.2 (S2d9-06): a client-fixed prompt_cache_key passes verbatim on BOTH surfaces
+    // and becomes the Session-Id header.
+    expect(sessionHeader, `${context}: Session-Id header == client prompt_cache_key (verbatim)`).toBe(clientCacheKey)
+    expect(bodyCacheKey, `${context}: body prompt_cache_key == client prompt_cache_key (verbatim)`).toBe(clientCacheKey)
+  } else {
+    // §3.2: the derived session UUID is mirrored: header == body field, UUID shape.
+    expect(sessionHeader, `${context}: derived §3.2 identity equality (header == body prompt_cache_key)`).toBe(bodyCacheKey)
+    expect(bodyCacheKey, `${context}: derived identity is a UUID`).toMatch(UUID_RE)
+    expect(sessionHeader, `${context}: derived identity is a UUID`).toMatch(UUID_RE)
+  }
+  if (policy.header) {
+    // belt-and-braces: the masked surfaces really carried distinct per-request values
+    expect(sessionHeader, `${context}: masked header still holds the unmasked derived value`).toBeDefined()
+  }
+
+  // §3.2: cloaking runs LAST — the fixed codex-tui identity overwrites everything.
+  expect(headerValue(captured.call.headers, 'user-agent'), `${context}: cloaked User-Agent`).toBe(CLOAKED_USER_AGENT)
+  expect(headerValue(captured.call.headers, 'originator'), `${context}: cloaked Originator`).toBe(CLOAKED_ORIGINATOR)
+  expect(headerValue(captured.call.headers, 'accept-encoding'), `${context}: Accept-Encoding`).toBe('gzip')
+  expect(headerValue(captured.call.headers, 'connection'), `${context}: Connection`).toBe('Keep-Alive')
+  expect(headerValue(captured.call.headers, 'content-type'), `${context}: Content-Type`).toBe('application/json')
+
+  if (COMPACT_PATHS.has(captured.request.path)) {
+    // §6 compact passthrough: stream DELETED, no store/include forcing, no tool
+    // injection, near-verbatim input; upstream is a plain JSON call.
+    expect(Object.hasOwn(body, 'stream'), `${context}: compact bodies delete the stream key`).toBe(false)
+    expect(Object.hasOwn(body, 'store'), `${context}: compact bodies never gain a forced store`).toBe(false)
+    expect(Object.hasOwn(body, 'include'), `${context}: compact bodies never gain a forced include`).toBe(false)
+    expect(Object.hasOwn(body, 'tools'), `${context}: compact bodies never gain injected tools`).toBe(false)
+    expect(Object.hasOwn(body, 'instructions') && body.instructions === client.instructions, `${context}: compact instructions pass through`).toBe(true)
+    expect(body.input, `${context}: compact input passes verbatim`).toEqual(client.input)
+    expect(headerValue(captured.call.headers, 'accept'), `${context}: compact upstream Accept`).toBe('application/json')
+    expect(asString(body.prompt_cache_key), `${context}: compact attaches the same derived cache key`).toBeDefined()
+    return
+  }
+
+  // §3.2/§4.1: the upstream is ALWAYS SSE on /responses, stream and non-stream clients.
+  expect(body.stream, `${context}: stream flag (always-SSE)`).toBe(true)
+  expect(headerValue(captured.call.headers, 'accept'), `${context}: SSE Accept header`).toBe('text/event-stream')
+
+  // §3.2 canonical constants.
+  expect(body.store, `${context}: store forced false`).toBe(false)
+  expect(body.include, `${context}: include forced`).toEqual(['reasoning.encrypted_content'])
+  expect(body.parallel_tool_calls, `${context}: parallel_tool_calls (Lite forces false, §3.3)`).toBe(!isLite)
+  expect(body.instructions, `${context}: instructions (client value preserved, else defaulted "")`).toBe(
+    typeof client.instructions === 'string' ? client.instructions : '',
+  )
+
+  if (isLite) {
+    // §3.3 native Lite: NO image_generation injection, Lite header forwarded upstream
+    // (recorded with canonical MIME casing — the wire gold pins the exact name).
+    expect(Object.hasOwn(body, 'tools'), `${context}: Lite requests gain no injected tools`).toBe(false)
+    expect(headerValue(captured.call.headers, 'x-openai-internal-codex-responses-lite'), `${context}: Lite header forwarded`).toBe(
+      'true',
+    )
+  } else {
+    // §3.2 tools row (disable-image-generation: off — the recorded default): the
+    // image_generation tool is INJECTED as the LAST tools element.
+    const tools = asArray(body.tools)
+    expect(tools, `${context}: tools array`).toBeDefined()
+    expect(tools?.[tools.length - 1], `${context}: injected image_generation tool appended LAST`).toEqual({
+      type: 'image_generation',
+      output_format: 'png',
+    })
+  }
+
+  if (caseId === 'S2d9-04') {
+    // §3.2 input rewrites: system -> developer; builtin alias web_search_preview ->
+    // web_search (byte gold pins the layout — untouched client elements keep their
+    // original spacing, rewritten elements re-serialize compactly).
+    const input = asArray(body.input) ?? []
+    expect(asRecord(input[0])?.role, `${context}: system role rewritten to developer`).toBe('developer')
+    expect(asRecord(input[1])?.role, `${context}: user role untouched`).toBe('user')
+    const tools = (asArray(body.tools) ?? []).map((tool) => asRecord(tool))
+    expect(asRecord(tools[0])?.name, `${context}: client function tool preserved`).toBe('get_weather')
+    expect(tools[1], `${context}: web_search_preview normalized to web_search`).toEqual({ type: 'web_search' })
+    expect(tools[2], `${context}: image_generation appended after the normalized builtin`).toEqual({
+      type: 'image_generation',
+      output_format: 'png',
+    })
+  }
+
+  if (caseId === 'S2d9-05') {
+    // §3.2 reasoning-row divergence, RECORDED: the capability-less model strips the
+    // whole top-level reasoning object (the fixture outranks §3.2's PRESERVED prose —
+    // see header). The reasoning-ITEM sanitization rules are pinned next.
+    expect(Object.hasOwn(body, 'reasoning'), `${context}: reasoning object stripped (recorded capability default)`).toBe(false)
+    const input = (asArray(body.input) ?? []).map((item) => asRecord(item))
+    expect(input.length, `${context}: four input items survive`).toBe(4)
+    const valid = input[0]
+    const orphan = input[1]
+    const invalid = input[2]
+    const message = input[3]
+    expect(valid?.id, `${context}: valid encrypted_content keeps the item id`).toBe('rs_valid_1')
+    expect(asString(valid?.encrypted_content)?.startsWith('gAAAA'), `${context}: valid encrypted_content preserved`).toBe(true)
+    expect(Object.hasOwn(orphan ?? {}, 'id'), `${context}: orphan reasoning item loses its id (store=false rule)`).toBe(false)
+    expect(Object.hasOwn(invalid ?? {}, 'id'), `${context}: invalid-encrypted reasoning item loses its id`).toBe(false)
+    expect(Object.hasOwn(invalid ?? {}, 'encrypted_content'), `${context}: invalid encrypted_content dropped`).toBe(false)
+    expect(asRecord(message)?.role, `${context}: the trailing message item is untouched`).toBe('user')
+  }
+
+  if (caseId === 'S2d9-06') {
+    // §3.2 deletion list + the stream_options carve-out + preserved passthroughs.
+    for (const dropped of [
+      'previous_response_id',
+      'truncation',
+      'user',
+      'temperature',
+      'top_p',
+      'max_output_tokens',
+      'service_tier',
+      'prompt_cache_retention',
+      'safety_identifier',
+      'generate',
+    ]) {
+      expect(Object.hasOwn(body, dropped), `${context}: whitelist drop — ${dropped} must not reach the upstream`).toBe(false)
+    }
+    expect(body.stream_options, `${context}: stream_options reduced to reasoning_summary_delivery`).toEqual({
+      reasoning_summary_delivery: 'consequential',
+    })
+    expect(body.metadata, `${context}: metadata preserved verbatim`).toEqual({ trace: 't1' })
+  }
+}
+
+function assertDownstreamClauses(
+  caseId: CaseId,
+  result: DownstreamAssertionResult,
+  clientBody: Record<string, unknown>,
+): void {
+  const context = `S2d9[${caseId}] downstream clauses`
+  const clientModel = asString(clientBody.model)
+
+  if (result.decoded === undefined) {
+    const body = parseJsonRecord(result.body, context)
+    const error = asRecord(body.error)
+    switch (caseId) {
+      case 'S2d9-01':
+      case 'S2d9-04': {
+        // §4.7 aggregation: the terminal response object, model NOT injected (§4.3:
+        // the non-stream path never injects), output repaired from output_item.done,
+        // usage details defaulted in the recorded append order.
+        expect(body.model, `${context}: aggregated model is the upstream name (never injected)`).toBe(UPSTREAM_MODEL)
+        const output = asArray(body.output)
+        expect(output?.length, `${context}: output rebuilt from output_item.done items`).toBeGreaterThan(0)
+        const usage = asRecordOrThrow(body.usage, `${context}: aggregated usage`)
+        assertUsageDetailsPresent(usage, context)
+        expect(Object.keys(usage), `${context}: usage key order (details appended after total_tokens)`).toEqual([
+          'input_tokens',
+          'output_tokens',
+          'total_tokens',
+          'output_tokens_details',
+          'input_tokens_details',
+        ])
+        return
+      }
+      case 'S2d9-09': {
+        // §5.1: the 401 rewrite — classified auth_unavailable body, alphabetical layout.
+        expect(error?.code, `${context}: 401 rewritten to auth_unavailable`).toBe('auth_unavailable')
+        expect(error?.message, `${context}: upstream message preserved`).toBe('Invalid token')
+        expect(error?.type, `${context}: upstream type preserved`).toBe('authentication_error')
+        expect(result.body, `${context}: body is the canonical alphabetical-compact re-serialization}`).toBe(
+          canonicalCompact(parseJsonRecord(result.body, context)),
+        )
+        return
+      }
+      case 'S2d9-10':
+      case 'S2d9-11': {
+        // §5.1: everything-else passthrough, re-serialized with observed fields intact.
+        expect(result.body, `${context}: body is the canonical alphabetical-compact re-serialization`).toBe(
+          canonicalCompact(parseJsonRecord(result.body, context)),
+        )
+        return
+      }
+      case 'S2d9-12': {
+        // §5.1/§9.3: the rate-limit cooldown selection error — Retry-After comes from
+        // the 429 body's resets_in_seconds; the window literals are byte-pinned.
+        expect(error?.code, `${context}: model_cooldown family`).toBe('model_cooldown')
+        expect(error?.provider, `${context}: provider`).toBe('codex')
+        expect(error?.model, `${context}: model is the client-facing alias`).toBe(clientModel)
+        expect(error?.reset_seconds, `${context}: reset_seconds == the 429 body's resets_in_seconds`).toBe(3600)
+        expect(error?.reset_time, `${context}: reset_time is the Go duration string`).toBe('1h0m0s')
+        expect(error?.last_upstream_error, `${context}: last_upstream_error == "<error.code>: <error.message>"`).toBe(
+          'usage_limit_reached: You have exceeded your usage limit',
+        )
+        expect(result.body, `${context}: body is the canonical alphabetical-compact re-serialization}`).toBe(
+          canonicalCompact(parseJsonRecord(result.body, context)),
+        )
+        return
+      }
+      case 'S2d9-16': {
+        // §5.4: the compact stream:true rejection — gateway-synthesized, zero upstream.
+        expect(body, `${context}: exact gateway-synthesized 400 body`).toEqual({
+          error: { message: 'Streaming not supported for compact responses', type: 'invalid_request_error' },
+        })
+        return
+      }
+      case 'S2d9-18': {
+        // §5.1/§9.3: the 404-cooldown selection error — the 503 auth_unavailable
+        // family carries the gateway struct layout (message, type, code — NOT
+        // alphabetical; the byte gold pins the layout) and embeds the last upstream
+        // error as "<error.code>: <error.message>".
+        expect(error?.type, `${context}: server_error type`).toBe('server_error')
+        expect(error?.code, `${context}: internal_server_error code`).toBe('internal_server_error')
+        const message = asString(error?.message)
+        expect(message?.startsWith('auth_unavailable: no auth available (providers=codex, model='), `${context}: auth_unavailable message head`).toBe(true)
+        expect(message?.includes('last upstream error: model_not_found: model not found: mock-codex-upstream'), `${context}: embedded last upstream error`).toBe(true)
+        return
+      }
+      case 'S2d9-15': {
+        // §6: compact passthrough — upstream body VERBATIM, no usage defaulting for
+        // object == response.compaction.
+        expect(body.object, `${context}: compaction object marker`).toBe('response.compaction')
+        expect(Object.hasOwn(body, 'usage'), `${context}: no usage defaulting on compaction bodies`).toBe(false)
+        return
+      }
+      default:
+        return
+    }
+  }
+
+  // SSE clause layer.
+  const frames = result.decoded.frames
+  assertSequenceNumbers(result.decoded, context)
+  const lastFrame = frames[frames.length - 1]
+  const lastEvent = lastFrame?.event ?? ''
+  const isFailureLast = FAILURE_EVENT_NAMES.has(lastEvent)
+
+  for (const frame of frames) {
+    const payload = parseJsonRecord(frame.data, `${context}: ${frame.event ?? 'data'} payload`)
+    // §4.2: per-frame usage-detail defaulting on every forwarded chunk with a usage.
+    for (const usage of usageObjectsOf(payload)) {
+      assertUsageDetailsPresent(usage, `${context}: ${frame.event ?? 'data'} usage`)
+    }
+    if (frame.event === 'response.created' || frame.event === 'response.in_progress') {
+      // §4.3: created/in_progress always carry a model — injected when the upstream
+      // omitted it, preserved when present, force-mapped when configured.
+      const response = asRecordOrThrow(payload.response, `${context}: ${frame.event} response object`)
+      expect(response.model, `${context}: ${frame.event} carries response.model (§4.3)`).toBeDefined()
+    }
+  }
+
+  if (caseId === 'S2d9-02') {
+    // §4.3 model injection: the mock's response.created carries NO model; the gateway
+    // injects the client-requested alias (byte position pinned by the gold).
+    const created = parseJsonRecord(frames[0]?.data ?? '{}', `${context}: response.created payload`)
+    expect(asRecord(created.response)?.model, `${context}: injected model is the client-requested alias`).toBe(clientModel)
+  }
+  if (caseId === 'S2d9-03') {
+    // §4.3 force-mapping: EVERY model field in EVERY payload is the alias, overriding
+    // the upstream-provided values.
+    for (const frame of frames) {
+      const payload = parseJsonRecord(frame.data, `${context}: ${frame.event ?? 'data'} payload`)
+      const response = asRecord(payload.response)
+      if (response !== undefined) {
+        expect(response.model, `${context}: force-mapped response.model`).toBe(FORCED_MODEL_ALIAS)
+      }
+    }
+  }
+  if (caseId === 'S2d9-02' || caseId === 'S2d9-03' || caseId === 'S2d9-05' || caseId === 'S2d9-06' || caseId === 'S2d9-07' || caseId === 'S2d9-17') {
+    // §4.6 output repair: the mock's terminal frame ships an EMPTY output; the gateway
+    // rebuilds it from the recorded output_item.done items.
+    const terminal = frames.find((frame) => frame.event === 'response.completed')
+    const payload = parseJsonRecord(terminal?.data ?? '{}', `${context}: terminal payload`)
+    const output = asArray(asRecordOrThrow(payload.response, `${context}: terminal response`).output)
+    expect(output?.length, `${context}: terminal output rebuilt from output_item.done items`).toBeGreaterThan(0)
+  }
+  if (isFailureLast && lastFrame !== undefined) {
+    const payload = parseJsonRecord(lastFrame.data, `${context}: failure frame payload`)
+    if (caseId === 'S2d9-08') {
+      // §5.3 disconnect: request_timeout detail, message = the canonical
+      // incomplete-stream text; the adapter must surface THIS, never transport text.
+      expect(lastFrame.event, `${context}: plain client gets event: error`).toBe('error')
+      const detail = asRecordOrThrow(payload.error, `${context}: error detail`)
+      expect(detail.code, `${context}: request_timeout code`).toBe('request_timeout')
+      expect(detail.type, `${context}: invalid_request_error type`).toBe('invalid_request_error')
+      expect(detail.message, `${context}: canonical incomplete-stream message`).toBe(
+        'stream error: stream disconnected before completion: stream closed before response.completed',
+      )
+      expect(detail.param, `${context}: param null slot in the alphabetical detail`).toBeNull()
+    }
+    if (caseId === 'S2d9-13') {
+      // §5.2: plain client + the upstream error frame's code/message used verbatim as
+      // the detail; the upstream error frame itself is NOT forwarded.
+      expect(lastFrame.event, `${context}: plain client gets event: error`).toBe('error')
+      const detail = asRecordOrThrow(payload.error, `${context}: error detail`)
+      expect(detail.code, `${context}: upstream error code preserved`).toBe('server_error')
+      expect(detail.message, `${context}: upstream error message preserved`).toBe('upstream exploded')
+      expect(frames.some((frame) => frame.data.includes('"upstream exploded"') && frame.event === undefined), `${context}: the upstream error frame must not be forwarded`).toBe(false)
+    }
+    if (caseId === 'S2d9-14') {
+      // §5.2: codex-flavored client (Originator: codex_cli_rs) gets the
+      // response.failed envelope with the same detail object.
+      expect(lastFrame.event, `${context}: codex-flavored client gets event: response.failed`).toBe('response.failed')
+      const response = asRecordOrThrow(payload.response, `${context}: response.failed envelope`)
+      expect(response.status, `${context}: failed status`).toBe('failed')
+      const detail = asRecordOrThrow(response.error, `${context}: response.failed detail`)
+      expect(detail.code, `${context}: upstream error code preserved`).toBe('server_error')
+      expect(detail.message, `${context}: upstream error message preserved`).toBe('upstream exploded')
+    }
+  }
+}
+
+
+// ─── Case runner ──────────────────────────────────────────────────────────────────────
+
+interface ReplaySession {
+  readonly service: PassthroughService
+  readonly captured: CapturedUpstreamCall[]
+  readonly advanceClock: (deltaMs: number) => void
+  stepCounter: number
+}
+
+/** Fresh service + fresh MemoryStore per session; the clock never touches wall time. */
+function makeSession(): ReplaySession {
+  if (adapterFactory === undefined) throw new Error('adapter factory missing')
+  let nowMs = FROZEN_NOW_MS
+  const now = (): number => nowMs
+  const service = adapterFactory({
+    credentials: [
+      {
+        apiKey: UPSTREAM_API_KEY,
+        baseUrl: UPSTREAM_ORIGIN,
+        models: [
+          { name: UPSTREAM_MODEL, alias: MODEL_ALIAS },
+          { name: UPSTREAM_MODEL, alias: FORCED_MODEL_ALIAS, forceMapping: true },
+        ],
+      },
+    ],
+    store: new MemoryStore({ now }),
+    now,
+    requestRetry: 0,
+    transientErrorCooldownSeconds: -1,
+  })
+  if (typeof service.handleResponses !== 'function') {
+    throw new Error(`${ADAPTER_EXPORT}() must return an object with a handleResponses(request, send) method`)
+  }
+  return {
+    service,
+    captured: [],
+    advanceClock: (deltaMs: number) => {
+      nowMs += deltaMs
+    },
+    stepCounter: 0,
+  }
+}
+
+interface CaseFiles {
+  readonly caseId: CaseId
+  readonly meta: CaseMeta
+  readonly request: RecordedRequest
+  readonly recorded: RecordedResponse
+  readonly wire: readonly WireLine[]
+  /** The recorded upstream-call count this case must produce (0 for gateway-local + window steps). */
+  readonly upstreamHits: number
+  /** The client body, parsed once (well-formed JSON per NE-LENIENT). */
+  readonly clientBody: Record<string, unknown>
+  readonly sessionPolicy: SessionPolicy
+}
+
+async function loadCaseFiles(caseId: CaseId): Promise<CaseFiles> {
+  const meta = await readFixtureJson<CaseMeta>(caseId, 'meta.yaml')
+  validateDynamicFields(caseId, meta.dynamic_fields_to_mask)
+  const request = parseRequestFile(await readFixtureText(caseId, 'request.http'))
+  const recorded = parseDownstreamFile(await readFixtureText(caseId, 'downstream.md'))
+  const wire = parseWireLines(await readFixtureText(caseId, 'upstream.jsonl'))
+  const clientBody = parseJsonRecord(request.body, `S2d9[${caseId}]: client body (NE-LENIENT replays are well-formed)`)
+
+  const hits =
+    asNumber(meta.observed_upstream_lines) ??
+    asNumber(asRecord(meta.observed_second_call)?.upstream_calls) ??
+    0
+  const metaStatus = asNumber(meta.observed_http_status) ?? asNumber(asRecord(meta.observed_second_call)?.status)
+  if (metaStatus !== undefined) {
+    expect(recorded.status, `S2d9[${caseId}]: recorded status must match the meta observation`).toBe(metaStatus)
+  }
+  expect(wire.length, `S2d9[${caseId}]: recorded wire lines must match the meta upstream-call count`).toBe(hits)
+  const expectedCount = asString(meta.expected_upstream_call_count)
+  if (expectedCount !== undefined) {
+    const expectedHits = expectedCount === 'one' ? 1 : expectedCount === 'zero' ? 0 : -1
+    if (expectedHits >= 0) {
+      expect(hits, `S2d9[${caseId}]: meta expected_upstream_call_count agrees with the wire lines`).toBe(expectedHits)
+    }
+  }
+  return {
+    caseId,
+    meta,
+    request,
+    recorded,
+    wire,
+    upstreamHits: hits,
+    clientBody,
+    sessionPolicy: sessionPolicyFor(clientBody),
+  }
+}
+
+interface ReplayOptions {
+  /** Override the scripted mock behavior (the derived test patches the canned script). */
+  readonly script?: MockScript
+  /** Override the expected downstream body (the derived test swaps the terminal event name). */
+  readonly expectedBody?: string
+}
+
+/** One recorded request, replayed against the session's service; asserts both golds. */
+async function replayStep(session: ReplaySession, caseId: CaseId, options: ReplayOptions = {}): Promise<void> {
+  const files = await loadCaseFiles(caseId)
+  const script = options.script ?? (await resolveMockScript(caseId))
+  const mock = buildMockUpstreamResponse(script)
+  session.stepCounter += 1
+  const step = session.stepCounter
+
+  const send: UpstreamSender = async (call) => {
+    session.captured.push({ step, request: files.request, call })
+    if (mock === undefined) {
+      throw new Error(
+        `S2d9[${caseId}] step ${step}: this recorded step made an upstream call but its wire count is 0 ` +
+          '(a gateway-local or cooldown-window step — the adapter must short-circuit before the sender)',
+      )
+    }
+    return mock
+  }
+
+  const callsBefore = session.captured.length
+  const produced = await session.service.handleResponses(files.request, send)
+  const callsThisStep = session.captured.slice(callsBefore)
+  expect(
+    callsThisStep.length,
+    `S2d9[${caseId}] step ${step}: upstream call count (gateway-local and window steps call nothing)`,
+  ).toBe(files.upstreamHits)
+  for (const [index, captured] of callsThisStep.entries()) {
+    const recordedWire = files.wire[index]
+    if (recordedWire === undefined) {
+      throw new Error(`S2d9[${caseId}] step ${step}: more upstream calls than recorded wire lines`)
+    }
+    assertUpstreamWire(recordedWire, captured, files.sessionPolicy, caseId)
+    assertUpstreamClauses(caseId, captured, files.sessionPolicy)
+  }
+
+  const expected =
+    options.expectedBody === undefined ? files.recorded : { ...files.recorded, body: options.expectedBody }
+  const result = await assertDownstreamStep(produced, expected, caseId, step)
+  assertDownstreamClauses(caseId, result, files.clientBody)
+}
+
+// ─── Derived surgery helpers (no golden; spec §4.2 — see header: DERIVED TEST) ────────
+
+/** Occurrence count of `needle` in `haystack` — the surgery targets must be unique. */
+function countOccurrences(haystack: string, needle: string): number {
+  return haystack.split(needle).length - 1
+}
+
+function replaceUnique(haystack: string, from: string, to: string, context: string): string {
+  if (countOccurrences(haystack, from) !== 1) {
+    throw new Error(`${context}: expected exactly one occurrence of ${JSON.stringify(from)}`)
+  }
+  return haystack.replace(from, to)
+}
+
+/** Parses the recorded mock SSE script into (event, data) frames, order preserved. */
+function scriptFramesOf(scriptBytes: string, context: string): readonly { event: string | undefined; data: string }[] {
+  const frames: { event: string | undefined; data: string }[] = []
+  let pendingEvent: string | undefined
+  for (const line of scriptBytes.split('\n')) {
+    if (line.startsWith('event: ')) {
+      pendingEvent = line.slice('event: '.length)
+    } else if (line.startsWith('data: ')) {
+      frames.push({ event: pendingEvent, data: line.slice('data: '.length) })
+      pendingEvent = undefined
+    }
+  }
+  if (frames.length === 0) throw new Error(`${context}: the script carries no data frames`)
+  return frames
+}
+
+
+// ─── Inventory helpers ───────────────────────────────────────────────────────────────
+
+/**
+ * De-chunks the recorded `## Body (raw chunked stream as received)` fence: LF-normalized
+ * chunked framing (`<hex-size>\n<data>\n` per chunk, `0` terminator). Byte counts are
+ * cross-checked both as UTF-16 code units and as encoded bytes (every recorded chunk is
+ * ASCII), so the reconstruction is exact.
+ */
+function dechunkRawStream(raw: string, context: string): string {
+  const out: string[] = []
+  let pos = 0
+  for (;;) {
+    const newline = raw.indexOf('\n', pos)
+    if (newline < 0) throw new Error(`${context}: truncated raw chunked stream (missing size line at ${pos})`)
+    const size = Number.parseInt(raw.slice(pos, newline).trim(), 16)
+    if (!Number.isInteger(size) || size < 0) {
+      throw new Error(`${context}: unparsable chunk size ${JSON.stringify(raw.slice(pos, newline))}`)
+    }
+    pos = newline + 1
+    if (size === 0) break
+    const data = raw.slice(pos, pos + size)
+    if (data.length !== size || encoder.encode(data).length !== size) {
+      throw new Error(`${context}: chunk of size ${size} is truncated or non-ASCII at ${pos}`)
+    }
+    pos += size
+    if (raw[pos] !== '\n') {
+      throw new Error(`${context}: missing chunk terminator at ${pos}`)
+    }
+    pos += 1
+    out.push(data)
+  }
+  return out.join('')
+}
+
+/** Compact serialization in INSERTION order (no key sorting) — mirrors the mock payloads. */
+function insertionOrderCompact(value: unknown): string {
+  if (typeof value === 'string') return JSON.stringify(value)
+  if (typeof value === 'number' || typeof value === 'boolean' || value === null) return String(value)
+  if (Array.isArray(value)) return `[${value.map(insertionOrderCompact).join(',')}]`
+  const record = asRecordOrThrow(value, 'insertionOrderCompact')
+  return `{${Object.entries(record)
+    .map(([key, entry]) => `${JSON.stringify(key)}:${insertionOrderCompact(entry)}`)
+    .join(',')}}`
+}
+
+/** §4.6/§4.7 reconstruction: terminal response + rebuilt output + ensured usage details. */
+function rebuildAggregatedBody(scriptBytes: string, context: string): string {
+  const items: Array<{ outputIndex: number; item: unknown }> = []
+  let terminal: Record<string, unknown> | undefined
+  for (const frame of scriptFramesOf(scriptBytes, context)) {
+    const payload = parseJsonRecord(frame.data, `${context}: script frame`)
+    const type = asString(payload.type)
+    if (type === 'response.output_item.done') {
+      items.push({ outputIndex: asNumber(payload.output_index) ?? 0, item: payload.item })
+    }
+    if (type === 'response.completed' || type === 'response.incomplete') {
+      terminal = asRecordOrThrow(payload.response, `${context}: terminal response object`)
+    }
+  }
+  if (terminal === undefined) throw new Error(`${context}: the script carries no terminal frame`)
+  const rebuilt: Record<string, unknown> = { ...terminal }
+  const output = asArray(rebuilt.output)
+  if (output === undefined || output.length === 0) {
+    rebuilt.output = items
+      .slice()
+      .sort((a, b) => a.outputIndex - b.outputIndex)
+      .map((entry) => entry.item)
+  }
+  const usage = asRecord(rebuilt.usage)
+  if (usage !== undefined) {
+    const ensured: Record<string, unknown> = { ...usage }
+    const outputDetails = asRecord(ensured.output_tokens_details)
+    ensured.output_tokens_details = {
+      ...outputDetails,
+      ...(outputDetails?.reasoning_tokens === undefined ? { reasoning_tokens: 0 } : {}),
+    }
+    const inputDetails = asRecord(ensured.input_tokens_details)
+    ensured.input_tokens_details = {
+      ...inputDetails,
+      ...(inputDetails?.cached_tokens === undefined ? { cached_tokens: 0 } : {}),
+    }
+    rebuilt.usage = ensured
+  }
+  return insertionOrderCompact(rebuilt)
+}
+
+/** Reads a case's mock SSE script bytes (exact-bytes recordings only). */
+async function mockScriptBytes(caseId: CaseId): Promise<string> {
+  const script = await resolveMockScript(caseId)
+  if (script.kind !== 'stream') throw new Error(`S2d9[${caseId}]: expected an exact-bytes SSE script`)
+  return script.bytes
+}
+
+// ─── Fixture inventory (harness self-check, adapter-independent) ──────────────────────
+
+describe('S2d9 fixture inventory (harness self-check, adapter-independent)', () => {
+  it('exposes exactly the 18 recorded cases (17 contract + the S2d9-18 observation), each internally consistent', async () => {
+    expect([...fixtureCaseDirs]).toEqual([...EXPECTED_CASES])
+
+    for (const caseId of EXPECTED_CASES) {
+      const context = `S2d9[${caseId}]`
+      const meta = await readFixtureJson<CaseMeta>(caseId, 'meta.yaml')
+      expect(meta.case, `${context}: meta.case echoes the directory name`).toBe(caseId)
+      expect(meta.anchor.includes(VERSION_TAG), `${context}: version anchor tag`).toBe(true)
+      expect(meta.anchor.includes(VERSION_IMAGE_DIGEST), `${context}: version anchor image digest`).toBe(true)
+      expect(meta.anchor.includes(VERSION_COMMIT), `${context}: version anchor commit`).toBe(true)
+      expect(typeof meta.recorded_at === 'string' && Date.parse(meta.recorded_at) > 0, `${context}: recorded_at`).toBe(true)
+      validateDynamicFields(caseId, meta.dynamic_fields_to_mask)
+      expect(meta.config_fragment.includes('codex-api-key'), `${context}: config names the codex-api-key provider`).toBe(true)
+      expect(meta.config_fragment.includes('codex-mock-forced'), `${context}: config declares the force-mapping alias`).toBe(true)
+      expect(meta.config_fragment.includes('force-mapping: true'), `${context}: config enables force-mapping`).toBe(true)
+      expect(meta.config_fragment.includes('transient-error-cooldown-seconds: -1'), `${context}: recording disables transient cooldowns only`).toBe(true)
+
+      const request = parseRequestFile(await readFixtureText(caseId, 'request.http'))
+      expect(request.method, `${context}: route method`).toBe('POST')
+      expect(
+        RESPONSES_PATHS.has(request.path) || COMPACT_PATHS.has(request.path),
+        `${context}: route path is one of the four recorded surfaces`,
+      ).toBe(true)
+      expect(headerValue(request.headers, 'content-length'), `${context}: request body bytes match Content-Length`).toBe(
+        String(encoder.encode(request.body).length),
+      )
+      expect(headerValue(request.headers, 'authorization'), `${context}: recorded gateway key`).toBe(
+        `Bearer ${GATEWAY_API_KEY}`,
+      )
+      const clientBody = parseJsonRecord(request.body, `${context}: client body (NE-LENIENT replays are well-formed)`)
+      expect(typeof clientBody.model, `${context}: client model is a string`).toBe('string')
+      if (meta.request?.path !== undefined) {
+        expect(String(meta.request.path), `${context}: meta request echo agrees with request.http`).toBe(request.path)
+      }
+
+      const recorded = parseDownstreamFile(await readFixtureText(caseId, 'downstream.md'))
+      const metaStatus = asNumber(meta.observed_http_status) ?? asNumber(asRecord(meta.observed_second_call)?.status)
+      if (metaStatus !== undefined) {
+        expect(metaStatus, `${context}: meta status observation agrees with the recording`).toBe(recorded.status)
+      }
+      expect(recorded.claimedBodyBytes, `${context}: body bytes match the claimed count`).toBe(
+        encoder.encode(recorded.body).length,
+      )
+      const contentType = headerValue(recorded.headers, 'content-type')
+      expect(contentType, `${context}: response head records Content-Type`).toBeDefined()
+      expect(
+        headerValue(recorded.headers, 'cache-control') !== undefined,
+        `${context}: Cache-Control present iff SSE commit`,
+      ).toBe(contentType === 'text/event-stream')
+      const expectedRetryAfter = headerValue(recorded.headers, 'retry-after')
+      expect(expectedRetryAfter === undefined || expectedRetryAfter === '3600', `${context}: only the recorded 3600 Retry-After exists`).toBe(true)
+
+      if (contentType === 'text/event-stream') {
+        expect(headerValue(recorded.headers, 'transfer-encoding'), `${context}: SSE recording is chunked`).toBe('chunked')
+        expect(headerValue(recorded.headers, 'content-length'), `${context}: chunked recordings carry no Content-Length`).toBeUndefined()
+        const decoded = decodeDownstreamSse(recorded.body, `${context}: golden SSE`)
+        assertSequenceNumbers(decoded, `${context}: golden SSE`)
+        const failureFrames = decoded.frames.filter((frame) => frame.event !== undefined && FAILURE_EVENT_NAMES.has(frame.event))
+        expect(
+          decoded.trailingWriteDone,
+          `${context}: the WriteDone \\n lands exactly on the terminal-success closes`,
+        ).toBe(failureFrames.length === 0)
+        if (recorded.rawChunked !== undefined) {
+          expect(dechunkRawStream(recorded.rawChunked, `${context}: raw chunked stream`), `${context}: de-chunked raw stream == decoded body`).toBe(recorded.body)
+        }
+      } else {
+        expect(headerValue(recorded.headers, 'content-length'), `${context}: JSON recording records Content-Length`).toBe(
+          String(encoder.encode(recorded.body).length),
+        )
+      }
+
+      const wire = parseWireLines(await readFixtureText(caseId, 'upstream.jsonl'))
+      const hits =
+        asNumber(meta.observed_upstream_lines) ?? asNumber(asRecord(meta.observed_second_call)?.upstream_calls) ?? 0
+      expect(wire.length, `${context}: wire line count == the recorded upstream-call count`).toBe(hits)
+      for (const [index, line] of wire.entries()) {
+        const wireContext = `${context} wire ${index}`
+        expect(line.method, `${wireContext}: method`).toBe('POST')
+        expect(
+          line.path === UPSTREAM_RESPONSES_PATH || line.path === UPSTREAM_COMPACT_PATH,
+          `${wireContext}: known upstream path`,
+        ).toBe(true)
+        expect(line.headers.Authorization, `${wireContext}: Authorization is redacted in the log`).toBe('<redacted>')
+        expect(line.headers['User-Agent'], `${wireContext}: cloaked User-Agent`).toBe(CLOAKED_USER_AGENT)
+        expect(line.headers.Originator, `${wireContext}: cloaked Originator`).toBe(CLOAKED_ORIGINATOR)
+        expect(line.headers.Connection, `${wireContext}: fixed Connection`).toBe('Keep-Alive')
+        expect(line.headers['Accept-Encoding'], `${wireContext}: fixed Accept-Encoding`).toBe('gzip')
+        expect(line.headers['Content-Type'], `${wireContext}: fixed Content-Type`).toBe('application/json')
+        expect(
+          line.headers.Accept,
+          `${wireContext}: Accept switches with the route (§3.2 always-SSE / §6 compact JSON)`,
+        ).toBe(line.path === UPSTREAM_COMPACT_PATH ? 'application/json' : 'text/event-stream')
+        expect(
+          line.headers['Content-Length'],
+          `${wireContext}: logged Content-Length matches the body`,
+        ).toBe(String(encoder.encode(line.body).length))
+        const wireBody = parseJsonRecord(line.body, `${wireContext}: body`)
+        expect(line.headers['Session-Id'], `${wireContext}: Session-Id == body prompt_cache_key (§3.2)`).toBe(
+          asString(wireBody.prompt_cache_key),
+        )
+        const expectedOrder = [...WIRE_HEADER_ORDER]
+        if (line.headers[LITE_HEADER_WIRE_NAME] !== undefined) {
+          expectedOrder.splice(expectedOrder.indexOf('Accept-Encoding'), 0, LITE_HEADER_WIRE_NAME)
+        }
+        expect(Object.keys(line.headers), `${wireContext}: stable recorded header order (+ Lite slot)`).toEqual(expectedOrder)
+      }
+
+      const mockFile = asRecordOrThrow(
+        (await readFixtureJsonIfExists<unknown>(caseId, 'mock-response.json')) ?? {},
+        `${context} mock-response.json`,
+      )
+      const mockMode = asString(mockFile.mode) ?? ''
+      if (asRecord(mockFile.http_error) !== undefined) {
+        const httpError = asRecordOrThrow(mockFile.http_error, `${context} http_error`)
+        expect(Number.isInteger(asNumber(httpError.status)), `${context}: http_error status is an integer`).toBe(true)
+        expect(asString(httpError.body), `${context}: http_error body is exact recorded text`).toBeDefined()
+        parseJsonRecord(asString(httpError.body) ?? '', `${context}: http_error body is JSON`)
+      }
+      if (asString(mockFile.sse_script_exact_bytes) !== undefined) {
+        const scriptBytes = asString(mockFile.sse_script_exact_bytes) ?? ''
+        for (const character of scriptBytes) {
+          if (character.charCodeAt(0) > 0x7e) {
+            throw new Error(`${context}: mock script carries a non-ASCII byte: ${JSON.stringify(character)}`)
+          }
+        }
+        if (caseId === 'S2d9-08') {
+          expect(scriptBytes.includes('\nMOCK:'), `${context}: the disconnect script ends with its MOCK instruction line`).toBe(true)
+        }
+        scriptFramesOf(caseId === 'S2d9-08' ? scriptBytes.slice(0, scriptBytes.indexOf('\nMOCK:')) : scriptBytes, `${context} script`)
+      }
+      if (asRecord(mockFile.writes) !== undefined) {
+        const writes = asArray(asRecordOrThrow(mockFile.writes, `${context} writes`).writes) ?? []
+        expect(writes.length > 0, `${context}: the slow-chunks control carries write entries`).toBe(true)
+        for (const [index, entry] of writes.entries()) {
+          const write = asRecordOrThrow(entry, `${context} writes[${index}]`)
+          expect(asString(write.bytes), `${context} writes[${index}].bytes is exact recorded text`).toBeDefined()
+        }
+      }
+      if (caseId === 'S2d9-18') {
+        expect(asString(mockFile.control_file), `${context}: the observation references the S2d9-10 control`).toBe('S2d9-10')
+        expect(wire.length, `${context}: the window step records ZERO upstream lines by design`).toBe(0)
+      }
+    }
+
+    // ── cross-case pins ──────────────────────────────────────────────────────────────
+
+    // S2d9-02: the mock's response.created carries NO model; the golden injects the alias.
+    const script02 = await mockScriptBytes('S2d9-02')
+    const created02 = scriptFramesOf(script02, 'S2d9-02 script')[0]
+    expect(created02?.event, 'S2d9-02: script opens with response.created').toBe('response.created')
+    expect(
+      asRecord(parseJsonRecord(created02?.data ?? '{}', 'S2d9-02 created').response)?.model,
+      'S2d9-02: the mock omits response.model on response.created',
+    ).toBeUndefined()
+    const recorded02 = parseDownstreamFile(await readFixtureText('S2d9-02', 'downstream.md'))
+    const decoded02 = decodeDownstreamSse(recorded02.body, 'S2d9-02 golden')
+    const downstreamCreated02 = parseJsonRecord(decoded02.frames[0]?.data ?? '{}', 'S2d9-02 downstream created')
+    expect(asRecord(downstreamCreated02.response)?.model, 'S2d9-02: the gateway injects the alias (§4.3)').toBe(MODEL_ALIAS)
+
+    // S2d9-03: force-mapping rewrites EVERY model field back to the alias.
+    const script03 = await mockScriptBytes('S2d9-03')
+    for (const frame of scriptFramesOf(script03, 'S2d9-03 script')) {
+      const response = asRecord(parseJsonRecord(frame.data, 'S2d9-03 script frame').response)
+      if (response !== undefined) {
+        expect(response.model, 'S2d9-03: the mock speaks the upstream model name').toBe(UPSTREAM_MODEL)
+      }
+    }
+    const recorded03 = parseDownstreamFile(await readFixtureText('S2d9-03', 'downstream.md'))
+    for (const frame of decodeDownstreamSse(recorded03.body, 'S2d9-03 golden').frames) {
+      const response = asRecord(parseJsonRecord(frame.data, 'S2d9-03 golden frame').response)
+      if (response !== undefined) {
+        expect(response.model, 'S2d9-03: downstream model fields are force-mapped to the alias (§4.3)').toBe(FORCED_MODEL_ALIAS)
+      }
+    }
+
+    // S2d9-01/04: the aggregated JSON body == the terminal response object with the
+    // output rebuilt from output_item.done and the usage details defaulted.
+    for (const caseId of ['S2d9-01', 'S2d9-04'] as const) {
+      const recordedBody = parseDownstreamFile(await readFixtureText(caseId, 'downstream.md')).body
+      expect(recordedBody, `${caseId}: aggregation reconstruction matches the recorded body`).toBe(
+        rebuildAggregatedBody(await mockScriptBytes(caseId), `${caseId} aggregation`),
+      )
+    }
+
+    // S2d9-09/10/11: the §5.1 re-serialization family — observed error fields preserved,
+    // alphabetical keys, compact separators (09 rewrites code to auth_unavailable).
+    for (const caseId of ['S2d9-09', 'S2d9-10', 'S2d9-11'] as const) {
+      const mockFile = asRecordOrThrow(
+        await readFixtureJson<unknown>(caseId, 'mock-response.json'),
+        `${caseId} mock-response.json`,
+      )
+      const httpError = asRecordOrThrow(mockFile.http_error, `${caseId} http_error`)
+      const upstreamError = asRecordOrThrow(
+        parseJsonRecord(asString(httpError.body) ?? '', `${caseId} upstream error body`).error,
+        `${caseId} upstream error object`,
+      )
+      const expectedError = caseId === 'S2d9-09' ? { ...upstreamError, code: 'auth_unavailable' } : upstreamError
+      const recordedBody = parseDownstreamFile(await readFixtureText(caseId, 'downstream.md')).body
+      expect(recordedBody, `${caseId}: downstream body == canonical alphabetical-compact re-serialization (§5.1)`).toBe(
+        canonicalCompact({ error: expectedError }),
+      )
+    }
+
+    // The 429 pair (S2d9-11 -> S2d9-12): recorded back-to-back; the cooldown window and
+    // its Retry-After come from the 429 body's resets_in_seconds.
+    const meta11 = await readFixtureJson<CaseMeta>('S2d9-11', 'meta.yaml')
+    const meta12 = await readFixtureJson<CaseMeta>('S2d9-12', 'meta.yaml')
+    expect(
+      Math.abs(Date.parse(meta11.recorded_at) - Date.parse(meta12.recorded_at)) < 1_000,
+      'S2d9-12 recorded < 1s after S2d9-11 (inside the rate-limit window)',
+    ).toBe(true)
+    const error11 = asRecordOrThrow(
+      parseJsonRecord(
+        asString(asRecordOrThrow(await readFixtureJson<unknown>('S2d9-11', 'mock-response.json'), 'S2d9-11 mock').http_error)
+          ?? '',
+        'S2d9-11 mock error body',
+      ).error,
+      'S2d9-11 mock error object',
+    )
+    const recorded12 = parseDownstreamFile(await readFixtureText('S2d9-12', 'downstream.md'))
+    const error12 = asRecordOrThrow(parseJsonRecord(recorded12.body, 'S2d9-12 body').error, 'S2d9-12 error object')
+    expect(error12.last_upstream_error, 'S2d9-12: last_upstream_error == "<error.code>: <error.message>" of the 429').toBe(
+      `${asString(error11.code)}: ${asString(error11.message)}`,
+    )
+    expect(error12.reset_seconds, 'S2d9-12: reset_seconds mirrors the 429 body resets_in_seconds').toBe(error11.resets_in_seconds)
+    expect(error12.reset_time, 'S2d9-12: reset_time is the Go duration string').toBe('1h0m0s')
+    expect(headerValue(recorded12.headers, 'retry-after'), 'S2d9-12: Retry-After mirrors reset_seconds (§5.1)').toBe(
+      String(error11.resets_in_seconds),
+    )
+
+    // The 404 pair (S2d9-10 -> S2d9-18): the observation's 503 body embeds the trigger's
+    // "<error.code>: <error.message>" and records ZERO upstream lines.
+    const error10 = asRecordOrThrow(
+      parseJsonRecord(
+        asString(asRecordOrThrow(await readFixtureJson<unknown>('S2d9-10', 'mock-response.json'), 'S2d9-10 mock').http_error)
+          ?? '',
+        'S2d9-10 mock error body',
+      ).error,
+      'S2d9-10 mock error object',
+    )
+    const recorded18 = parseDownstreamFile(await readFixtureText('S2d9-18', 'downstream.md'))
+    expect(recorded18.body, 'S2d9-18: the 503 body embeds the trigger error summary').toContain(
+      `last upstream error: ${asString(error10.code)}: ${asString(error10.message)}`,
+    )
+    expect(recorded18.body, 'S2d9-18: the 503 body names the client-facing model').toContain('model=codex-mock')
+
+    // S2d9-16: the compact stream:true rejection is gateway-local; S2d9-15's compact
+    // passthrough deletes the stream key upstream.
+    const recorded16 = parseDownstreamFile(await readFixtureText('S2d9-16', 'downstream.md'))
+    expect(recorded16.status, 'S2d9-16: 400 before any upstream call').toBe(400)
+    expect(headerValue(recorded16.headers, 'content-type'), 'S2d9-16: the gateway-local 400 carries the charset variant').toBe(
+      'application/json; charset=utf-8',
+    )
+    expect(recorded16.body, 'S2d9-16: exact gateway-synthesized rejection body').toBe(
+      '{"error":{"message":"Streaming not supported for compact responses","type":"invalid_request_error"}}',
+    )
+    const wire15 = parseWireLines(await readFixtureText('S2d9-15', 'upstream.jsonl'))
+    expect(
+      Object.hasOwn(parseJsonRecord(wire15[0]?.body ?? '{}', 'S2d9-15 wire body'), 'stream'),
+      'S2d9-15: the compact passthrough deletes the stream key',
+    ).toBe(false)
+
+    // S2d9-05: the recorded capability strip — the upstream body carries NO reasoning
+    // object although the client sent one (fixture outranks §3.2's PRESERVED prose).
+    const wire05 = parseWireLines(await readFixtureText('S2d9-05', 'upstream.jsonl'))
+    expect(
+      Object.hasOwn(parseJsonRecord(wire05[0]?.body ?? '{}', 'S2d9-05 wire body'), 'reasoning'),
+      'S2d9-05: the recorded upstream body strips the reasoning object (capability default)',
+    ).toBe(false)
+    expect(
+      Object.hasOwn(parseJsonRecord(parseRequestFile(await readFixtureText('S2d9-05', 'request.http')).body, 'S2d9-05 client body'), 'reasoning'),
+      'S2d9-05: the client really sent a reasoning object',
+    ).toBe(true)
+
+    // S2d9-08: the disconnect golden — three forwarded frames, then the request_timeout
+    // failure frame with seq == data-frame count, and NO WriteDone byte after it.
+    const recorded08 = parseDownstreamFile(await readFixtureText('S2d9-08', 'downstream.md'))
+    const decoded08 = decodeDownstreamSse(recorded08.body, 'S2d9-08 golden')
+    expect(decoded08.frames.length, 'S2d9-08: three forwarded frames + one synthesized failure').toBe(4)
+    expect(decoded08.failureLead.at(-1), 'S2d9-08: the failure frame carries the §5.2 lead \\n').toBe(true)
+    expect(decoded08.trailingWriteDone, 'S2d9-08: a failure close appends NO WriteDone byte').toBe(false)
+
+    // S2d9-17: the slow-chunks investigation table — all three variants returned 200
+    // (no reference stall policy); the recorded sleeps stay meta-only.
+    const meta17 = await readFixtureJson<CaseMeta>('S2d9-17', 'meta.yaml')
+    const results17 = meta17.investigation?.results
+    expect(Object.keys(results17 ?? {}).length, 'S2d9-17: the investigation table carries the three variants').toBe(3)
+    for (const [variant, result] of Object.entries(results17 ?? {})) {
+      expect(result?.http_status, `S2d9-17: variant ${variant} recorded HTTP 200 (no stall policy)`).toBe(200)
+    }
+
+    // Derived-test surgery anchors: the S2d9-02 script and golden carry exactly one
+    // occurrence of each response.done rename target.
+    expect(countOccurrences(script02, 'event: response.completed'), 'S2d9-02 script: one terminal event line').toBe(1)
+    expect(countOccurrences(script02, '"type":"response.completed"'), 'S2d9-02 script: one terminal payload type').toBe(1)
+    expect(countOccurrences(recorded02.body, 'event: response.completed'), 'S2d9-02 golden: one terminal event line').toBe(1)
+
+    // Session-policy reality: only S2d9-06 fixed the cache key client-side; every other
+    // recorded Session-Id is a derived UUID.
+    for (const caseId of EXPECTED_CASES) {
+      const request = parseRequestFile(await readFixtureText(caseId, 'request.http'))
+      const clientBody = parseJsonRecord(request.body, `S2d9[${caseId}] client body`)
+      const wire = parseWireLines(await readFixtureText(caseId, 'upstream.jsonl'))
+      if (wire.length === 0) continue
+      const sessionValue = wire[0]?.headers['Session-Id']
+      if (typeof clientBody.prompt_cache_key === 'string') {
+        expect(sessionValue, `S2d9[${caseId}]: the client-fixed cache key is pinned verbatim`).toBe(clientBody.prompt_cache_key)
+      } else {
+        expect(sessionValue, `S2d9[${caseId}]: the derived session is a UUID`).toMatch(UUID_RE)
+      }
+    }
+  })
+})

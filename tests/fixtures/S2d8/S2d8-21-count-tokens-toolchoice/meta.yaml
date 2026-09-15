@@ -1,0 +1,30 @@
+{
+  "id": "S2d8-21-count-tokens-toolchoice",
+  "purpose": "Wire-evidence dispute resolver (spec-s2d8-cla2gem): with tool_choice {type:auto} in the client count_tokens request, does the upstream :countTokens body carry toolConfig or is it stripped (alongside tools/generationConfig/safetySettings)? The upstream.jsonl is the decisive artifact.",
+  "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6, image eceasy/cli-proxy-api:v7.3.4 (digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266)",
+  "recorded_at": "2026-09-15T21:49:40.154899+00:00",
+  "config": "run2/s2d8/config.yaml (oracle worker-2): gemini-api-key mock-gem-key -> host.docker.internal:20001, models gemini-mock-model/gm; baseline api-keys [oracle-local-key-1], request-retry 0, transient-error-cooldown-seconds -1",
+  "mock_control": {
+    "mode": "happy",
+    "canned_count": {
+      "totalTokens": 42
+    }
+  },
+  "client_protocol": "raw HTTP/1.1 over TCP socket; User-Agent per case spec (claude-cli/2.1.63 (external, cli)); Connection: close",
+  "record": [
+    "downstream status+headers+body",
+    "upstream wire request (decisive)"
+  ],
+  "dynamic_fields": [
+    "Date, X-Cpa-Trace-Id, Content-Length headers",
+    "reference/mock port numbers in upstream.jsonl Host fields",
+    "ports (worker-local): reference 8387, mock 20001"
+  ],
+  "upstream_hits": 1,
+  "http_status": 200,
+  "notes": [
+    "recorded on the oracle worker-2 stack (single fresh container); happy mode; no cooldown interplay",
+    "either outcome is a valid golden; nothing tuned to force either side of the dispute"
+  ],
+  "expect_note": "recorded bytes authoritative; spec amended to the wire"
+}

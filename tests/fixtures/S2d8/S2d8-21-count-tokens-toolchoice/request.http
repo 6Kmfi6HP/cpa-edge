@@ -1,0 +1,11 @@
+POST /v1/messages/count_tokens HTTP/1.1
+Host: 127.0.0.1:8387
+Authorization: Bearer oracle-local-key-1
+Content-Type: application/json
+User-Agent: claude-cli/2.1.63 (external, cli)
+User-Agent: oracle-s3-probe/1.0
+Accept: */*
+Connection: close
+Content-Length: 258
+
+{"model": "gm", "tools": [{"name": "t1", "description": "d", "input_schema": {"type": "object", "properties": {"a": {"type": "string"}}}}], "tool_choice": {"type": "auto"}, "system": "You are terse.", "messages": [{"role": "user", "content": "Hello world"}]}
