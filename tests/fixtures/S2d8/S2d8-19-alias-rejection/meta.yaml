@@ -1,0 +1,16 @@
+{
+ "id": "S2d8-19-alias-rejection",
+ "purpose": "Gate-authorized golden (S2d8 gate, promoted from the as-written run evidence): a client request that names the UPSTREAM model (gemini-mock-model) instead of a client-visible alias is rejected with 400 unknown-provider and NEVER reaches the upstream.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6 (docker eceasy/cli-proxy-api:v7.3.4, digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266)",
+ "recorded_at": "2026-09-16T04:07:34",
+ "evidence_note": "Promoted from _cpa_edge_ref/probes/S2d8-as-written/cases/S2d8-01-nostream-basic/ (the original as-written S2d8 run where 17/18 cases used the upstream model name; recorded bytes unchanged, only the fixture id/purpose adapted).",
+ "record": "downstream status+headers+body; upstream.jsonl (must be EMPTY)",
+ "config": "run/config.s2d8.yaml (gemini-api-key mock-gem-key -> host.docker.internal:19001, models gemini-mock-model/gm)",
+ "http_status": "400",
+ "upstream_hits": 0,
+ "dynamic_fields": [
+  "Date",
+  "X-Cpa-Trace-Id",
+  "Host/port numbers"
+ ]
+}

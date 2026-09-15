@@ -57,3 +57,4 @@
 
 ## Verdict / escalation log
 (appended by orchestrator)
+- 2026-09-16 04:1x ORACLE INCIDENT: worker-5 entered an unrecoverable zombie-stream state (>1.5h, steer-immune); queue reassigned (S2d9+S2d1 -> w2, S2d4 -> w4). New playbook entry: zombie-stream sessions (status streaming + no msg progress + steer queued-undelivered) => REASSIGN the queue, notify requesters, leave a do-not-redo notice.

@@ -85,11 +85,15 @@ export function readRecordedUpstreams(caseId: string): readonly RecordedUpstream
 
 /** Reads the recorded downstream response (status + exact body bytes). */
 export function readRecordedDownstream(caseId: string): RecordedDownstream {
-  const text = readText(`${FIXTURE_ROOT}/${caseId}/downstream.md`)
+  return readDownstreamFile(`${FIXTURE_ROOT}/${caseId}/downstream.md`)
+}
+
+function readDownstreamFile(path: string): RecordedDownstream {
+  const text = readText(path)
   const lines = text.split('\n')
   const fenced = (marker: string): string[] => {
     const start = lines.findIndex((line) => line.startsWith(marker))
-    if (start === -1) throw new Error(`downstream.md of ${caseId} misses ${marker}`)
+    if (start === -1) throw new Error(`${path} misses ${marker}`)
     let cursor = start + 1
     while (cursor < lines.length && !(lines[cursor] ?? '').startsWith('```')) cursor += 1
     cursor += 1
@@ -104,7 +108,7 @@ export function readRecordedDownstream(caseId: string): RecordedDownstream {
   const bodyLines = fenced('### Body')
   const statusLine = headLines[0] ?? ''
   const statusMatch = /HTTP\/1\.1 (\d+)/.exec(statusLine)
-  if (statusMatch === null) throw new Error(`downstream.md of ${caseId} has no status line`)
+  if (statusMatch === null) throw new Error(`${path} has no status line`)
   const headers: Record<string, string> = {}
   for (const line of headLines.slice(1)) {
     if (line.trim() === '') continue
