@@ -1,0 +1,129 @@
+{
+ "id": "S2d6-stream-toolcalls",
+ "purpose": "Tool-call delta stream: output_item.added (function_call, id fc_call_mock_tool_01), two function_call_arguments.delta events, function_call_arguments.done + output_item.done at finish 'tool_calls', completed with function_call item.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6; image digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+ "recorded_at": "2026-09-16T03:36:42",
+ "record": "full downstream SSE byte stream; upstream.jsonl",
+ "mock_control": {
+  "mode": "happy",
+  "variant": "tools-stream",
+  "canned_sse": {
+   "events": [
+    {
+     "id": "chatcmpl-mock-0001",
+     "object": "chat.completion.chunk",
+     "created": 1770000000,
+     "model": "mock-gpt-model",
+     "choices": [
+      {
+       "index": 0,
+       "delta": {
+        "role": "assistant"
+       },
+       "finish_reason": null
+      }
+     ]
+    },
+    {
+     "id": "chatcmpl-mock-0001",
+     "object": "chat.completion.chunk",
+     "created": 1770000000,
+     "model": "mock-gpt-model",
+     "choices": [
+      {
+       "index": 0,
+       "delta": {
+        "tool_calls": [
+         {
+          "index": 0,
+          "id": "call_mock_tool_01",
+          "type": "function",
+          "function": {
+           "name": "get_weather",
+           "arguments": ""
+          }
+         }
+        ]
+       },
+       "finish_reason": null
+      }
+     ]
+    },
+    {
+     "id": "chatcmpl-mock-0001",
+     "object": "chat.completion.chunk",
+     "created": 1770000000,
+     "model": "mock-gpt-model",
+     "choices": [
+      {
+       "index": 0,
+       "delta": {
+        "tool_calls": [
+         {
+          "index": 0,
+          "function": {
+           "arguments": "{\"city\":"
+          }
+         }
+        ]
+       },
+       "finish_reason": null
+      }
+     ]
+    },
+    {
+     "id": "chatcmpl-mock-0001",
+     "object": "chat.completion.chunk",
+     "created": 1770000000,
+     "model": "mock-gpt-model",
+     "choices": [
+      {
+       "index": 0,
+       "delta": {
+        "tool_calls": [
+         {
+          "index": 0,
+          "function": {
+           "arguments": "\"SF\"}"
+          }
+         }
+        ]
+       },
+       "finish_reason": null
+      }
+     ]
+    },
+    {
+     "id": "chatcmpl-mock-0001",
+     "object": "chat.completion.chunk",
+     "created": 1770000000,
+     "model": "mock-gpt-model",
+     "choices": [
+      {
+       "index": 0,
+       "delta": {},
+       "finish_reason": "tool_calls"
+      }
+     ]
+    }
+   ],
+   "terminator": "data: [DONE]"
+  }
+ },
+ "expect_hints": {
+  "key_frames": [
+   "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":3,\"output_index\":0,\"item\":{\"id\":\"fc_call_mock_tool_01\",\"type\":\"function_call\",\"status\":\"in_progress\",\"arguments\":\"\",\"call_id\":\"call_mock_tool_01\",\"name\":\"get_weather\"}}",
+   "event: response.function_call_arguments.delta\ndata: {\"type\":\"response.function_call_arguments.delta\",\"sequence_number\":4,\"item_id\":\"fc_call_mock_tool_01\",\"output_index\":0,\"delta\":\"{\\\"city\\\":\"}",
+   "event: response.function_call_arguments.delta\ndata: {\"type\":\"response.function_call_arguments.delta\",\"sequence_number\":5,\"item_id\":\"fc_call_mock_tool_01\",\"output_index\":0,\"delta\":\"\\\"SF\\\"}\"}",
+   "event: response.function_call_arguments.done\ndata: {\"type\":\"response.function_call_arguments.done\",\"sequence_number\":6,\"item_id\":\"fc_call_mock_tool_01\",\"output_index\":0,\"arguments\":\"{\\\"city\\\":\\\"SF\\\"}\"}",
+   "event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"sequence_number\":7,\"output_index\":0,\"item\":{\"id\":\"fc_call_mock_tool_01\",\"type\":\"function_call\",\"status\":\"completed\",\"arguments\":\"{\\\"city\\\":\\\"SF\\\"}\",\"call_id\":\"call_mock_tool_01\",\"name\":\"get_weather\"}}"
+  ]
+ },
+ "dynamic_fields": [
+  "Date",
+  "X-Cpa-Trace-Id",
+  "Host/port numbers"
+ ],
+ "http_status": "200",
+ "upstream_hits": 1
+}

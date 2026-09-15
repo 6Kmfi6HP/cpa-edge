@@ -1,0 +1,44 @@
+{
+ "id": "S2d6-nostream-reasoning",
+ "purpose": "reasoning.effort -> upstream reasoning_effort:'high'; reply reasoning_content -> downstream reasoning item rs_chatcmpl-mock-0001 + message item; response has NO 'reasoning' echo (non-stream echo reads the translated chat request).",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6; image digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+ "recorded_at": "2026-09-16T03:36:40",
+ "record": "downstream status+headers+body; upstream.jsonl",
+ "mock_control": {
+  "mode": "happy",
+  "variant": "reasoning-nonstream",
+  "canned_nonstream": {
+   "id": "chatcmpl-mock-0001",
+   "object": "chat.completion",
+   "created": 1770000000,
+   "model": "mock-gpt-model",
+   "choices": [
+    {
+     "index": 0,
+     "message": {
+      "role": "assistant",
+      "content": "Thoughtful answer",
+      "reasoning_content": "Because of constraints."
+     },
+     "finish_reason": "stop"
+    }
+   ],
+   "usage": {
+    "prompt_tokens": 9,
+    "completion_tokens": 6,
+    "total_tokens": 15
+   }
+  }
+ },
+ "expect_hints": {
+  "upstream_body_suffix": "\"stream\":false,\"reasoning_effort\":\"high\"}",
+  "downstream_output": "[{\"id\":\"rs_chatcmpl-mock-0001\",\"type\":\"reasoning\",\"encrypted_content\":\"\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"Because of constraints.\"}]},{\"id\":\"msg_chatcmpl-mock-0001_0\",\"type\":\"message\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"annotations\":[],\"logprobs\":[],\"text\":\"Thoughtful answer\"}],\"role\":\"assistant\"}]"
+ },
+ "dynamic_fields": [
+  "Date",
+  "X-Cpa-Trace-Id",
+  "Host/port numbers"
+ ],
+ "http_status": "200",
+ "upstream_hits": 1
+}

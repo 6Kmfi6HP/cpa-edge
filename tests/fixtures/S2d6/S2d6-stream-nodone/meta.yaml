@@ -1,0 +1,69 @@
+{
+ "id": "S2d6-stream-nodone",
+ "purpose": "Responses-client-only [DONE] strictness: clean chunked EOF WITHOUT a data: [DONE] frame -> the 8 already-forwarded frames stay, then terminal 'event: error' frame with message 'upstream stream closed before [DONE]' (502-classified, server_error/internal_server_error), sequence_number=8.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6; image digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+ "recorded_at": "2026-09-16T03:36:44",
+ "record": "full downstream SSE byte stream; upstream.jsonl",
+ "mock_control": {
+  "mode": "happy",
+  "variant": "default-stream-nodone",
+  "canned_sse": {
+   "events": [
+    {
+     "id": "chatcmpl-mock-0001",
+     "object": "chat.completion.chunk",
+     "created": 1770000000,
+     "model": "mock-gpt-model",
+     "choices": [
+      {
+       "index": 0,
+       "delta": {
+        "role": "assistant"
+       },
+       "finish_reason": null
+      }
+     ]
+    },
+    {
+     "id": "chatcmpl-mock-0001",
+     "object": "chat.completion.chunk",
+     "created": 1770000000,
+     "model": "mock-gpt-model",
+     "choices": [
+      {
+       "index": 0,
+       "delta": {
+        "content": "Hello from mock openai upstream"
+       },
+       "finish_reason": null
+      }
+     ]
+    },
+    {
+     "id": "chatcmpl-mock-0001",
+     "object": "chat.completion.chunk",
+     "created": 1770000000,
+     "model": "mock-gpt-model",
+     "choices": [
+      {
+       "index": 0,
+       "delta": {},
+       "finish_reason": "stop"
+      }
+     ]
+    }
+   ],
+   "terminator": null
+  }
+ },
+ "expect_hints": {
+  "terminal_frame": "\\nevent: error\\ndata: {\"type\":\"error\",\"error\":{\"code\":\"internal_server_error\",\"message\":\"upstream stream closed before [DONE]\",\"param\":null,\"type\":\"server_error\"},\"sequence_number\":8}\\n\\n"
+ },
+ "dynamic_fields": [
+  "Date",
+  "X-Cpa-Trace-Id",
+  "Host/port numbers"
+ ],
+ "http_status": "200",
+ "upstream_hits": 1
+}

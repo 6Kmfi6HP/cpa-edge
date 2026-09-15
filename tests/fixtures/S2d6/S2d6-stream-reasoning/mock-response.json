@@ -1,0 +1,78 @@
+{
+ "events": [
+  {
+   "id": "chatcmpl-mock-0001",
+   "object": "chat.completion.chunk",
+   "created": 1770000000,
+   "model": "mock-gpt-model",
+   "choices": [
+    {
+     "index": 0,
+     "delta": {
+      "role": "assistant"
+     },
+     "finish_reason": null
+    }
+   ]
+  },
+  {
+   "id": "chatcmpl-mock-0001",
+   "object": "chat.completion.chunk",
+   "created": 1770000000,
+   "model": "mock-gpt-model",
+   "choices": [
+    {
+     "index": 0,
+     "delta": {
+      "reasoning_content": "Let me think."
+     },
+     "finish_reason": null
+    }
+   ]
+  },
+  {
+   "id": "chatcmpl-mock-0001",
+   "object": "chat.completion.chunk",
+   "created": 1770000000,
+   "model": "mock-gpt-model",
+   "choices": [
+    {
+     "index": 0,
+     "delta": {
+      "reasoning_content": " Carefully."
+     },
+     "finish_reason": null
+    }
+   ]
+  },
+  {
+   "id": "chatcmpl-mock-0001",
+   "object": "chat.completion.chunk",
+   "created": 1770000000,
+   "model": "mock-gpt-model",
+   "choices": [
+    {
+     "index": 0,
+     "delta": {
+      "content": "Hi there"
+     },
+     "finish_reason": null
+    }
+   ]
+  },
+  {
+   "id": "chatcmpl-mock-0001",
+   "object": "chat.completion.chunk",
+   "created": 1770000000,
+   "model": "mock-gpt-model",
+   "choices": [
+    {
+     "index": 0,
+     "delta": {},
+     "finish_reason": "stop"
+    }
+   ]
+  }
+ ],
+ "terminator": "data: [DONE]"
+}

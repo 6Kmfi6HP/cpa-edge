@@ -1,0 +1,80 @@
+{
+ "id": "S2d6-stream-basic",
+ "purpose": "Full SSE sequence for a text stream, byte-exact: created(1) in_progress(2) output_item.added(3) content_part.added(4) output_text.delta(5) output_text.done(6) content_part.done(7) output_item.done(8) response.completed(9) + trailing lone \\n. response.model=REQUESTED alias ('mock-model'). NO [DONE] downstream. SSE headers only committed with first frame. Requires mock happy stream WITH 'data: [DONE]' terminator.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6; image digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+ "recorded_at": "2026-09-16T03:36:40",
+ "record": "full downstream SSE byte stream (status+headers+body incl. trailing bytes); upstream.jsonl (must show Accept: text/event-stream, Cache-Control: no-cache, stream:true + stream_options.include_usage:true in body)",
+ "mock_control": {
+  "mode": "happy",
+  "variant": "default-stream-done",
+  "canned_sse": {
+   "events": [
+    {
+     "id": "chatcmpl-mock-0001",
+     "object": "chat.completion.chunk",
+     "created": 1770000000,
+     "model": "mock-gpt-model",
+     "choices": [
+      {
+       "index": 0,
+       "delta": {
+        "role": "assistant"
+       },
+       "finish_reason": null
+      }
+     ]
+    },
+    {
+     "id": "chatcmpl-mock-0001",
+     "object": "chat.completion.chunk",
+     "created": 1770000000,
+     "model": "mock-gpt-model",
+     "choices": [
+      {
+       "index": 0,
+       "delta": {
+        "content": "Hello from mock openai upstream"
+       },
+       "finish_reason": null
+      }
+     ]
+    },
+    {
+     "id": "chatcmpl-mock-0001",
+     "object": "chat.completion.chunk",
+     "created": 1770000000,
+     "model": "mock-gpt-model",
+     "choices": [
+      {
+       "index": 0,
+       "delta": {},
+       "finish_reason": "stop"
+      }
+     ]
+    }
+   ],
+   "terminator": "data: [DONE]"
+  }
+ },
+ "expect_hints": {
+  "downstream_frames": [
+   "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":1,\"response\":{\"id\":\"chatcmpl-mock-0001\",\"object\":\"response\",\"created_at\":1770000000,\"status\":\"in_progress\",\"background\":false,\"error\":null,\"output\":[],\"model\":\"mock-model\"}}",
+   "event: response.in_progress\ndata: {\"type\":\"response.in_progress\",\"sequence_number\":2,\"response\":{\"id\":\"chatcmpl-mock-0001\",\"object\":\"response\",\"created_at\":1770000000,\"status\":\"in_progress\",\"output\":[],\"model\":\"mock-model\"}}",
+   "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":3,\"output_index\":0,\"item\":{\"id\":\"msg_chatcmpl-mock-0001_0\",\"type\":\"message\",\"status\":\"in_progress\",\"content\":[],\"role\":\"assistant\"}}",
+   "event: response.content_part.added\ndata: {\"type\":\"response.content_part.added\",\"sequence_number\":4,\"item_id\":\"msg_chatcmpl-mock-0001_0\",\"output_index\":0,\"content_index\":0,\"part\":{\"type\":\"output_text\",\"annotations\":[],\"logprobs\":[],\"text\":\"\"}}",
+   "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"sequence_number\":5,\"item_id\":\"msg_chatcmpl-mock-0001_0\",\"output_index\":0,\"content_index\":0,\"delta\":\"Hello from mock openai upstream\",\"logprobs\":[]}",
+   "event: response.output_text.done\ndata: {\"type\":\"response.output_text.done\",\"sequence_number\":6,\"item_id\":\"msg_chatcmpl-mock-0001_0\",\"output_index\":0,\"content_index\":0,\"text\":\"Hello from mock openai upstream\",\"logprobs\":[]}",
+   "event: response.content_part.done\ndata: {\"type\":\"response.content_part.done\",\"sequence_number\":7,\"item_id\":\"msg_chatcmpl-mock-0001_0\",\"output_index\":0,\"content_index\":0,\"part\":{\"type\":\"output_text\",\"annotations\":[],\"logprobs\":[],\"text\":\"Hello from mock openai upstream\"}}",
+   "event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"sequence_number\":8,\"output_index\":0,\"item\":{\"id\":\"msg_chatcmpl-mock-0001_0\",\"type\":\"message\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"annotations\":[],\"logprobs\":[],\"text\":\"Hello from mock openai upstream\"}],\"role\":\"assistant\"}}",
+   "event: response.completed\ndata: {\"type\":\"response.completed\",\"sequence_number\":9,\"response\":{\"id\":\"chatcmpl-mock-0001\",\"object\":\"response\",\"created_at\":1770000000,\"status\":\"completed\",\"background\":false,\"error\":null,\"model\":\"mock-model\",\"output\":[{\"id\":\"msg_chatcmpl-mock-0001_0\",\"type\":\"message\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"annotations\":[],\"logprobs\":[],\"text\":\"Hello from mock openai upstream\"}],\"role\":\"assistant\"}]}}"
+  ],
+  "stream_ends_with": "last frame '...}\\n\\n' then one extra '\\n' byte (WriteDone marker); no [DONE] frame"
+ },
+ "dynamic_fields": [
+  "Date",
+  "X-Cpa-Trace-Id",
+  "Host/port numbers"
+ ],
+ "http_status": "200",
+ "upstream_hits": 1
+}

@@ -1,0 +1,10 @@
+POST /v1/responses HTTP/1.1
+Host: 127.0.0.1:18317
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Type: application/json
+Authorization: Bearer oracle-local-key-1
+Content-Length: 245
+
+
+{"model":"mock-model","instructions":"You are a concise assistant.","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Say hi."}]}],"max_output_tokens":128,"temperature":0.7,"top_p":0.9,"user":"u-123","store":false}

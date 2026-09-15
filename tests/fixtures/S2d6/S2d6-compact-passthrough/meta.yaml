@@ -1,0 +1,34 @@
+{
+ "id": "S2d6-compact-passthrough",
+ "purpose": "POST /v1/responses/compact -> upstream POST /v1/responses/compact (NOT /chat/completions) with the client body passed through except model rewritten to mock-gpt-model and 'stream' absent; upstream response passed through with usage-details injection: usage gains output_tokens_details.reasoning_tokens=0 then input_tokens_details.cached_tokens=0.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6; image digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+ "recorded_at": "2026-09-16T03:36:44",
+ "record": "downstream status+headers+body; upstream.jsonl (path must be /v1/responses/compact)",
+ "mock_control": {
+  "mode": "happy",
+  "variant": "compact",
+  "route": "POST /v1/responses/compact",
+  "canned_nonstream": {
+   "id": "resp_mock_compact",
+   "object": "response",
+   "status": "completed",
+   "output": [],
+   "usage": {
+    "input_tokens": 1,
+    "output_tokens": 1,
+    "total_tokens": 2
+   }
+  }
+ },
+ "expect_hints": {
+  "upstream_body": "{\"model\":\"mock-gpt-model\",\"instructions\":\"Summarize the conversation.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Hello there\"}]},{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Hi! How can I help?\"}]}]}",
+  "downstream_body": "{\"id\":\"resp_mock_compact\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2,\"output_tokens_details\":{\"reasoning_tokens\":0},\"input_tokens_details\":{\"cached_tokens\":0}}}"
+ },
+ "dynamic_fields": [
+  "Date",
+  "X-Cpa-Trace-Id",
+  "Host/port numbers"
+ ],
+ "http_status": "200",
+ "upstream_hits": 1
+}

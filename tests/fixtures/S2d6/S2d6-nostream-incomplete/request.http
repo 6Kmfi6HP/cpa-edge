@@ -1,0 +1,10 @@
+POST /v1/responses HTTP/1.1
+Host: 127.0.0.1:18317
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Type: application/json
+Authorization: Bearer oracle-local-key-1
+Content-Length: 151
+
+
+{"model":"mock-model","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Long story please."}]}],"max_output_tokens":128}

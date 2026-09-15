@@ -1,0 +1,28 @@
+{
+ "id": "S2d6-error-nostream-429",
+ "purpose": "Upstream 429 on a non-stream request: downstream 429 with the upstream JSON body VERBATIM (no sanitization on the non-stream path); Content-Type application/json.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6; image digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+ "recorded_at": "2026-09-16T03:37:20",
+ "record": "downstream status+headers+body; upstream.jsonl",
+ "mock_control": {
+  "mode": "error",
+  "status": 429,
+  "error_body": {
+   "error": {
+    "message": "mock rate limit",
+    "type": "rate_limit_exceeded",
+    "code": "rate_limit_exceeded"
+   }
+  }
+ },
+ "expect_hints": {
+  "downstream_body": "{\"error\":{\"message\":\"mock rate limit\",\"type\":\"rate_limit_exceeded\",\"code\":\"rate_limit_exceeded\"}}"
+ },
+ "dynamic_fields": [
+  "Date",
+  "X-Cpa-Trace-Id",
+  "Host/port numbers"
+ ],
+ "http_status": "429",
+ "upstream_hits": 1
+}

@@ -1,0 +1,9 @@
+POST /v1/responses HTTP/1.1
+Host: 127.0.0.1:18317
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Type: application/json
+Content-Length: 116
+
+
+{"model":"mock-model","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Say hi."}]}]}

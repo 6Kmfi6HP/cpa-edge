@@ -1,0 +1,81 @@
+{
+ "id": "S2d6-stream-usage-incomplete",
+ "purpose": "Stream usage mapping + incomplete finish: final usage chunk (choices:[]) captured into response.incomplete usage {'input_tokens':9,'input_tokens_details':{'cached_tokens':0},'output_tokens':6,'total_tokens':15} (stream key order; NO output_tokens_details); finish 'length' -> response.incomplete with incomplete_details + incomplete item statuses.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6; image digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+ "recorded_at": "2026-09-16T03:36:42",
+ "record": "full downstream SSE byte stream; upstream.jsonl",
+ "mock_control": {
+  "mode": "happy",
+  "variant": "length-usage-stream",
+  "canned_sse": {
+   "events": [
+    {
+     "id": "chatcmpl-mock-0001",
+     "object": "chat.completion.chunk",
+     "created": 1770000000,
+     "model": "mock-gpt-model",
+     "choices": [
+      {
+       "index": 0,
+       "delta": {
+        "role": "assistant"
+       },
+       "finish_reason": null
+      }
+     ]
+    },
+    {
+     "id": "chatcmpl-mock-0001",
+     "object": "chat.completion.chunk",
+     "created": 1770000000,
+     "model": "mock-gpt-model",
+     "choices": [
+      {
+       "index": 0,
+       "delta": {
+        "content": "Hello from mock openai upstream"
+       },
+       "finish_reason": null
+      }
+     ]
+    },
+    {
+     "id": "chatcmpl-mock-0001",
+     "object": "chat.completion.chunk",
+     "created": 1770000000,
+     "model": "mock-gpt-model",
+     "choices": [
+      {
+       "index": 0,
+       "delta": {},
+       "finish_reason": "length"
+      }
+     ]
+    },
+    {
+     "id": "chatcmpl-mock-0001",
+     "object": "chat.completion.chunk",
+     "created": 1770000000,
+     "model": "mock-gpt-model",
+     "choices": [],
+     "usage": {
+      "prompt_tokens": 9,
+      "completion_tokens": 6,
+      "total_tokens": 15
+     }
+    }
+   ],
+   "terminator": "data: [DONE]"
+  }
+ },
+ "expect_hints": {
+  "terminal_frame": "event: response.incomplete\ndata: {\"type\":\"response.incomplete\",\"sequence_number\":9,\"response\":{\"id\":\"chatcmpl-mock-0001\",\"object\":\"response\",\"created_at\":1770000000,\"status\":\"incomplete\",\"background\":false,\"error\":null,\"incomplete_details\":{\"reason\":\"max_output_tokens\"},\"max_output_tokens\":256,\"model\":\"mock-model\",\"output\":[{\"id\":\"msg_chatcmpl-mock-0001_0\",\"type\":\"message\",\"status\":\"incomplete\",\"content\":[{\"type\":\"output_text\",\"annotations\":[],\"logprobs\":[],\"text\":\"Hello from mock openai upstream\"}],\"role\":\"assistant\"}],\"usage\":{\"input_tokens\":9,\"input_tokens_details\":{\"cached_tokens\":0},\"output_tokens\":6,\"total_tokens\":15}}}"
+ },
+ "dynamic_fields": [
+  "Date",
+  "X-Cpa-Trace-Id",
+  "Host/port numbers"
+ ],
+ "http_status": "200",
+ "upstream_hits": 1
+}

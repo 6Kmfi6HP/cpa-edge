@@ -1,0 +1,53 @@
+{
+ "id": "S2d6-nostream-custom-tool",
+ "purpose": "Custom (freeform) tool: declaration -> function tool with single 'input' string parameter; replay custom_tool_call -> tool call with wrapped {\"input\":...} arguments; custom_tool_call_output -> tool message with flattened text. Reply with wrapped arguments -> downstream custom_tool_call item with UNWRAPPED input.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6; image digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+ "recorded_at": "2026-09-16T03:36:39",
+ "record": "downstream status+headers+body; upstream.jsonl",
+ "mock_control": {
+  "mode": "happy",
+  "variant": "tools-nonstream-custom",
+  "canned_nonstream": {
+   "id": "chatcmpl-mock-0001",
+   "object": "chat.completion",
+   "created": 1770000000,
+   "model": "mock-gpt-model",
+   "choices": [
+    {
+     "index": 0,
+     "message": {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+       {
+        "id": "ct_mock_02",
+        "type": "function",
+        "function": {
+         "name": "apply_patch",
+         "arguments": "{\"input\":\"*** Begin Patch\\n+hello\"}"
+        }
+       }
+      ]
+     },
+     "finish_reason": "tool_calls"
+    }
+   ],
+   "usage": {
+    "prompt_tokens": 9,
+    "completion_tokens": 6,
+    "total_tokens": 15
+   }
+  }
+ },
+ "expect_hints": {
+  "upstream_tools": "\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"apply_patch\",\"description\":\"Apply a patch\",\"parameters\":{\"type\":\"object\",\"properties\":{\"input\":{\"type\":\"string\"}},\"required\":[\"input\"]}}}]",
+  "downstream_output_item": "{\"id\":\"ctc_ct_mock_02\",\"type\":\"custom_tool_call\",\"status\":\"completed\",\"input\":\"*** Begin Patch\\n+hello\",\"call_id\":\"ct_mock_02\",\"name\":\"apply_patch\"}"
+ },
+ "dynamic_fields": [
+  "Date",
+  "X-Cpa-Trace-Id",
+  "Host/port numbers"
+ ],
+ "http_status": "200",
+ "upstream_hits": 1
+}

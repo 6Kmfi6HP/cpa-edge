@@ -1,0 +1,11 @@
+POST /v1/responses HTTP/1.1
+Host: 127.0.0.1:18317
+Accept: */*
+Content-Type: application/json
+Authorization: Bearer oracle-local-key-1
+User-Agent: codex-tui/0.154.0 (Mac OS 26.5.2; arm64) iTerm.app/3.6.11
+Originator: codex-tui
+Content-Length: 130
+
+
+{"model":"mock-model","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Say hi."}]}],"stream":true}

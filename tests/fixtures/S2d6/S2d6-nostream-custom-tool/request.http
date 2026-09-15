@@ -1,0 +1,10 @@
+POST /v1/responses HTTP/1.1
+Host: 127.0.0.1:18317
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Type: application/json
+Authorization: Bearer oracle-local-key-1
+Content-Length: 380
+
+
+{"model":"mock-model","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Fix the bug."}]},{"type":"custom_tool_call","call_id":"ct_mock_01","name":"apply_patch","input":"*** Begin Patch\n+fixed"},{"type":"custom_tool_call_output","call_id":"ct_mock_01","output":"done"}],"tools":[{"type":"custom","name":"apply_patch","description":"Apply a patch"}]}

@@ -1,0 +1,21 @@
+{
+ "id": "S2d6-nostream-image",
+ "purpose": "input_image with detail 'original' -> upstream image_url part with detail 'high'; part order preserved (image part before text part).",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6; image digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+ "recorded_at": "2026-09-16T03:36:38",
+ "record": "downstream status+headers+body; upstream.jsonl",
+ "mock_control": {
+  "mode": "happy",
+  "variant": "default"
+ },
+ "expect_hints": {
+  "upstream_body": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image_url\",\"image_url\":{\"url\":\"https://example.com/cat.png\",\"detail\":\"high\"}},{\"type\":\"text\",\"text\":\"What is this?\"}]}],\"stream\":false}"
+ },
+ "dynamic_fields": [
+  "Date",
+  "X-Cpa-Trace-Id",
+  "Host/port numbers"
+ ],
+ "http_status": "200",
+ "upstream_hits": 1
+}

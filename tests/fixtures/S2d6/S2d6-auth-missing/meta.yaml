@@ -1,0 +1,16 @@
+{
+ "id": "S2d6-auth-missing",
+ "purpose": "POST /v1/responses without Authorization -> 401 {'error':'Missing API key'} with the CORS block; no upstream call.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6; image digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+ "recorded_at": "2026-09-16T03:36:44",
+ "record": "downstream status+headers+body; upstream.jsonl must stay EMPTY for this case",
+ "mock_control": {},
+ "expect_hints": {},
+ "dynamic_fields": [
+  "Date",
+  "X-Cpa-Trace-Id",
+  "Host/port numbers"
+ ],
+ "http_status": "401",
+ "upstream_hits": 0
+}

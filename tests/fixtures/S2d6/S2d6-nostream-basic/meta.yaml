@@ -1,0 +1,43 @@
+{
+ "id": "S2d6-nostream-basic",
+ "purpose": "Non-stream happy path. Pins: instructions -> system message; whitelist field drop (temperature/top_p/user/store must NOT appear in the upstream body); upstream body field order model,messages,stream,max_tokens; downstream Responses JSON shape incl. model=<UPSTREAM name> quirk, message item msg_chatcmpl-mock-0001_0, usage with executor-appended output_tokens_details/input_tokens_details.",
+ "anchor": "CLIProxyAPI v7.3.4, commit 8335eac731946bd4eff18f500653f93736df53d6; image digest sha256:97825da3009f98acf78b5c172fde650a5fbe7a690950a69ce6d7b535d77d4266",
+ "recorded_at": "2026-09-16T03:36:38",
+ "record": "downstream status+headers+body; upstream.jsonl (method, path /v1/chat/completions, headers, body)",
+ "mock_control": {
+  "mode": "happy",
+  "variant": "default",
+  "canned_nonstream": {
+   "id": "chatcmpl-mock-0001",
+   "object": "chat.completion",
+   "created": 1770000000,
+   "model": "mock-gpt-model",
+   "choices": [
+    {
+     "index": 0,
+     "message": {
+      "role": "assistant",
+      "content": "Hello from mock openai upstream more"
+     },
+     "finish_reason": "stop"
+    }
+   ],
+   "usage": {
+    "prompt_tokens": 9,
+    "completion_tokens": 6,
+    "total_tokens": 15
+   }
+  }
+ },
+ "expect_hints": {
+  "upstream_body": "{\"model\":\"mock-gpt-model\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a concise assistant.\"},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Say hi.\"}]}],\"stream\":false,\"max_tokens\":128}",
+  "downstream_body": "{\"id\":\"chatcmpl-mock-0001\",\"object\":\"response\",\"created_at\":1770000000,\"status\":\"completed\",\"background\":false,\"error\":null,\"incomplete_details\":null,\"max_output_tokens\":128,\"model\":\"mock-gpt-model\",\"output\":[{\"id\":\"msg_chatcmpl-mock-0001_0\",\"type\":\"message\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"annotations\":[],\"logprobs\":[],\"text\":\"Hello from mock openai upstream more\"}],\"role\":\"assistant\"}],\"usage\":{\"input_tokens\":9,\"output_tokens\":6,\"total_tokens\":15,\"output_tokens_details\":{\"reasoning_tokens\":0},\"input_tokens_details\":{\"cached_tokens\":0}}}"
+ },
+ "dynamic_fields": [
+  "Date",
+  "X-Cpa-Trace-Id",
+  "Host/port numbers"
+ ],
+ "http_status": "200",
+ "upstream_hits": 1
+}

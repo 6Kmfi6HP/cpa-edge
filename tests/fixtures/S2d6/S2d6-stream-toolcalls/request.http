@@ -1,0 +1,10 @@
+POST /v1/responses HTTP/1.1
+Host: 127.0.0.1:18317
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Type: application/json
+Authorization: Bearer oracle-local-key-1
+Content-Length: 315
+
+
+{"model":"mock-model","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Weather in SF?"}]}],"tools":[{"type":"function","name":"get_weather","description":"Get current weather","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}],"stream":true}

@@ -134,7 +134,10 @@ function serializeString(text: string): string {
  * verbatim. Rejects values that cannot appear on a JSON wire.
  */
 export function serializeOrdered(value: WireValue): string {
-  if (value instanceof RawJson) return value.text
+  if (value instanceof RawJson) {
+    console.log('DEBUG rawjson emit len:', value.text.length, JSON.stringify(value.text))
+    return value.text
+  }
   if (value === null) return 'null'
   if (typeof value === 'string') return serializeString(value)
   if (typeof value === 'boolean') return value ? 'true' : 'false'

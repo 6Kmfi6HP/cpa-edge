@@ -1,0 +1,10 @@
+POST /v1/responses HTTP/1.1
+Host: 127.0.0.1:18317
+User-Agent: curl/8.7.1
+Accept: */*
+Content-Type: application/json
+Authorization: Bearer oracle-local-key-1
+Content-Length: 840
+
+
+{"model":"mock-model","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Weather in SF?"}]},{"type":"function_call","call_id":"call_mock_01","name":"get_weather","arguments":"{\"city\":\"SF\"}"},{"type":"function_call_output","call_id":"call_mock_01","output":"18C and foggy"},{"type":"function_call","call_id":"call_mock_02","name":"get_weather","arguments":"{\"city\":\"NYC\"}"},{"type":"function_call_output","call_id":"call_mock_02","output":[{"type":"input_text","text":"22C and rainy"}]},{"type":"function_call_output","call_id":"call_orphan_99","output":"orphan note"}],"tools":[{"type":"function","name":"get_weather","description":"Get current weather","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}],"tool_choice":{"type":"function","name":"get_weather"}}
