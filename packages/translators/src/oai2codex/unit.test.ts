@@ -123,9 +123,9 @@ describe('schema normalization - union -> enum (2.11)', () => {
 
 describe('schema normalization - pattern strip (2.11)', () => {
   it('deletes \\p pattern attributes and patternProperties keys, then remarshal alphabetically', () => {
-    const parameters = '{"properties": {"a": {"type": "string", "pattern": "\\\\p{L}+"}, "b": {"patternProperties": {"\\\\p{N}": {"type": "number"}}}}}'
+    const parameters = '{"properties": {"a": {"type": "string", "pattern": "\\\\p{L}+"}, "b": {"patternProperties": {"\\\\p{N}": {"type": "number"}, "^[0-9]+$": {"type": "number"}}}}}'
     const normalized = normalizeCodexParameters(parameters)
-    expect(normalized).toBe('{"properties":{"a":{"type":"string"},"b":{}}}')
+    expect(normalized).toBe('{"properties":{"a":{"type":"string"},"b":{"patternProperties":{"^[0-9]+$":{"type":"number"}}}}}')
   })
 
   it('keeps \\p text inside description/default/enum values (user data)', () => {
@@ -181,13 +181,13 @@ describe('tool-name shortening + restoration (2.10)', () => {
   it('distinct originals colliding after shortening take _N suffixes within the limit', () => {
     const long = 'mcp__x__' + 'y'.repeat(60)
     const other = 'mcp__z__' + 'y'.repeat(60)
+    expect(shortenToolName(long)).toBe(shortenToolName(other))
     const map = buildShortNameMap([long, other])
-    const first = shortenToolName(long)
-    const second = shortenToolName(other)
-    expect(map[first]).toBe(long)
-    expect(map[second]).toBe(other)
-    expect(first).not.toBe(second)
-    expect(second.length).toBeLessThanOrEqual(64)
+    const keys = Object.keys(map)
+    expect(keys.length).toBe(2)
+    expect(keys[0]).not.toBe(keys[1])
+    for (const key of keys) expect(key.length).toBeLessThanOrEqual(64)
+    expect(new Set([map[keys[0]], map[keys[1]]]).size).toBe(2)
   })
 
   it('repeated originals share one short name', () => {
@@ -269,13 +269,14 @@ describe('request translation (2.3, 3.1-3.3)', () => {
   })
 
   it('capability-ON models keep the two-phase reasoning construction', async () => {
-    expect(await translate({ messages: [], reasoning_effort: 'high' }, { thinking: true })).toEqual({
-      effort: 'high',
-      summary: 'auto',
-    })
-    expect(await translate({ messages: [], reasoning_effort: 'none' }, { thinking: true })).toEqual({ effort: 'none' })
-    expect(await translate({ messages: [], reasoning_effort: '' }, { thinking: true })).toEqual({ effort: '' })
-    expect(await translate({ messages: [] }, { thinking: true })).toEqual({ effort: 'medium', summary: 'auto' })
+    const high = await translate({ messages: [], reasoning_effort: 'high' }, { thinking: true })
+    expect(high['reasoning']).toEqual({ effort: 'high', summary: 'auto' })
+    const none = await translate({ messages: [], reasoning_effort: 'none' }, { thinking: true })
+    expect(none['reasoning']).toEqual({ effort: 'none' })
+    const empty = await translate({ messages: [], reasoning_effort: '' }, { thinking: true })
+    expect(empty['reasoning']).toEqual({ effort: '' })
+    const absent = await translate({ messages: [] }, { thinking: true })
+    expect(absent['reasoning']).toEqual({ effort: 'medium', summary: 'auto' })
     expect(translateReasoning({ reasoning_effort: 'high' }, false)).toBeUndefined()
   })
 
@@ -350,7 +351,8 @@ describe('request translation (2.3, 3.1-3.3)', () => {
       tools: [{ type: 'function', function: { name: 'f' } }],
     })
     const input = body['input'] as Record<string, unknown>[]
-    expect(input.map((item) => item['type'])).toEqual(['function_call', 'function_call_output'])
+    expect(input.map((item) => item['type'])).toEqual(['function_call', 'function_call', 'function_call_output'])
+    expect(input.map((item) => item['call_id'])).toEqual(['call_missing_0_0', 'call_missing_0_1', 'call_missing_0_0'])
 
     const dup = await translate({
       messages: [
@@ -431,7 +433,7 @@ describe('request translation (2.3, 3.1-3.3)', () => {
       '"response_format":{"type":"json_schema","json_schema":{"name":"s","strict":true,"schema": { "type": "object" }}},' +
       '"text":{"verbosity":"low"}}'
     const result = await rawTranslate(raw)
-    expect(result.body).toContain('"text":{"format":{"type":"json_schema","name":"s","strict":true,"schema": { "type": "object" }},"verbosity":"low"}')
+    expect(result.body).toContain('"text":{"format":{"type":"json_schema","name":"s","strict":true,"schema":{ "type": "object" }},"verbosity":"low"}')
 
     const objectFormat = await translate({ messages: [], response_format: { type: 'json_object' } })
     expect(objectFormat['text']).toEqual({})
@@ -566,7 +568,7 @@ describe('stream translation corners (2.6-2.8)', () => {
     const frames: string[] = []
     const collect = (data: string): void => {
       const result = translator.translateDataLine(data)
-      if (result.kind === 'frames') frames.push(...result.frames)
+      if (result.kind === 'frames' || result.kind === 'stop') frames.push(...result.frames)
     }
     collect(line('response.created', { response: { id: 'r', created_at: 1, model: 'm' } }))
     collect(line('response.output_item.added', { output_index: 0, item: { type: 'function_call', id: 'i', call_id: 'c', name: 'f', arguments: '' } }))
@@ -574,7 +576,7 @@ describe('stream translation corners (2.6-2.8)', () => {
     collect(line('response.function_call_arguments.done', { item_id: 'i', arguments: '{"a":1}' }))
     collect(line('response.output_item.done', { output_index: 0, item: { type: 'function_call', id: 'i', call_id: 'c', name: 'f', arguments: '{"a":1}' } }))
     collect(line('response.completed', { response: { status: 'completed' } }))
-    const toolFrames = frames.filter((frame) => frame.includes('tool_calls'))
+    const toolFrames = frames.filter((frame) => /"delta":\{[^}]*"tool_calls"/.test(frame))
     expect(toolFrames.length).toBe(2)
     const terminal = frames[frames.length - 1] ?? ''
     expect(terminal).toContain('"finish_reason":"tool_calls"')
@@ -666,7 +668,7 @@ describe('stream translation corners (2.6-2.8)', () => {
       const result = translator.translateDataLine(data)
       if (result.kind === 'frames') frames.push(...result.frames)
     }
-    const indices = frames.map((frame) => /"index":(\d)/.exec(frame)?.[1])
+    const indices = frames.map((frame) => /"tool_calls":\[\{"index":(\d)/.exec(frame)?.[1])
     expect(indices).toEqual(['0', '1', '0', '1', '0'])
   })
 })
@@ -687,7 +689,7 @@ describe('usage mapping (2.7)', () => {
     expect(JSON.stringify(usage)).toBe(
       '{"completion_tokens":6,"total_tokens":15,"prompt_tokens":9,"prompt_tokens_details":{"cached_tokens":4,"cache_write_tokens":7,"cached_creation_tokens":7},"completion_tokens_details":{"reasoning_tokens":11}}',
     )
-    expect(codexUsageObject({ output_tokens: 1, input_tokens_details: { cache_write_tokens: 1.5 } })).toBe('{"completion_tokens":1}')
+    expect(JSON.stringify(codexUsageObject({ output_tokens: 1, input_tokens_details: { cache_write_tokens: 1.5 } }))).toBe('{"completion_tokens":1}')
     expect(codexUsageObject(null)).toBeUndefined()
   })
 })
@@ -710,7 +712,7 @@ describe('error classification (E1, E8)', () => {
     })
     expect(renderUpstreamFailure(classifyCodexUpstreamError(401, ''))).toEqual({
       status: 401,
-      body: '{"error":{"message":"Unauthorized","type":"authentication_error","code":"invalid_api_key"}}',
+      body: '{"error":{"message":"Unauthorized","type":"authentication_error","code":"auth_unavailable"}}',
     })
     expect(wrapTypeForStatus(418)).toEqual({ type: 'invalid_request_error' })
   })

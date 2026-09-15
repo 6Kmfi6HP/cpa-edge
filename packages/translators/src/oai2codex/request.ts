@@ -596,7 +596,9 @@ function translateText(request: Record<string, unknown>, rawBody: string): WireO
   const format = translateTextFormat(responseFormat, rawBody)
   if (format !== undefined) text['format'] = format
   if (verbosity !== undefined) text['verbosity'] = verbosity
-  return Object.keys(text).length > 0 ? text : undefined
+  // An unmapped response_format (e.g. json_object) leaves the EMPTY object -
+  // the `text` key is still emitted (S2d5 3.3).
+  return text
 }
 
 function translateTextFormat(responseFormat: unknown, rawBody: string): WireObject | undefined {

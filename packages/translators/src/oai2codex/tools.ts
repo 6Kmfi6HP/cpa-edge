@@ -255,7 +255,8 @@ function rewriteConstUnion(propertyRaw: string): UnionRewrite {
   let updated = deleteRawMember(propertyRaw, objectSpan, unionMember)
   if (enumMember === undefined) {
     const close = updated.length - 1
-    updated = updated.slice(0, close) + `,"enum":[${tokens.join(',')}]` + updated.slice(close)
+    const separator = updated.slice(0, close).trimEnd().endsWith('{') ? '' : ','
+    updated = updated.slice(0, close) + `${separator}"enum":[${tokens.join(',')}]` + updated.slice(close)
   }
   return { changed: true, text: updated }
 }

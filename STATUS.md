@@ -36,7 +36,7 @@
 | I-tr-S2d4 | packages/translators: Claude→OpenAI | 2 | — | pending | 0 |  |
 | I-tr-S2d5 | packages/translators: OpenAI→Codex/Responses | 2 | impl-i-tr-s2d5 | impl | 0 |  |
 | I-tr-S2d6 | packages/translators: Responses→OpenAI chat | 2 | impl-i-tr-s2d6 | impl | 0 |  |
-| I-tr-S2d7 | packages/translators: Gemini→Claude | 2 | impl-i-tr-s2d7 | impl-adv | 0 | delivered: 101 unit + S2d7 contract 32/32; impl-review running on adv-impl-1 |
+| I-tr-S2d7 | packages/translators: Gemini→Claude | 2 | impl-i-tr-s2d7 | fix | 1 | adv-impl-1 R1: FAIL (B1 sticky merge barrier); fixer dispatched B1+N3+N7; N1 countTokens-cooldown ruling recording authorized |
 | I-tr-S2d8 | packages/translators: Claude→Gemini | 2 | impl-i-tr-s2d8 | impl | 0 |  |
 | I-tr-S2d9 | packages/translators: Codex passthrough | 2 | — | pending | 0 |  |
 | I-tr-S2d10 | packages/translators: Antigravity redirect | 2 | — | pending | 0 |  |

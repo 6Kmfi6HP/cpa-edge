@@ -83,12 +83,12 @@ function parseErrorObject(body: string): Record<string, unknown> | undefined {
 }
 
 /** `<upstream error.message or body text>` for classified rewrites. */
-function classifiedMessage(body: string): string {
+function classifiedMessage(body: string, status: number): string {
   const error = parseErrorObject(body)
   const message = error !== undefined ? error['message'] : undefined
   if (typeof message === 'string' && message.length > 0) return message
   const trimmed = body.trim()
-  return trimmed.length > 0 ? trimmed : statusText(0)
+  return trimmed.length > 0 ? trimmed : statusText(status)
 }
 
 /**
@@ -115,7 +115,7 @@ export function classifyCodexUpstreamError(status: number, body: string): CodexU
     return {
       kind: 'rewritten',
       status,
-      body: buildErrorEnvelopeBody(classifiedMessage(body), 'invalid_request_error', 'context_too_large'),
+      body: buildErrorEnvelopeBody(classifiedMessage(body, status), 'invalid_request_error', 'context_too_large'),
     }
   }
 
@@ -127,7 +127,7 @@ export function classifyCodexUpstreamError(status: number, body: string): CodexU
     return {
       kind: 'rewritten',
       status: status === 401 ? 401 : status,
-      body: buildErrorEnvelopeBody(classifiedMessage(body), 'authentication_error', 'auth_unavailable'),
+      body: buildErrorEnvelopeBody(classifiedMessage(body, status), 'authentication_error', 'auth_unavailable'),
     }
   }
 

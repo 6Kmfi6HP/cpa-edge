@@ -1526,6 +1526,60 @@
       ],
       "deterministic": "fixed empty-variant upstream",
       "fixture": "tests/fixtures/S2d7/S2d7-30-stream-empty-200/"
+    },
+    {
+      "id": "S2d7-31-counttokens-cooldown",
+      "purpose": "RULING RECORDING (impl-review N1): does an ACTIVE credential cooldown gate :countTokens? Procedure: trip a 429 cooldown (mock error mode), then fire countTokens within the ~1s cooldown window. Outcome decides: 429 model_cooldown (cooldown gates count) vs 200 {totalTokens,...} (count bypasses cooldown).",
+      "client_protocol": "gemini",
+      "upstream_provider_type": "claude-api-key",
+      "stream": false,
+      "mock": {
+        "setup": {
+          "mode": "error",
+          "status": 429,
+          "control_file": {
+            "mode": "error",
+            "status": 429
+          }
+        },
+        "probe": {
+          "note": "control file state irrelevant for the count request — countTokens never calls upstream; leave it as-is or reset, either way the answer is deterministic"
+        }
+      },
+      "requests": [
+        {
+          "step": "1-cooldown-setup",
+          "method": "POST",
+          "path": "/v1beta/models/cm:streamGenerateContent?alt=sse",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}",
+          "curl": "curl -sS -N -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/cm:streamGenerateContent?alt=sse' -H 'x-goog-api-key: oracle-local-key-1' -H 'Content-Type: application/json' -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}'",
+          "expect": "429 with the mock claude error body (same as S2d7-10) — puts the credential in the ~1s rate-limit cooldown"
+        },
+        {
+          "step": "2-counttokens-during-cooldown",
+          "method": "POST",
+          "path": "/v1beta/models/cm:countTokens",
+          "headers": {
+            "x-goog-api-key": "oracle-local-key-1",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}",
+          "curl": "curl -sS -v -m 60 -X POST 'http://127.0.0.1:18317/v1beta/models/cm:countTokens' -H 'x-goog-api-key: oracle-local-key-1' -H 'Content-Type: application/json' -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}]}'",
+          "expect": "UNKNOWN — this is the ruling. Either (a) HTTP 429 + model_cooldown body (cooldown gates countTokens; expect the S2d7-19 shape incl. Retry-After), or (b) HTTP 200 + {\"totalTokens\":N,\"promptTokensDetails\":[...]} (count bypasses cooldown). Record which."
+        }
+      ],
+      "record": "downstream verbose + body for BOTH steps; step-2 is the golden; note whether any upstream request occurred during step 2 (expected none either way)",
+      "ordering": "step 2 MUST fire <1s after step 1 completes; wait >=1s after step 2 before any further case",
+      "dynamic_fields": [
+        "Date",
+        "X-Cpa-Trace-Id"
+      ],
+      "deterministic": "1s cooldown window; if step 2 lands after the window by accident, re-run the pair",
+      "fixture": "tests/fixtures/S2d7/S2d7-31-counttokens-cooldown/"
     }
   ]
 }
