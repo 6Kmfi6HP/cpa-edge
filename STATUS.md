@@ -36,7 +36,7 @@
 | I-tr-S2d4 | packages/translators: Claude→OpenAI | 2 | — | pending | 0 |  |
 | I-tr-S2d5 | packages/translators: OpenAI→Codex/Responses | 2 | impl-i-tr-s2d5 | impl | 0 |  |
 | I-tr-S2d6 | packages/translators: Responses→OpenAI chat | 2 | impl-i-tr-s2d6 | impl | 0 |  |
-| I-tr-S2d7 | packages/translators: Gemini→Claude | 2 | impl-i-tr-s2d7 | fix | 1 | adv-impl-1 R1: FAIL (B1 sticky merge barrier); fixer dispatched B1+N3+N7; N1 countTokens-cooldown ruling recording authorized |
+| I-tr-S2d7 | packages/translators: Gemini→Claude | 2 | impl-i-tr-s2d7 | impl-adv-r2 | 1 | fix round done (4/4, S2d7-31 gate included); round-2 running on adv-impl-1 |
 | I-tr-S2d8 | packages/translators: Claude→Gemini | 2 | impl-i-tr-s2d8 | impl | 0 |  |
 | I-tr-S2d9 | packages/translators: Codex passthrough | 2 | — | pending | 0 |  |
 | I-tr-S2d10 | packages/translators: Antigravity redirect | 2 | — | pending | 0 |  |
@@ -57,4 +57,3 @@
 
 ## Verdict / escalation log
 (appended by orchestrator)
-- 2026-09-16 04:1x ORACLE INCIDENT: worker-5 entered an unrecoverable zombie-stream state (>1.5h, steer-immune); queue reassigned (S2d9+S2d1 -> w2, S2d4 -> w4). New playbook entry: zombie-stream sessions (status streaming + no msg progress + steer queued-undelivered) => REASSIGN the queue, notify requesters, leave a do-not-redo notice.

@@ -1397,9 +1397,8 @@ interface ReplayOptions {
 
 async function replayCase(session: ReplaySession, caseId: CaseId, options: ReplayOptions = {}): Promise<void> {
   const files = await loadCaseFiles(caseId)
-  const resolved = await resolveMockScript(caseId)
-  const script = options.script ?? resolved.script
-  const mock = buildMockUpstreamResponse(script, caseId)
+  const script: MockScript | undefined = options.script ?? (files.meta.upstream_hits > 0 ? (await resolveMockScript(caseId)).script : undefined)
+  const mock = script === undefined ? undefined : buildMockUpstreamResponse(script, caseId)
 
   let currentRequest: ResponsesRequest | undefined
   const send: UpstreamSender = async (call) => {
@@ -1407,13 +1406,17 @@ async function replayCase(session: ReplaySession, caseId: CaseId, options: Repla
       throw new Error(`S2d6[${caseId}]: harness bug — upstream call outside the request step`)
     }
     session.captured.push({ request: currentRequest, call })
+    if (mock === undefined) {
+      throw new Error(`S2d6[${caseId}]: gateway-local case made an upstream call (meta upstream_hits is 0)`)
+    }
     return mock.response
   }
 
   currentRequest = files.request
   const produced = await session.service.handleResponses(files.request, send)
 
-  const callsThisCase = session.captured
+  const callsBefore = session.captured.length
+  const callsThisCase = session.captured.slice(callsBefore)
   expect(callsThisCase.length, `S2d6[${caseId}]: upstream call count (gateway-local cases call nothing)`).toBe(
     files.meta.upstream_hits,
   )
@@ -1637,20 +1640,24 @@ describe('S2d6 fixture inventory (harness self-check, adapter-independent)', () 
         ])
       }
 
-      const resolved = await resolveMockScript(caseId)
-      if (resolved.script.kind === 'nonstream') assertAsciiStrings(resolved.script.reply, `${context}: canned reply`)
-      if (resolved.script.kind === 'stream') {
-        assertAsciiStrings(resolved.script.script.events, `${context}: SSE script events`)
-        expect(
-          resolved.script.script.terminator === null ||
-            resolved.script.script.terminator === undefined ||
-            resolved.script.script.terminator === 'data: [DONE]',
-          `${context}: only the data: [DONE] terminator is recorded`,
-        ).toBe(true)
-      }
-      if (resolved.script.kind === 'error') {
-        expect(resolved.script.status, `${context}: recorded error mode is the 429`).toBe(429)
-        assertAsciiStrings(resolved.script.body, `${context}: error reply body`)
+      if (meta.upstream_hits > 0) {
+        const resolved = await resolveMockScript(caseId)
+        if (resolved.script.kind === 'nonstream') assertAsciiStrings(resolved.script.reply, `${context}: canned reply`)
+        if (resolved.script.kind === 'stream') {
+          assertAsciiStrings(resolved.script.script.events, `${context}: SSE script events`)
+          expect(
+            resolved.script.script.terminator === null ||
+              resolved.script.script.terminator === undefined ||
+              resolved.script.script.terminator === 'data: [DONE]',
+            `${context}: only the data: [DONE] terminator is recorded`,
+          ).toBe(true)
+        }
+        if (resolved.script.kind === 'error') {
+          expect(resolved.script.status, `${context}: recorded error mode is the 429`).toBe(429)
+          assertAsciiStrings(resolved.script.body, `${context}: error reply body`)
+        }
+      } else {
+        expect(wire.length, `${context}: zero-hit cases record no wire lines`).toBe(0)
       }
 
       // meta.yaml canned_* duplicates must agree with the scripted mock file when both exist.

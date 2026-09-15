@@ -950,10 +950,11 @@
         "mock_response": "none (served from cooldown state)"
       },
       "expected": {
-        "status": "record (expected 429)",
-        "downstream_body": "record; expected {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"All credentials for model mock-model are cooling down via provider mock-openai (last error: rate_limit_exceeded: mock rate limit)\"}} — recorded bytes win"
+        "status": "429 (recorded)",
+        "downstream_body": "{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"All credentials for model mock-model are cooling down via provider openai-compatible-mock-openai (last error: {\\\"error\\\": {\\\"message\\\": \\\"mock rate limit\\\", \\\"type\\\": \\\"rate_limit_exceeded\\\", \\\"code\\\": \\\"rate_limit_exceeded\\\"}})\"}} — recorded bytes are the golden",
+        "retry_after_header": "1 (recorded)"
       },
-      "timing": "MUST run back-to-back with S2d4-error-429 (same shell invocation); cooldown window is ~1s"
+      "timing": "recorded back-to-back with S2d4-error-429; NOTE the measured openai-compat rate-limit cooldown window is 2-4s (probe cooldown-probe.json), so back-to-back execution is safely inside the window"
     },
     {
       "id": "S2d4-stream-error-429",
@@ -1018,5 +1019,18 @@
         "downstream_sse": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"chatcmpl-mock-0001\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"mock-gpt-model\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":3,\"output_tokens\":0}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello from mock openai upstream\"}}\n\nevent: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"unexpected EOF\"}}\n\n"
       }
     }
-  ]
+  ],
+  "recording_outcome": {
+    "status": "22/22 recorded by oracle-runner-4 on 2026-09-16 (initially requested from oracle-runner-5, rerouted by the orchestrator)",
+    "fixture_dir": "tests/fixtures/S2d4/",
+    "raw_evidence": "_cpa_edge_ref/run4/probes/S2d4/",
+    "environment": "reference 127.0.0.1:8407 (config.s2d4.yaml incl. mock-openai-compat entry), openai mock 21999 with control-file script mode; ports masked as dynamic fields",
+    "verification": "21/22 byte-exact vs the expected values in this file (all statuses, downstream bodies, full SSE streams, deterministic token counts 3/33/7/6 and 43, upstream paths/bodies/header assertions, four empty-wire-log assertions). Recorded bytes are the golden; mismatches also captured per-case in fixture meta.yaml.",
+    "divergences_recorded": [
+      "S2d4-cooldown-second: status 429 (resolves the 429-vs-500 flag); Retry-After: 1 header present; provider string is 'openai-compatible-mock-openai' (namespaced provider key); the last upstream error is embedded VERBATIM (raw mock JSON with its spacing), not the compact 'rate_limit_exceeded: mock rate limit' form",
+      "S2d4-tool-roundtrip / S2d4-toolresult-image-relay: upstream tool_calls entries emitted in Go sorted-map key order {'function':{'arguments','name'},'id','type'} — deep-equal, key order informative-only",
+      "S2d4-tool-roundtrip: upstream reminder text HTML-escaped (<system-reminder> -> \\u003csystem-reminder\\u003e) — deep-equal, informative-only",
+      "measured openai-compat rate-limit cooldown window is 2-4s (cooldown-probe.json), not ~1s; the timing constraints in this file were written for a ~1s window and were honored, but future re-recordings should allow 2-4s"
+    ]
+  }
 }
