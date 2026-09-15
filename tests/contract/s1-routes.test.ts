@@ -115,22 +115,22 @@
  * • SKIPS: requests whose (surface, family) direction has no merged
  *   facade yet skip with the seam id from the runtime's own DIRECTIONS
  *   table; they flip on automatically when the integrator merges the
- *   facade. Skipped today: S1-14/S1-15 (chat:openai-compatibility),
- *   S1-16 (messages:openai-compatibility), S1-18 responses-nostream/
- *   responses-stream/codex-alias (responses:openai-compatibility).
+ *   facade (their upstream-call counts are pre-declared, so a flip
+ *   asserts the wire log immediately). Open at the time of this
+ *   revision: chat:openai-compatibility (S1-14/S1-15) and
+ *   messages:openai-compatibility (S1-16); the
+ *   responses:openai-compatibility seam (S1-18) merged and replays.
  *
- * Known reds at delivery (recorded findings, not harness noise):
- * • S1-17 x3: the recorded mock served SSE data payloads with one
- *   trailing `}` (invalid strict JSON - the S1-15 passthrough golden
- *   forwarded the very same bytes verbatim), and the golden shows the
- *   reference translating them anyway: upstream chunk parsing must be
- *   lenient about trailing garbage after the JSON value. The merged
- *   gem2oai facade JSON.parses strictly and emits a terminal error frame
- *   instead (recorded fixtures outrank the derived S2d2 wording here).
- * • S1-25/zstd-garbage: the recorded 400 carries
- *   `Content-Type: application/json; charset=utf-8`; the route layer
- *   renders the chat-surface decode failure with the bare
- *   `application/json` form today.
+ * Red-test etiquette: a red in this suite is a recorded divergence,
+ * never harness noise. Divergences already routed through the
+ * orchestrator: (1) upstream chunk parsing must be lenient about
+ * trailing garbage after the JSON value - the S1 mock's recorded SSE
+ * payloads carry one trailing `}` (the S1-15 passthrough golden
+ * forwarded those exact bytes, and S1-17's golden shows the reference
+ * translating them anyway; recorded fixtures outrank the derived S2d2
+ * wording) - fixed for gem2oai at the time of this revision, res2oai
+ * pending; (2) the chat-surface zstd 400 must carry the charset content
+ * type (S1-25/zstd-garbage) - fixed at the time of this revision.
  *
  * Self-check: no leftover markers, no `any`, no silently swallowed
  * catches, assertions byte-level against recorded goldens (no timing
@@ -1044,12 +1044,27 @@ const SEAM_BY_REQUEST: Readonly<Record<string, string>> = {
   'S1-18/codex-alias': 'responses:openai-compatibility',
 }
 
-/** Recorded upstream wire lines per request (request order). */
+/**
+ * Recorded upstream wire lines per request (request order). The seam-
+ * deferred requests carry their counts too, so a merged facade flips on
+ * with the wire log already asserted; the counts mirror each case's
+ * upstream.jsonl exactly (verified line by line against the fixtures).
+ */
 const UPSTREAM_CALLS_BY_REQUEST: Readonly<Record<string, number>> = {
   'S1-13/generate-content': 1,
   'S1-17/stream-alt-json': 1,
   'S1-17/stream-alt-sse': 1,
   'S1-17/stream-no-alt': 1,
+  // responses:openai-compatibility seam (S1-18) - jsonl order
+  // nostream, stream, codex-alias; compact stays a route-level 400.
+  'S1-18/responses-nostream': 1,
+  'S1-18/responses-stream': 1,
+  'S1-18/codex-alias': 1,
+  // chat:openai-compatibility seam (S1-14/S1-15) and the
+  // messages:openai-compatibility seam (S1-16).
+  'S1-14/chat-nostream': 1,
+  'S1-15/chat-stream': 1,
+  'S1-16/messages-nostream': 1,
 }
 
 /** Golden bodies that compare under a mode other than byte-exact. */
@@ -1182,6 +1197,16 @@ async function replayRegularRequest(spec: RequestSpec): Promise<void> {
 
   const before = gateway.captured.length
   const actual = await materialize(await gateway.gateway.handle(toGatewayRequest(recorded)))
+  const calls = gateway.captured.slice(before)
+
+  // Consume this request's recorded wire lines BEFORE any assertion can
+  // throw, so a red step never desynchronizes the wire baseline of the
+  // steps that follow it inside the same case.
+  const expectedLines = entry.upstreamLines.slice(
+    cursorFor(spec.caseId),
+    cursorFor(spec.caseId) + spec.upstreamCalls,
+  )
+  advanceCursor(spec.caseId, spec.upstreamCalls)
 
   const verdict = assertGoldenStep(spec.key, golden, actual, spec.bodyMode, {
     maskBanDuration: false,
@@ -1198,9 +1223,6 @@ async function replayRegularRequest(spec: RequestSpec): Promise<void> {
       `${spec.key}: meta.yaml declares status ${spec.expectedStatus}, runtime produced ${actual.status}`,
     )
   }
-
-  const expectedLines = entry.upstreamLines.slice(cursorFor(spec.caseId), cursorFor(spec.caseId) + spec.upstreamCalls)
-  const calls = gateway.captured.slice(before)
   if (calls.length !== spec.upstreamCalls) {
     throw new Error(
       `${spec.key}: expected ${spec.upstreamCalls} upstream call(s), the runtime made ${calls.length}`,
@@ -1215,7 +1237,6 @@ async function replayRegularRequest(spec: RequestSpec): Promise<void> {
     const problem = assertUpstreamCall(`${spec.key} upstream ${index + 1}`, recordedLine, call)
     if (problem !== null) throw new Error(problem)
   }
-  advanceCursor(spec.caseId, spec.upstreamCalls)
 }
 
 // ─── The mgmt-ip-ban-threshold probe (six sequential requests, one container) ─────

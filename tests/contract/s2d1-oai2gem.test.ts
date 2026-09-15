@@ -175,9 +175,15 @@
  *   `mode === 'happy'`: a structured `stream_events` array replays one SSE data frame per
  *   event (C12/C13/C14/C19/C22/C23); a structured object is the non-stream reply
  *   (C04/C05/C06/C09); a STRING `scripted_mock_response` denotes the mock's DEFAULT reply
- *   (C01/C02/C03/C07/C08/C10/C11/C20/C21), which the harness reconstructs from the recorded
- *   evidence: the fixed default text/usage with `modelVersion` echoing the translated
- *   upstream body's `model` — so a mistranslated model also corrupts the downstream echo.
+ *   (C01/C02/C03/C07/C08/C10/C11/C20/C21), which the harness reconstructs from the RECORDED
+ *   evidence with `modelVersion` echoing the translated upstream body's `model` — so a
+ *   mistranslated model also corrupts the downstream echo. Two reconstruction rules were
+ *   decided from the recordings, against stale fixture prose (recorded bytes outrank prose
+ *   per SPEC §0): the -tools model's stock reply is the functionCall reply (C03's recorded
+ *   downstream shows tool_calls + usage 11/3/14, byte-identical to C04's structured script),
+ *   and EVERY happy reply is serialized with the mock's Python json.dumps spacing — never
+ *   compact JSON — because the gateway embeds functionCall args RAW into the downstream
+ *   `arguments` bytes (C03/C04/C12 record `"{\"city\": \"Paris\"}"`).
  *
  * • Upstream calls are captured per case; at the end the captured sequence must equal the
  *   recorded upstream.jsonl lines (count + bytes). The C16 cooldown step therefore also
@@ -241,10 +247,13 @@
  *   - `ports (8387/20001)` — the trailing `:port` of the upstream Host header is masked to
  *     `:<PORT>` on both sides; the gateway port appears only in the recorded request
  *     Host, which no assertion reads.
- *   - `choices[0].message.tool_calls[*].id` (C03/C04) / `choices[0].delta.tool_calls[*].id
- *     (frames)` (C12) — the volatile id tail `-<unix-nano>-<counter>` is masked to
- *     `-<ID>`; the sanitized-name prefix stays pinned, and a foreign id shape fails
- *     loudly instead of being masked.
+ *   - `choices[0].message.tool_calls[*].id` (C04) / `choices[0].delta.tool_calls[*].id
+ *     (frames)` (C12) — recognized; the mask itself is UNCONDITIONAL: the volatile id
+ *     tail `-<unix-nano>-<counter>` is masked to `-<ID>` on EVERY compared downstream
+ *     body, because C03's recording carries such an id without declaring it (a meta
+ *     under-declaration; recorded evidence outranks the per-case declaration). The
+ *     sanitized-name prefix stays pinned and a foreign id shape fails loudly instead of
+ *     being masked.
  *   - `error.reset_time` + `error.reset_seconds` (C16) — recognized; deliberately NOT
  *     masked: the frozen clock pins the recorded literals `Retry-After: 1` /
  *     `"reset_seconds":1` / `"reset_time":"1s"` byte-exactly, and a consistency check ties
@@ -634,12 +643,10 @@ function parseDownstreamMarkdown(text: string, caseId: string): RecordedResponse
 interface MaskProfile {
   /** Mask the trailing `:port` of the upstream Host header on both sides of the wire compare. */
   readonly upstreamHostPort: boolean
-  /** Mask the volatile `-<unix-nano>-<counter>` tail of generated tool_call ids in bodies. */
-  readonly toolCallIds: boolean
 }
 
 function maskProfile(caseId: string, dynamicFields: readonly string[]): MaskProfile {
-  const profile = { upstreamHostPort: false, toolCallIds: false }
+  const profile = { upstreamHostPort: false }
   for (const field of dynamicFields) {
     if (
       field === 'Date response header' || // never compared: outside the asserted subset
@@ -653,7 +660,9 @@ function maskProfile(caseId: string, dynamicFields: readonly string[]): MaskProf
       continue
     }
     if (field === 'choices[0].message.tool_calls[*].id' || field === 'choices[0].delta.tool_calls[*].id (frames)') {
-      profile.toolCallIds = true
+      // Recognized no-ops: the generated-id mask is UNCONDITIONAL on every compared
+      // downstream body (see normalizeBodyText) — C03 records such an id without
+      // declaring it, so the mask cannot key off the per-case declaration.
       continue
     }
     if (field === 'error.reset_time' || field === 'error.reset_seconds') {
@@ -682,9 +691,15 @@ function normalizeHeaderValue(name: string, value: string, mask: MaskProfile): s
   return value
 }
 
-/** Masks the volatile id tail while keeping the sanitized-name prefix pinned. */
-function normalizeBodyText(text: string, mask: MaskProfile): string {
-  return mask.toolCallIds ? text.replace(TOOL_CALL_ID_TAIL_RE, '$1$2-<ID>$3') : text
+/**
+ * Masks the volatile tail of a generated tool_call id (`<sanitized-name>-<unix-nano>-
+ * <counter>`) while keeping the sanitized-name prefix pinned; the mask is applied
+ * UNCONDITIONALLY to every compared downstream body (C03 records such an id without
+ * declaring it in dynamic_fields, so the mask cannot key off the per-case declaration).
+ * A foreign id shape matches nothing and fails the byte compare loudly.
+ */
+function normalizeBodyText(text: string, _mask: MaskProfile): string {
+  return text.replace(TOOL_CALL_ID_TAIL_RE, '$1$2-<ID>$3')
 }
 
 // ─── Mock upstream (mock-response.json shapes) ───────────────────────────────────────
@@ -755,6 +770,29 @@ function defaultNonStreamReply(modelVersion: string): unknown {
       },
     ],
     usageMetadata: { promptTokenCount: 9, candidatesTokenCount: 6, totalTokenCount: 15 },
+    modelVersion,
+  }
+}
+
+/**
+ * The mock's stock reply for the -tools model. C03's fixture records the generic default
+ * in prose, but the RECORDED downstream is the functionCall reply (tool_calls
+ * get_weather/{"city": "Paris"} + usage 11/3/14 — byte-identical to C04's structured
+ * script). Recorded behavior outranks the stale prose (SPEC §0 precedence), so the
+ * harness reconstructs the -tools default from the recording, not the prose.
+ */
+const TOOLS_UPSTREAM_MODEL = 'gemini-mock-model-tools'
+
+function defaultToolsReply(modelVersion: string): unknown {
+  return {
+    candidates: [
+      {
+        content: { parts: [{ functionCall: { name: 'get_weather', args: { city: 'Paris' } } }], role: 'model' },
+        finishReason: 'STOP',
+        index: 0,
+      },
+    ],
+    usageMetadata: { promptTokenCount: 11, candidatesTokenCount: 3, totalTokenCount: 14 },
     modelVersion,
   }
 }
@@ -859,8 +897,12 @@ function buildMockResponse(
   let events: readonly unknown[]
   if (typeof scripted === 'string') {
     // The fixture records the mock's stock behavior as prose; the harness reconstructs it
-    // from the recorded evidence with modelVersion echoing the translated body's model.
-    events = meta.stream ? defaultStreamEvents(modelVersion) : [defaultNonStreamReply(modelVersion)]
+    // from the RECORDED evidence with modelVersion echoing the translated body's model —
+    // the -tools model's stock reply is the functionCall reply, not the generic default
+    // (see defaultToolsReply).
+    const reply =
+      modelVersion === TOOLS_UPSTREAM_MODEL ? defaultToolsReply(modelVersion) : defaultNonStreamReply(modelVersion)
+    events = meta.stream ? defaultStreamEvents(modelVersion) : [reply]
   } else if (isRecord(scripted) && Array.isArray(scripted['stream_events'])) {
     events = scripted['stream_events']
   } else if (isRecord(scripted)) {
@@ -869,8 +911,12 @@ function buildMockResponse(
     throw new Error(`S2d1[${caseId}]: scripted_mock_response shape not recognized by the harness`)
   }
 
+  // Serialize with the mock's Python json.dumps spacing (pythonJson), never compact
+  // JSON.stringify: the gateway embeds functionCall args RAW into the downstream
+  // `arguments` bytes, so the recorded C03/C04/C12 arguments carry the mock's spacing
+  // ("{\"city\": \"Paris\"}") and a compact mock would make a faithful adapter miss them.
   if (meta.stream) {
-    const frames = events.map((event) => encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
+    const frames = events.map((event) => encoder.encode(`data: ${pythonJson(event)}\n\n`))
     return {
       status: 200,
       headers: [['Content-Type', 'text/event-stream']],
@@ -882,7 +928,7 @@ function buildMockResponse(
       }),
     }
   }
-  const bodyText = events.map((event) => JSON.stringify(event)).join('\n')
+  const bodyText = events.map((event) => pythonJson(event)).join('\n')
   return {
     status: 200,
     headers: [['Content-Type', 'application/json']],
