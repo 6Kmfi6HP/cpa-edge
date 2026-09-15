@@ -1676,9 +1676,52 @@
    ],
    "notes": "REQUIRES mock extension: control key 'retry_after' -> the mock adds header 'Retry-After: <value>' to the error-mode response. Run LAST on the batch (the 429 poisons the credential for ~1s).",
    "recorded_result": "RECORDED 2026-09-16: step1 direct verbatim 429 has NO Retry-After header (prediction confirmed); step2 cooldown response has Retry-After: 27 (fuzz-derived grace from upstream Retry-After: 1 - masked as dynamic; compare case 14 whose upstream sent no header -> Retry-After: 1)."
+  },
+  {
+   "id": "s2d3-respformat-json-object",
+   "classification": "RECORDABLE-LOCALLY",
+   "purpose": "Pin the EXACT json_object instruction sentence injected as the appended system block (authorized by the orchestrator post-admission): client response_format {\"type\":\"json_object\"} -> upstream system gains one text block whose text is the exact fixed sentence; the recorded bytes become the normative string for the contract layer.",
+   "mock_script": "happy",
+   "control": {
+    "mode": "happy"
+   },
+   "requests": [
+    {
+     "step": 1,
+     "mode": "non-stream",
+     "curl": "curl -sS -v http://127.0.0.1:<port>/v1/chat/completions -H 'Authorization: Bearer <api-key>' -H 'Content-Type: application/json' -d '{\"model\":\"cm\",\"messages\":[{\"role\":\"user\",\"content\":\"Give me a JSON object\"}],\"response_format\":{\"type\":\"json_object\"}}'",
+     "headers": {
+      "Authorization": "Bearer <api-key>",
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "model": "cm",
+      "messages": [
+       {
+        "role": "user",
+        "content": "Give me a JSON object"
+       }
+      ],
+      "response_format": {
+       "type": "json_object"
+      }
+     }
+    }
+   ],
+   "record": "status+headers+body + upstream.jsonl. Gold: system == [ one text block ] with the exact instruction sentence as its text, carrying the default cache_control marker (last system block); the sentence is quoted verbatim in the fixture and becomes normative.",
+   "dynamic_fields": [
+    "Date",
+    "X-Cpa-Trace-Id",
+    "downstream created",
+    "metadata.user_id (sha256 of 'content:Give me a JSON object')",
+    "mock port"
+   ],
+   "notes": "Recorded post-admission per I-tr-S2d3 ruling (a).",
+   "status": "RECORDED",
+   "recorded_result": "RECORDED 2026-09-16 (tests/fixtures/S2d3/s2d3-respformat-json-object/): system == [ one text block ] with cache_control {\"type\":\"ephemeral\"}; text = \"You must format your entire response as a valid JSON object. Do not include any explanations, markdown code blocks (such as ```json), or any text outside of the JSON object.\" (normative string, folded into section 2.4)."
   }
  ],
- "recording_status": "ROUND 1: cases 1-18 recorded 2026-09-16 (isolated stack: reference 127.0.0.1:8387, claude mock 20002). ROUND-1 FOLLOW-UP BATCH (adversary-authorized): cases 19-26 recorded 2026-09-16 with the config fragment (aliases cmc/cmt-budget/cmt-levels/cmfp) + new mock scripts (empty, ping_only, bad_json, no_start, start_no_id, no_delta) + retry_after control key. 26/26 fixtures present in tests/fixtures/S2d3/. Recorded deviations folded into spec/sections/S2d3-oai2cla.md: case 14 cooldown status 429; case 8 thinking strip; case 24 empty-stream bootstrap gate (500 empty_stream, NOT SSE+[DONE]); case 26 cooldown Retry-After is fuzz-derived when the upstream carries reset info.",
+ "recording_status": "ROUND 1: cases 1-18 recorded 2026-09-16 (isolated stack: reference 127.0.0.1:8387, claude mock 20002). ROUND-1 FOLLOW-UP BATCH (adversary-authorized): cases 19-26 recorded 2026-09-16 with the config fragment (aliases cmc/cmt-budget/cmt-levels/cmfp) + new mock scripts (empty, ping_only, bad_json, no_start, start_no_id, no_delta) + retry_after control key. 26/26 fixtures present in tests/fixtures/S2d3/. Recorded deviations folded into spec/sections/S2d3-oai2cla.md: case 14 cooldown status 429; case 8 thinking strip; case 24 empty-stream bootstrap gate (500 empty_stream, NOT SSE+[DONE]); case 26 cooldown Retry-After is fuzz-derived when the upstream carries reset info. | POST-ADMISSION CLEANUP: case 27 (respformat json_object exact sentence) RECORDED 2026-09-16 - 27/27 fixtures present.",
  "followup_batch": {
   "authorized_by": "adversary round-1 review (reports/adversary/S2d3.md) via orchestrator",
   "config_fragment_needed": "Add to claude-api-key (hot-reload works; keep the existing cm entry intact):\n\nclaude-api-key:\n  - api-key: \"mock-claude-key\"\n    base-url: \"http://host.docker.internal:20002\"\n    models:\n      - name: \"claude-mock-model\"\n        alias: \"cm\"\n      - name: \"claude-mock-model\"\n        alias: \"cmc\"\n        is-compat: true\n      - name: \"claude-mock-model\"\n        alias: \"cmt-budget\"\n        thinking:\n          min: 1024\n          max: 32000\n      - name: \"claude-mock-model\"\n        alias: \"cmt-levels\"\n        thinking:\n          levels: [\"low\", \"medium\", \"high\", \"max\"]\n  - api-key: \"mock-claude-key\"\n    base-url: \"http://host.docker.internal:20002\"\n    fingerprint-profile: \"claude-code-cli\"\n    models:\n      - name: \"claude-mock-model\"\n        alias: \"cmfp\"",

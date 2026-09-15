@@ -167,7 +167,20 @@ describe('request translation — fields', () => {
     })
     const system = body['system'] as Record<string, unknown>[]
     expect(system.length).toBe(2)
+    // Byte-exact normative sentence (recorded case 27), asserted literally.
+    expect(system[1]?.['text']).toBe(
+      'You must format your entire response as a valid JSON object. Do not include any explanations, markdown code blocks (such as ```json), or any text outside of the JSON object.',
+    )
     expect(system[1]?.['text']).toBe(JSON_OBJECT_INSTRUCTION)
+  })
+
+  it('response_format json_schema without a schema falls back to the json_object sentence', async () => {
+    const body = await translate({
+      messages: [{ role: 'user', content: 'q' }],
+      response_format: { type: 'json_schema', json_schema: { name: 'person' } },
+    })
+    const system = body['system'] as Record<string, unknown>[]
+    expect(system[0]?.['text']).toBe(JSON_OBJECT_INSTRUCTION)
   })
 
   it('response_format json_schema keeps the raw client schema bytes and the description line', async () => {
@@ -554,6 +567,52 @@ describe('error classification', () => {
     ].join('\n')
     expect(validateClaudeAggregatedStream(buffer).ok).toBe(true)
   })
+
+  it('two-tier precedence: the first per-line violation in line order wins', () => {
+    const start = 'data: {"type":"message_start","message":{"id":"i","model":"m"}}'
+    const badStart = 'data: {"type":"message_start","message":{"id":"","model":""}}'
+    const malformed = 'data: {not json}'
+    const errorEvent = 'data: {"type":"error","error":{"type":"api_error","message":"boom"}}'
+    const delta = 'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}'
+    const cases: ReadonlyArray<readonly [string, string]> = [
+      // error event before a malformed line: the error event fires first
+      [sseBuffer(start, errorEvent, malformed), 'claude executor: upstream returned error event: boom'],
+      // malformed line before an error event: malformed fires first
+      [sseBuffer(start, malformed, errorEvent), 'claude executor: upstream returned malformed stream data'],
+      // an incomplete message_start fires at its line, before a later error event
+      [sseBuffer(badStart, errorEvent), 'claude executor: upstream stream message_start is missing id or model'],
+      // an error event after a complete message_start still fires (per-line tier)
+      [sseBuffer(start, errorEvent, delta), 'claude executor: upstream returned error event: boom'],
+    ]
+    for (const [buffer, expected] of cases) {
+      const result = validateClaudeAggregatedStream(buffer)
+      expect(result.ok).toBe(false)
+      if (result.ok === false) expect(result.message).toBe(expected)
+    }
+  })
+
+  it('two-tier precedence: post-loop gates fire only after a clean scan', () => {
+    const start = 'data: {"type":"message_start","message":{"id":"i","model":"m"}}'
+    const ping = 'data: {"type":"ping"}'
+    // zero non-empty payloads (only blank data lines) -> empty stream response
+    expect(messageOf('data: \n\ndata:\n\n')).toBe('claude executor: upstream returned empty stream response')
+    // payloads but no message_start -> missing message_start
+    expect(messageOf(sseBuffer(ping))).toBe('claude executor: upstream stream response is missing message_start')
+    // message_start but no message_delta -> ended before completion
+    expect(messageOf(sseBuffer(start))).toBe('claude executor: upstream stream response ended before message completion')
+  })
+
+  function sseBuffer(...lines: readonly string[]): string {
+    return lines.map((line) => `${line}\n\n`).join('')
+  }
+
+  function messageOf(buffer: string): string {
+    const result = validateClaudeAggregatedStream(buffer)
+    expect(result.ok).toBe(false)
+    expect(result.ok === false).toBe(true)
+    if (result.ok === false) return result.message
+    throw new Error('unreachable')
+  }
 })
 
 describe('header policy', () => {

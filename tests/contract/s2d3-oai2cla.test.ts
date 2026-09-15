@@ -1,7 +1,7 @@
 /**
  * S2d3 golden contract — OpenAI Chat Completions client → Claude (Anthropic Messages) upstream.
  *
- * Spec source of truth: spec/sections/S2d3-oai2cla.md (admitted). Goldens: the 26 recorded
+ * Spec source of truth: spec/sections/S2d3-oai2cla.md (admitted). Goldens: the 27 recorded
  * fixture cases under tests/fixtures/S2d3/ (oracle recordings of CLIProxyAPI v7.3.4 against
  * the deterministic claude mock). Rulings applied: R-SSE (decoded event sequences, never
  * chunk boundaries), R-ORDER (adjacent tool_calls delta frames compare as sorted multisets),
@@ -234,7 +234,7 @@ async function loadAdapter(): Promise<AdapterLoadResult> {
     }
     return {
       skipReason: `\`${ADAPTER_MODULE}\` does not export \`${ADAPTER_EXPORT}(options)\` yet. ` +
-        'All 26 S2d3 golden cases SKIP until the oai2cla adapter ships; the required interface is documented in the header of this file.',
+        'All 27 S2d3 golden cases SKIP until the oai2cla adapter ships; the required interface is documented in the header of this file.',
     }
   } catch (error) {
     return { skipReason: `import of \`${ADAPTER_MODULE}\` failed: ${String(error)}` }
@@ -309,6 +309,7 @@ const EXPECTED_CASES = [
   's2d3-thinking-config-survival',
   's2d3-tools-roundtrip',
   's2d3-userid-variants',
+  's2d3-respformat-json-object',
 ] as const
 
 type CaseId = (typeof EXPECTED_CASES)[number]
@@ -325,7 +326,7 @@ function caseFile(caseId: string, name: string): URL {
 async function readFixtureText(caseId: string, name: string): Promise<string> {
   // Fixture recorders wrote raw wire line terminators (CRLF request heads, chunked-framing
   // sections). Every compared surface (request bodies, SSE frame blocks, header sections)
-  // is CR-free — verified across all 26 cases — so terminators are normalized on read and
+  // is CR-free — verified across all recorded cases — so terminators are normalized on read and
   // never enter a byte comparison.
   const raw = await readFile(caseFile(caseId, name), 'utf8')
   return raw.replaceAll('\r\n', '\n')
@@ -908,15 +909,24 @@ interface CaseMeta {
   readonly dynamic_fields: readonly string[]
 }
 
-interface MockResponseFile {
-  readonly control_file_per_step: readonly MockControl[]
+/**
+ * mock-response.json control extraction. Recordings store either a per-step control list
+ * (`control_file_per_step`, one entry per step — the original 26-case batch) or, for the
+ * post-admission single-step recordings, the control object itself at the top level.
+ */
+function mockControls(mockFile: unknown, caseId: string): readonly MockControl[] {
+  if (mockFile !== null && typeof mockFile === 'object') {
+    const perStep = (mockFile as { control_file_per_step?: unknown }).control_file_per_step
+    if (Array.isArray(perStep)) return perStep as readonly MockControl[]
+    return [mockFile as MockControl]
+  }
+  throw new Error(`S2d3[${caseId}]: mock-response.json must hold a control object`)
 }
 
 async function replayCase(caseId: CaseId): Promise<void> {
   if (adapterFactory === undefined) throw new Error('adapter factory missing')
   const meta = await readFixtureJson<CaseMeta>(caseId, 'meta.yaml')
-  const mockFile = await readFixtureJson<MockResponseFile>(caseId, 'mock-response.json')
-  const controls = mockFile.control_file_per_step
+  const controls = mockControls(await readFixtureJson<unknown>(caseId, 'mock-response.json'), caseId)
   const recordedUpstreamText = await readFixtureText(caseId, 'upstream.jsonl')
   const recordedUpstream = recordedUpstreamText
     .split('\n')
@@ -972,13 +982,13 @@ async function replayCase(caseId: CaseId): Promise<void> {
 // ─── Suites ──────────────────────────────────────────────────────────────────────────
 
 describe('S2d3 fixture inventory (harness self-check, adapter-independent)', () => {
-  it('exposes exactly the 26 admitted golden cases, each internally consistent', async () => {
+  it('exposes exactly the 27 admitted golden cases, each internally consistent', async () => {
     expect([...fixtureCaseDirs]).toEqual([...EXPECTED_CASES].sort())
     for (const caseId of EXPECTED_CASES) {
       const meta = await readFixtureJson<CaseMeta>(caseId, 'meta.yaml')
-      const mockFile = await readFixtureJson<MockResponseFile>(caseId, 'mock-response.json')
+      const controls = mockControls(await readFixtureJson<unknown>(caseId, 'mock-response.json'), caseId)
       expect(meta.case, `${caseId}: meta.case echoes the directory name`).toBe(caseId)
-      expect(mockFile.control_file_per_step.length, `${caseId}: one control per recorded step`).toBe(meta.requests.length)
+      expect(controls.length, `${caseId}: one control per recorded step`).toBe(meta.requests.length)
       maskProfile(caseId, meta.dynamic_fields) // fails loudly on unknown dynamic fields
       const upstreamText = await readFixtureText(caseId, 'upstream.jsonl')
       for (const line of upstreamText.split('\n').filter((entry) => entry.trim() !== '')) {

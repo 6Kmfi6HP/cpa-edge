@@ -57,6 +57,7 @@ describe('S2d3 golden replay — request translation', () => {
     's2d3-effort-thinking',
     's2d3-userid-variants',
     's2d3-res-tooluse-stream',
+    's2d3-respformat-json-object',
     's2d3-res-tooluse-nonstream',
     's2d3-res-thinking',
     's2d3-res-stopreasons-usage',

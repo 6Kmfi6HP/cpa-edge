@@ -268,51 +268,54 @@ export const MESSAGE_ENDED_BEFORE_COMPLETION = 'claude executor: upstream stream
 export const UNKNOWN_UPSTREAM_ERROR = 'unknown upstream error'
 
 /**
- * Validation contract for aggregated buffers (S2d3 section 5.3). Evaluation
- * order: any data line at all, then well-formed JSON, then an in-stream
- * error event, then message_start presence/id+model, then message_delta.
- * The stream path performs none of these checks.
+ * Validation contract for aggregated buffers (S2d3 section 5.3). The scan is
+ * two-tier: per line, in order of appearance, each non-empty `data:` payload
+ * short-circuits on invalid JSON, then an `error` event, then an incomplete
+ * `message_start`. When the scan completes, the post-loop gates fire in
+ * order: zero payloads, no message_start, no message_delta. The stream path
+ * performs none of these checks.
  */
 export function validateClaudeAggregatedStream(buffer: string): AggregatedStreamValidation {
   const events = scanDataLines(buffer)
-  if (events.length === 0) return { ok: false, message: MESSAGE_EMPTY_STREAM }
-  for (const event of events) {
-    if (event.value === undefined) return { ok: false, message: MESSAGE_MALFORMED_STREAM }
-  }
+  let payloadCount = 0
   let sawMessageStart = false
-  let startComplete = false
   let sawMessageDelta = false
   for (const event of events) {
+    if (event.data.length === 0) continue
+    payloadCount += 1
+    if (event.value === undefined) return { ok: false, message: MESSAGE_MALFORMED_STREAM }
     const value = event.value
-    if (value === undefined) continue
     const type = value['type']
-    if (type === 'error') {
-      const error = value['error']
-      const record = typeof error === 'object' && error !== null ? (error as Record<string, unknown>) : {}
-      const message = record['message']
-      if (typeof message === 'string' && message.length > 0) {
-        return { ok: false, message: `claude executor: upstream returned error event: ${message}` }
-      }
-      const errorType = record['type']
-      if (typeof errorType === 'string' && errorType.length > 0) {
-        return { ok: false, message: `claude executor: upstream returned error event: ${errorType}` }
-      }
-      return { ok: false, message: `claude executor: upstream returned error event: ${UNKNOWN_UPSTREAM_ERROR}` }
-    }
+    if (type === 'error') return { ok: false, message: errorEventValidationMessage(value) }
     if (type === 'message_start') {
       sawMessageStart = true
       const id = readMessageField(value, 'id')
       const model = readMessageField(value, 'model')
-      if (id !== undefined && id.length > 0 && model !== undefined && model.length > 0) {
-        startComplete = true
+      if (id === undefined || id.length === 0 || model === undefined || model.length === 0) {
+        return { ok: false, message: MESSAGE_START_MISSING_ID_OR_MODEL }
       }
     }
     if (type === 'message_delta') sawMessageDelta = true
   }
+  if (payloadCount === 0) return { ok: false, message: MESSAGE_EMPTY_STREAM }
   if (!sawMessageStart) return { ok: false, message: MESSAGE_MISSING_MESSAGE_START }
-  if (!startComplete) return { ok: false, message: MESSAGE_START_MISSING_ID_OR_MODEL }
   if (!sawMessageDelta) return { ok: false, message: MESSAGE_ENDED_BEFORE_COMPLETION }
   return { ok: true }
+}
+
+/** `upstream returned error event: <msg>` with the three-step fallback. */
+function errorEventValidationMessage(value: Record<string, unknown>): string {
+  const error = value['error']
+  const record = typeof error === 'object' && error !== null ? (error as Record<string, unknown>) : {}
+  const message = record['message']
+  if (typeof message === 'string' && message.length > 0) {
+    return `claude executor: upstream returned error event: ${message}`
+  }
+  const errorType = record['type']
+  if (typeof errorType === 'string' && errorType.length > 0) {
+    return `claude executor: upstream returned error event: ${errorType}`
+  }
+  return `claude executor: upstream returned error event: ${UNKNOWN_UPSTREAM_ERROR}`
 }
 
 // ---------------------------------------------------------------------------

@@ -25,9 +25,12 @@ import type {
 /** Template default when the client sends neither max_tokens variant. */
 export const CLAUDE_DEFAULT_MAX_TOKENS = 32000
 
-/** Instruction appended for `response_format: {"type":"json_object"}`. */
+/**
+ * Instruction appended for `response_format: {"type":"json_object"}` (and for
+ * a json_schema whose schema is absent). Byte-exact per recorded case 27.
+ */
 export const JSON_OBJECT_INSTRUCTION =
-  'You must format your entire response as valid JSON. Do not include any explanations, markdown code blocks (such as ```json), or any text outside of the JSON object.'
+  'You must format your entire response as a valid JSON object. Do not include any explanations, markdown code blocks (such as ```json), or any text outside of the JSON object.'
 
 const JSON_SCHEMA_PREFIX =
   'You must format your entire response as valid JSON that conforms strictly to the following JSON schema:'
@@ -484,6 +487,11 @@ function structuredOutputInstruction(
   if (type !== 'json_schema') return undefined
   const jsonSchema = readObject(responseFormat, 'json_schema')
   const schemaObject = jsonSchema ?? responseFormat
+  if (schemaObject['schema'] === undefined) {
+    // A json_schema without a schema falls back to the plain object sentence
+    // (recorded case 27 pins it as identical to the json_object instruction).
+    return JSON_OBJECT_INSTRUCTION
+  }
   const name = readString(schemaObject, 'name')
   const description = readString(schemaObject, 'description')
   const lines: string[] = [JSON_SCHEMA_PREFIX]
