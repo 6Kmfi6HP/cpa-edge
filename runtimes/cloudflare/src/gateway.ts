@@ -1,0 +1,1536 @@
+/**
+ * The Cloudflare Workers gateway (mission T2, R2): the S1 request
+ * pipeline over the merged package facades, composed exactly like the
+ * node runtime's gateway, with the S7 platform-degradation wiring this
+ * runtime owes:
+ *
+ * - `proxyTransport: false`: proxy-credentialed credentials are excluded
+ *   from scheduling; a request whose model resolves only to excluded
+ *   candidates gets the F1-501 client body, never a facade dispatch
+ *   (model resolution still precedes the 501 - unknown models keep the
+ *   upstream 400s);
+ * - `localCallbackServer: false`: the four redirect-flow auth-URL
+ *   endpoints answer with the F5-501 management body after the
+ *   management-key gate; the device flows (kimi/xai/meta) stay
+ *   EQUIVALENT with their poll substrate on the Durable Object alarm;
+ * - `/v1/ws` (S7 F4): auth-gated exactly like upstream (default
+ *   `ws-auth: true`), non-upgrades get the recorded gorilla 400, and a
+ *   passing upgrade is accepted into Durable Object WebSocket
+ *   hibernation. The wsrelay JSON protocol behind the 101 is executor
+ *   territory with no merged facade, so sessions hold silent - the
+ *   handshake-level surface S7 pins is served, the relay behind it is
+ *   the recorded seam;
+ * - `POST /v0/management/api-call` with a resolved proxy mode of
+ *   `proxy` answers the F1-501 management body (the facade's 400 ladder
+ *   still runs first), and plugin-store installs answer the F2-501 body
+ *   (S7: project-wide absence);
+ * - RESP usage wire, raw TCP, plugin loading, file watching and
+ *   platform TLS simply do not exist here (F8/F2/F6/F7: config keys
+ *   accepted, no route seams needed).
+ *
+ * Routing, CORS, R-404, redirects, OPTIONS, safe-mode + client auth,
+ * trace emission and these platform gates live HERE; every translation
+ * decision lives in the workspace packages, reached through their
+ * exported facades only.
+ */
+import {
+  CLOUDFLARE_RUNTIME_CAPABILITIES,
+  MemoryStore,
+  type RuntimeCapabilities,
+  type Store,
+} from '@cpa-edge/core'
+import {
+  authenticateClientRequest,
+  createAuthPlane,
+  formatRfc3339,
+  type AuthPlane,
+  type AuthPlaneConfig,
+  type FetchLike,
+} from '@cpa-edge/auth'
+import { createManagementApi, type BuildInfo, type ManagementApi } from '@cpa-edge/management'
+import { cla2gem, gem2cla, gem2oai, oai2cla, oai2codex, res2oai } from '@cpa-edge/translators'
+import {
+  claudeCredentialsForChat,
+  claudeCredentialsForGemini,
+  codexCredentialsForChat,
+  familyModelEligible,
+  geminiCredentialsForMessages,
+  normalizeRuntimeConfig,
+  openAiCompatCredentials,
+  openAiCompatCredentialsForResponses,
+  type NormalizedConfig,
+  type RuntimeConfigInput,
+} from './config'
+import { ModelRegistry } from './registry'
+import { withCors } from './cors'
+import { TRACE_HEADER, newTraceId } from './trace'
+import {
+  CODEX_AUTH_UNAVAILABLE_BODY,
+  INTERACTIONS_EXACTLY_ONE_BODY,
+  INTERACTIONS_INVALID_JSON_BODY,
+  INTERACTIONS_STREAM_BOOLEAN_BODY,
+  LOCAL_CALLBACK_UNAVAILABLE_BODY,
+  MAX_DEPTH_MESSAGE,
+  PLUGIN_INSTALL_UNAVAILABLE_BODY,
+  PROXY_UNAVAILABLE_CLIENT_BODY,
+  PROXY_UNAVAILABLE_MGMT_BODY,
+  ROOT_BODY,
+  STATUS_OK_BODY,
+  WEBSOCKET_BAD_REQUEST_BODY,
+  charsetJson,
+  claudeInvalidRequestBody,
+  claudeModelNotFoundBody,
+  compactStreamRejectionBody,
+  directionNotMergedBody,
+  emptyNotFound,
+  html,
+  imageOnlyModelBody,
+  imagesUnsupportedModelBody,
+  invalidRequestBody,
+  modelNotFoundBody,
+  plainErrorBody,
+  plainText,
+  realtimeEnvelope,
+} from './envelopes'
+import {
+  evaluateRedirect,
+  headerValue,
+  matchRoute,
+  redirectResponse,
+  type RouteMatch,
+} from './router'
+import { DEVICE_POLL_PREFIX, registerDevicePoll, SCHEDULER_NAMESPACE, ensureAlarmBefore } from './alarm'
+import type { GatewayRequest, GatewayResponse, HeaderList, WebSocketHost } from './types'
+
+/** Upstream transport request the facades produce. */
+export interface UpstreamWireRequest {
+  readonly method: string
+  readonly url: string
+  readonly headers: HeaderList
+  readonly body: string
+}
+
+/** Upstream transport response fed back into the facades. */
+export interface UpstreamWireResponse {
+  readonly status: number
+  readonly headers: HeaderList
+  readonly body: ReadableStream<Uint8Array>
+}
+
+/** Constructor options of the Workers gateway. */
+export interface CloudflareGatewayOptions {
+  /** YAML-shaped config document (S6 section 3.1 key names). */
+  readonly config: RuntimeConfigInput
+  /** Raw config.yaml text; required to compose the management facade. */
+  readonly configYaml?: string
+  /** Platform Store; defaults to a process-local memory store (tests). */
+  readonly store?: Store
+  /** Platform capability profile; defaults to the cloudflare constant (S7 3.1). */
+  readonly capabilities?: RuntimeCapabilities
+  /** Epoch-milliseconds clock; defaults to Date.now. */
+  readonly now?: () => number
+  /** Upstream transport; defaults to the platform fetch. */
+  readonly fetch?: FetchLike
+  /** Client address for the management auth gate (loopback default). */
+  readonly remoteAddress?: string
+  /** Pre-composed management API; overrides the internal composition. */
+  readonly managementApi?: ManagementApi
+  /** Served control-panel HTML asset (upstream downloads it on first use). */
+  readonly managementPanelHtml?: string
+  /** zstd request-body decoder; when absent, zstd bodies are unsupported. */
+  readonly zstdDecode?: (input: Uint8Array) => Uint8Array
+  /** WebSocket hibernation host (the Durable Object state). */
+  readonly sockets?: WebSocketHost
+  /** Alarm surface, armed when a device-flow session registers. */
+  readonly alarm?: { setAlarm(scheduledAtMs: number): Promise<void>; getAlarm(): Promise<number | null> }
+}
+
+/** The composed Workers gateway. */
+export interface CloudflareGateway {
+  handle(request: GatewayRequest): Promise<GatewayResponse>
+  readonly capabilities: RuntimeCapabilities
+  readonly store: Store
+  readonly plane: AuthPlane
+  readonly config: NormalizedConfig
+  readonly managementApi: ManagementApi | undefined
+}
+
+/** Anchor build-info block for the composed management API. */
+const ANCHOR_BUILD_INFO: BuildInfo = {
+  version: 'v7.3.4',
+  commit: '8335eac',
+  buildDate: '2026-09-15T14:07:06Z',
+  supportPlugin: true,
+}
+
+/** Gateway identity stamped into upstream user-agents (S1 section 2). */
+const GATEWAY_VERSION = 'v7.3.4'
+
+// ---------------------------------------------------------------------------
+// Dispatch table - the same direction matrix as the node runtime; merged
+// flags mirror it exactly so the two runtimes answer alike.
+// ---------------------------------------------------------------------------
+
+/** Where a (surface, family) pair dispatches once its module merges. */
+export interface DirectionSeam {
+  /** Stable direction id (matches the STATUS step names). */
+  readonly id: string
+  /** Facade import path the integrator wires at merge time. */
+  readonly importPath: string
+  /** True when this runtime imports and dispatches this facade today. */
+  readonly merged: boolean
+}
+
+/** The direction matrix, kept in lockstep with the node runtime's table. */
+export const DIRECTIONS: Readonly<Record<string, DirectionSeam>> = {
+  'chat:claude-api-key': { id: 'oai2cla', importPath: '@cpa-edge/translators/oai2cla', merged: true },
+  'chat:openai-compatibility': {
+    id: 'oai2oai (openai-compat executor)',
+    importPath: 'packages/executors (I-exec-custom-openai / I-exec-openai)',
+    merged: false,
+  },
+  'chat:gemini-api-key': {
+    id: 'oai2gem',
+    importPath: '@cpa-edge/translators/oai2gem',
+    merged: false,
+  },
+  'chat:codex-api-key': {
+    id: 'oai2codex',
+    importPath: '@cpa-edge/translators/oai2codex',
+    merged: true,
+  },
+  'chat:xai-api-key': { id: 'xai executor', importPath: 'packages/executors (I-exec-grok)', merged: false },
+  'chat:meta-api-key': { id: 'meta executor', importPath: 'packages/executors', merged: false },
+  'chat:interactions-api-key': { id: 'interactions executor', importPath: 'packages/executors', merged: false },
+  'chat:vertex-api-key': { id: 'vertex executor', importPath: 'packages/executors', merged: false },
+  'messages:claude-api-key': {
+    id: 'claude passthrough',
+    importPath: 'packages/executors (I-exec-claude)',
+    merged: false,
+  },
+  'messages:openai-compatibility': {
+    id: 'cla2oai',
+    importPath: '@cpa-edge/translators/cla2oai',
+    merged: false,
+  },
+  'messages:gemini-api-key': {
+    id: 'cla2gem',
+    importPath: '@cpa-edge/translators/cla2gem',
+    merged: true,
+  },
+  'responses:codex-api-key': {
+    id: 'codex-passthrough',
+    importPath: '@cpa-edge/translators/codex-passthrough',
+    merged: false,
+  },
+  'responses:openai-compatibility': {
+    id: 'res2oai',
+    importPath: '@cpa-edge/translators/res2oai',
+    merged: true,
+  },
+  'v1beta:openai-compatibility': {
+    id: 'gem2oai',
+    importPath: '@cpa-edge/translators/gem2oai',
+    merged: true,
+  },
+  'v1beta:claude-api-key': {
+    id: 'gem2cla',
+    importPath: '@cpa-edge/translators/gem2cla',
+    merged: true,
+  },
+  'v1beta:gemini-api-key': {
+    id: 'gemini passthrough',
+    importPath: 'packages/executors (I-exec-gemini)',
+    merged: false,
+  },
+  'v0:management': { id: 'management', importPath: '@cpa-edge/management', merged: true },
+  // S7 F4: the handshake-level surface is served by this runtime (auth
+  // gate + upgrade into hibernation); the wsrelay JSON protocol behind
+  // the 101 has no merged executor anywhere in the workspace.
+  'ws:relay': { id: 'wsrelay (aistudio bridge)', importPath: 'executor territory (S7 out of scope)', merged: false },
+}
+
+/** The seam answer for a not-yet-merged direction (never a pinned body). */
+export function directionNotMerged(): GatewayResponse {
+  return { status: 503, headers: [['Content-Type', 'application/json']], body: directionNotMergedBody() }
+}
+
+// ---------------------------------------------------------------------------
+// Request context and shared helpers
+// ---------------------------------------------------------------------------
+
+/** Result of the transport-level request-body decode (S1 section 5). */
+interface BodyDecode {
+  readonly ok: boolean
+  readonly text: string
+  readonly message: string
+}
+
+/** Per-request context handed to the handlers. */
+interface RequestContext {
+  readonly request: GatewayRequest
+  readonly url: URL
+  readonly match: RouteMatch
+  readonly config: NormalizedConfig
+  /** Headers for facade dispatch (normalized after the auth gate). */
+  facadeHeaders: HeaderList
+  /** Lazily decoded request body (content-encoding handling). */
+  decodeBody(): BodyDecode
+}
+
+/** Applies the content-encoding chain last-to-first (recorded order). */
+function decodeBodyBytes(
+  body: Uint8Array,
+  contentEncoding: string | undefined,
+  zstdDecode: (input: Uint8Array) => Uint8Array,
+): BodyDecode {
+  const chain = (contentEncoding ?? '')
+    .split(',')
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0 && token.toLowerCase() !== 'identity')
+  const decoder = new TextDecoder()
+  let bytes = body
+  for (let index = chain.length - 1; index >= 0; index--) {
+    const token = chain[index]
+    if (token === undefined) continue
+    if (token.toLowerCase() !== 'zstd') {
+      return { ok: false, text: '', message: `unsupported content encoding: ${token}` }
+    }
+    try {
+      bytes = zstdDecode(bytes)
+    } catch {
+      return { ok: false, text: '', message: 'failed to decode zstd request body' }
+    }
+  }
+  return { ok: true, text: decoder.decode(bytes), message: '' }
+}
+
+/** Builds a Web `Request` for plane / management delegation. */
+function toWebRequest(context: RequestContext): Request {
+  const hasBody = context.request.body.length > 0
+  return new Request(context.url.toString(), {
+    method: context.request.method,
+    headers: new Headers(context.request.headers as Array<[string, string]>),
+    ...(hasBody || context.request.method === 'POST' || context.request.method === 'PUT'
+      ? { body: new Uint8Array(context.request.body) }
+      : {}),
+  })
+}
+
+/** Converts a plane/management `Response` into the gateway shape. */
+async function fromWebResponse(response: Response): Promise<GatewayResponse> {
+  const headers: Array<[string, string]> = []
+  response.headers.forEach((value, name) => {
+    headers.push([name, value])
+  })
+  return { status: response.status, headers, body: await response.text() }
+}
+
+/**
+ * Auth normalization seam (S1 cross-check, same binding as the node
+ * runtime): the route layer owns the FULL five-transport client-auth
+ * gate; after a successful authentication the request is normalized to
+ * `Bearer <accepted key>` before facade dispatch. Open mode passes the
+ * header list unchanged.
+ */
+function normalizeFacadeHeaders(headers: HeaderList, acceptedKey: string): HeaderList {
+  if (acceptedKey.length === 0) return headers
+  const out: Array<[string, string]> = []
+  let replaced = false
+  for (const [name, value] of headers) {
+    if (name.toLowerCase() === 'authorization') {
+      out.push(['Authorization', `Bearer ${acceptedKey}`])
+      replaced = true
+      continue
+    }
+    out.push([name, value])
+  }
+  if (!replaced) out.unshift(['Authorization', `Bearer ${acceptedKey}`])
+  return out
+}
+
+/** Re-evaluates the shared gate to learn WHICH key was accepted. */
+function acceptedApiKey(config: NormalizedConfig, context: RequestContext): string {
+  const authorization = headerValue(context.request.headers, 'authorization')
+  const goog = headerValue(context.request.headers, 'x-goog-api-key')
+  const apiKeyHeader = headerValue(context.request.headers, 'x-api-key')
+  const result = authenticateClientRequest({
+    apiKeys: config.apiKeys,
+    headers: {
+      ...(authorization === undefined ? {} : { authorization }),
+      ...(goog === undefined ? {} : { 'x-goog-api-key': goog }),
+      ...(apiKeyHeader === undefined ? {} : { 'x-api-key': apiKeyHeader }),
+    },
+    url: context.url.toString(),
+  })
+  return result.ok ? result.apiKey : ''
+}
+
+/** JSON-parse outcome with the malformed flag surfaced. */
+interface ParseOutcome {
+  readonly value: unknown
+  readonly malformed: boolean
+}
+
+/** Parses JSON guarded against hostile nesting (see guardedDispatch). */
+function parseJsonGuarded(text: string): ParseOutcome | undefined {
+  try {
+    return { value: JSON.parse(text), malformed: false }
+  } catch (error) {
+    if (error instanceof RangeError) return undefined
+    return { value: undefined, malformed: true }
+  }
+}
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/** Workers transport: forwards one facade wire request via fetch. */
+function makeSender(fetchLike: FetchLike): (request: UpstreamWireRequest) => Promise<UpstreamWireResponse> {
+  const STRIPPED = new Set([
+    'host',
+    'content-length',
+    'connection',
+    'keep-alive',
+    'transfer-encoding',
+    'upgrade',
+  ])
+  return async (request) => {
+    const headers: Record<string, string> = {}
+    for (const [name, value] of request.headers) {
+      if (STRIPPED.has(name.toLowerCase())) continue
+      headers[name] = value
+    }
+    const response = await fetchLike(request.url, {
+      method: request.method,
+      headers,
+      body: request.body,
+    })
+    const responseHeaders: Array<[string, string]> = []
+    response.headers.forEach((value, name) => {
+      responseHeaders.push([name, value])
+    })
+    const body =
+      response.body ??
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.close()
+        },
+      })
+    return { status: response.status, headers: responseHeaders, body }
+  }
+}
+
+/**
+ * Hostile-input guard (route-owned hardening, same rule as node): deeply
+ * nested bodies make the facade parsers throw RangeError; the runtime
+ * mirrors Go's depth rejection uniformly at the route layer. The
+ * wording is unpinned by any fixture.
+ */
+const depthFailureBody = (): string =>
+  invalidRequestBody(MAX_DEPTH_MESSAGE.slice('Invalid request: '.length))
+
+// ---------------------------------------------------------------------------
+// Model lists (S1 section 6.2)
+// ---------------------------------------------------------------------------
+
+/** RFC3339 seconds-precision timestamp of the list `created_at` fields. */
+function rfc3339Seconds(nowMs: number): string {
+  return `${new Date(nowMs).toISOString().slice(0, 19)}Z`
+}
+
+/** Cloaks a model id for the Claude list shape (S1-09/S1-10). */
+function cloakModelId(id: string): string {
+  if (id.startsWith('claude-')) return id
+  return `claude-fable-5-dd-${[...id].reverse().join('')}`
+}
+
+/** `GET /v1/models` in the default (OpenAI) shape. */
+function openAiModelsListBody(registry: ModelRegistry, nowMs: number): string {
+  const epochSeconds = Math.floor(nowMs / 1000)
+  const data = registry.list().map((model) => ({
+    created: epochSeconds,
+    id: model.id,
+    object: 'model',
+    owned_by: model.ownedBy,
+  }))
+  return JSON.stringify({ data, object: 'list' })
+}
+
+/** `GET /v1/models` in the Claude shape (header/UA switch, cloaking). */
+function claudeModelsListBody(registry: ModelRegistry, nowMs: number, cloak: boolean): string {
+  const createdAt = rfc3339Seconds(nowMs)
+  const data = registry.list().map((model) => ({
+    created_at: createdAt,
+    display_name: model.id,
+    id: cloak ? cloakModelId(model.id) : model.id,
+    max_input_tokens: 200000,
+    max_tokens: 64000,
+    object: 'model',
+    owned_by: model.ownedBy,
+    type: 'model',
+  }))
+  const ids = data.map((entry) => entry.id)
+  const first = ids[0] ?? ''
+  const last = ids.length > 0 ? (ids[ids.length - 1] ?? '') : ''
+  return JSON.stringify({ data, first_id: first, has_more: false, last_id: last })
+}
+
+// ---------------------------------------------------------------------------
+// Gateway construction
+// ---------------------------------------------------------------------------
+
+/** Builds the composed Workers gateway. */
+export function createCloudflareGateway(options: CloudflareGatewayOptions): CloudflareGateway {
+  const config = normalizeRuntimeConfig(options.config)
+  const now = options.now ?? (() => Date.now())
+  const capabilities = options.capabilities ?? CLOUDFLARE_RUNTIME_CAPABILITIES
+  const fetchLike: FetchLike = options.fetch ?? ((input, init) => fetch(input, init))
+  const send = makeSender(fetchLike)
+  const zstdDecode = options.zstdDecode
+
+  const envManagementPassword = '' // no process environment on Workers; secrets arrive as bindings
+  const managementSecret =
+    config.remoteManagement.secretKey.length > 0 ? config.remoteManagement.secretKey : envManagementPassword
+  const planeConfig: AuthPlaneConfig = {
+    port: config.port,
+    apiKeys: config.apiKeys,
+    remoteManagement: {
+      allowRemote: config.remoteManagement.allowRemote,
+      ...(managementSecret.length > 0 ? { secretKey: managementSecret } : {}),
+    },
+  }
+  const store = options.store ?? newPlaneFallbackStore()
+  const plane = createAuthPlane(planeConfig, {
+    store,
+    now,
+    ...(options.remoteAddress === undefined ? {} : { remoteAddress: options.remoteAddress }),
+  })
+
+  const registry = new ModelRegistry(config.providers)
+  /**
+   * The /v1 model lists stamp `created`/`created_at` once per gateway
+   * composition, not per request (S1-09/S1-10 share one stamp; a config
+   * change rebuilds the gateway and re-stamps - the cloudflare analogue
+   * of the node hot-reload re-stamp).
+   */
+  let listStampMs: number | undefined
+  const modelListStamp = (): number => {
+    if (listStampMs === undefined) listStampMs = now()
+    return listStampMs
+  }
+
+  const claudeChatService = oai2cla.createOai2ClaChatService({
+    credentials: claudeCredentialsForChat(config),
+    gatewayVersion: GATEWAY_VERSION,
+    store,
+    now,
+    requestRetry: config.requestRetry,
+    transientErrorCooldownSeconds: config.transientErrorCooldownSeconds,
+  })
+  const gem2OaiService = gem2oai.createGem2OaiService({
+    credentials: openAiCompatCredentials(config),
+    registry: registry.list().map((model) => ({
+      id: model.id,
+      ...(model.displayName === undefined ? {} : { displayName: model.displayName }),
+    })),
+    apiKeys: config.apiKeys,
+    store,
+    now,
+    requestRetry: config.requestRetry,
+    transientErrorCooldownSeconds: config.transientErrorCooldownSeconds,
+  })
+  const gem2ClaService = gem2cla.createGem2ClaService({
+    apiKeys: config.apiKeys,
+    credentials: claudeCredentialsForGemini(config),
+    gatewayVersion: GATEWAY_VERSION,
+    store,
+    now,
+    requestRetry: config.requestRetry,
+    transientErrorCooldownSeconds: config.transientErrorCooldownSeconds,
+  })
+  const codexChatService = oai2codex.createOai2CodexService({
+    credentials: codexCredentialsForChat(config),
+    gatewayVersion: GATEWAY_VERSION,
+    store,
+    now,
+    requestRetry: config.requestRetry,
+    transientErrorCooldownSeconds: config.transientErrorCooldownSeconds,
+  })
+  const res2OaiService = res2oai.createRes2OaiService({
+    apiKeys: config.apiKeys,
+    credentials: openAiCompatCredentialsForResponses(config),
+    store,
+    now,
+    requestRetry: config.requestRetry,
+    transientErrorCooldownSeconds: config.transientErrorCooldownSeconds,
+  })
+  const cla2GemService = cla2gem.createCla2GemService({
+    apiKeys: config.apiKeys,
+    credentials: geminiCredentialsForMessages(config),
+    store,
+    now,
+    requestRetry: config.requestRetry,
+    transientErrorCooldownSeconds: config.transientErrorCooldownSeconds,
+  })
+
+  const codexConfigured = config.providers.some((provider) => provider.family === 'codex-api-key')
+  const CALL_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/
+
+  const managementApi: ManagementApi | undefined =
+    options.managementApi ??
+    (managementSecret.length > 0 && (options.configYaml ?? '').length > 0
+      ? createManagementApi({
+          configYaml: options.configYaml ?? '',
+          managementKey: managementSecret,
+          store,
+          buildInfo: ANCHOR_BUILD_INFO,
+          ...(options.remoteAddress === undefined ? {} : { clientIp: options.remoteAddress }),
+          now,
+        })
+      : undefined)
+
+  /** Handler outcome: response + the trace-eligible credential index. */
+  interface Handled {
+    readonly response: GatewayResponse
+    readonly trace?: number
+  }
+
+  /** Applies the trace header + CORS block (every non-redirect response). */
+  const finalizeResponse = (handled: Handled): GatewayResponse => {
+    let headers = handled.response.headers
+    if (handled.trace !== undefined) {
+      const kept = headers.filter(([name]) => name.toLowerCase() !== TRACE_HEADER.toLowerCase())
+      headers = [...kept, [TRACE_HEADER, newTraceId(handled.trace, new Date(now()))]]
+    }
+    return {
+      status: handled.response.status,
+      headers: withCors(headers),
+      ...(handled.response.webSocket === undefined ? {} : { webSocket: handled.response.webSocket }),
+      body: handled.response.body,
+    }
+  }
+
+  const planeRejected = async (rejected: Response): Promise<GatewayResponse> => {
+    const response = await fromWebResponse(rejected)
+    return { status: response.status, headers: withCors(response.headers), body: response.body }
+  }
+
+  /** Reads + decodes the request body, rendering failures per surface. */
+  const decodeOrFail = (
+    context: RequestContext,
+    render: (message: string) => GatewayResponse,
+  ): { readonly text: string } | { readonly handled: Handled } => {
+    const contentEncoding = headerValue(context.request.headers, 'content-encoding')
+    if (zstdDecode === undefined && (contentEncoding ?? '').toLowerCase().includes('zstd')) {
+      // No decoder linked into this build: the runtime states the honest
+      // transport answer instead of a fake decode failure.
+      return { handled: { response: render('unsupported content encoding: zstd') } }
+    }
+    const decoded = context.decodeBody()
+    if (!decoded.ok) return { handled: { response: render(decoded.message) } }
+    return { text: decoded.text }
+  }
+
+  /** S7 F1: 501 when no schedulable candidate offers the model. */
+  const proxyUnavailable = (): GatewayResponse => ({
+    status: 501,
+    headers: [['Content-Type', 'application/json; charset=utf-8']],
+    body: PROXY_UNAVAILABLE_CLIENT_BODY,
+  })
+
+  /** Chat-family model resolution -> facade dispatch (S1 section 3.2). */
+  const dispatchChat = async (context: RequestContext): Promise<Handled> => {
+    const decoded = decodeOrFail(context, (message) => charsetJson(400, invalidRequestBody(message)))
+    if ('handled' in decoded) return decoded.handled
+    const parsed = parseJsonGuarded(decoded.text)
+    if (parsed === undefined) return { response: { status: 400, headers: [], body: depthFailureBody() } }
+    const model =
+      parsed !== undefined && !parsed.malformed && isPlainObject(parsed.value) && typeof parsed.value['model'] === 'string'
+        ? (parsed.value['model'] as string)
+        : ''
+    if (registry.isImageModel(model)) {
+      return { response: { status: 503, headers: [], body: imageOnlyModelBody(model) } }
+    }
+    const resolved = registry.resolve(model)
+    const facadeRequest = {
+      method: context.request.method,
+      path: `${context.url.pathname}${context.url.search}`,
+      headers: context.facadeHeaders,
+      body: decoded.text,
+    }
+    if (resolved === undefined || resolved.family === 'claude-api-key') {
+      // Model resolution precedes the proxy 501: an unknown model keeps
+      // the facade's `model_not_found`; a known-but-excluded one 501s.
+      if (resolved !== undefined && !familyModelEligible(context.config, 'claude-api-key', model)) {
+        return { response: proxyUnavailable(), ...(resolved === undefined ? {} : { trace: resolved.familyIndex }) }
+      }
+      try {
+        const response = await claudeChatService.handleChatCompletions(facadeRequest, send)
+        return { response, ...(resolved === undefined ? {} : { trace: resolved.familyIndex }) }
+      } catch (error) {
+        if (error instanceof RangeError) return { response: { status: 400, headers: [], body: depthFailureBody() } }
+        throw error
+      }
+    }
+    if (resolved.family === 'codex-api-key') {
+      if (!familyModelEligible(context.config, 'codex-api-key', model)) {
+        return { response: proxyUnavailable(), trace: resolved.familyIndex }
+      }
+      try {
+        const response = await codexChatService.handleChatCompletions(facadeRequest, send)
+        return { response, trace: resolved.familyIndex }
+      } catch (error) {
+        if (error instanceof RangeError) return { response: { status: 400, headers: [], body: depthFailureBody() } }
+        throw error
+      }
+    }
+    return { response: directionNotMerged() }
+  }
+
+  /** Claude-messages surface (S1 section 3.3). */
+  const dispatchMessages = async (context: RequestContext): Promise<Handled> => {
+    const decoded = decodeOrFail(context, (message) =>
+      charsetJson(400, claudeInvalidRequestBody(`Invalid request: ${message}`)),
+    )
+    if ('handled' in decoded) return decoded.handled
+    const parsed = parseJsonGuarded(decoded.text)
+    if (parsed === undefined) {
+      return { response: { status: 400, headers: [], body: claudeInvalidRequestBody(MAX_DEPTH_MESSAGE) } }
+    }
+    if (parsed.malformed) {
+      return { response: { status: 400, headers: [], body: claudeInvalidRequestBody('Invalid request: malformed JSON body') } }
+    }
+    const body = isPlainObject(parsed.value) ? parsed.value : {}
+    const model = typeof body['model'] === 'string' ? (body['model'] as string) : ''
+    const resolved = registry.resolve(model)
+    if (resolved === undefined) {
+      return { response: { status: 400, headers: [], body: claudeModelNotFoundBody(model) } }
+    }
+    if (resolved.family === 'gemini-api-key') {
+      if (!familyModelEligible(context.config, 'gemini-api-key', model)) {
+        return { response: proxyUnavailable(), trace: resolved.familyIndex }
+      }
+      try {
+        const response = await cla2GemService.handleV1Messages(
+          {
+            method: context.request.method,
+            path: `${context.url.pathname}${context.url.search}`,
+            headers: context.facadeHeaders,
+            body: decoded.text,
+          },
+          send,
+        )
+        return { response, trace: resolved.familyIndex }
+      } catch (error) {
+        if (error instanceof RangeError) {
+          return { response: { status: 400, headers: [], body: claudeInvalidRequestBody(MAX_DEPTH_MESSAGE) } }
+        }
+        throw error
+      }
+    }
+    return { response: directionNotMerged() }
+  }
+
+  /** Responses surface (S1 sections 3.2/3.5). */
+  const dispatchResponses = async (context: RequestContext): Promise<Handled> => {
+    const decoded = decodeOrFail(context, (message) => charsetJson(400, invalidRequestBody(message)))
+    if ('handled' in decoded) return decoded.handled
+    const parsed = parseJsonGuarded(decoded.text)
+    if (parsed === undefined) return { response: { status: 400, headers: [], body: depthFailureBody() } }
+    if (parsed.malformed) {
+      return { response: { status: 400, headers: [], body: invalidRequestBody('malformed JSON body') } }
+    }
+    const body = isPlainObject(parsed.value) ? parsed.value : {}
+    const model = typeof body['model'] === 'string' ? (body['model'] as string) : ''
+    if (registry.isImageModel(model)) {
+      return { response: { status: 503, headers: [], body: imageOnlyModelBody(model) } }
+    }
+    const resolved = registry.resolve(model)
+    if (resolved === undefined) {
+      return { response: { status: 400, headers: [], body: modelNotFoundBody(model) } }
+    }
+    if (resolved.family === 'openai-compatibility') {
+      if (!familyModelEligible(context.config, 'openai-compatibility', model)) {
+        return { response: proxyUnavailable(), trace: resolved.familyIndex }
+      }
+      try {
+        const response = await res2OaiService.handleResponses(
+          {
+            method: context.request.method,
+            path: `${context.url.pathname}${context.url.search}`,
+            headers: context.facadeHeaders,
+            body: decoded.text,
+          },
+          send,
+        )
+        return { response, trace: resolved.familyIndex }
+      } catch (error) {
+        if (error instanceof RangeError) return { response: { status: 400, headers: [], body: depthFailureBody() } }
+        throw error
+      }
+    }
+    return { response: directionNotMerged() }
+  }
+
+  /** POST /v1/responses/compact (S1-18). */
+  const dispatchResponsesCompact = async (context: RequestContext): Promise<Handled> => {
+    const decoded = decodeOrFail(context, (message) => charsetJson(400, invalidRequestBody(message)))
+    if ('handled' in decoded) return decoded.handled
+    const parsed = parseJsonGuarded(decoded.text)
+    if (parsed === undefined) return { response: { status: 400, headers: [], body: depthFailureBody() } }
+    if (parsed.malformed) {
+      return { response: { status: 400, headers: [], body: invalidRequestBody('malformed JSON body') } }
+    }
+    const body = isPlainObject(parsed.value) ? parsed.value : {}
+    if (body['stream'] === true) {
+      return { response: { status: 400, headers: [], body: compactStreamRejectionBody() } }
+    }
+    const model = typeof body['model'] === 'string' ? (body['model'] as string) : ''
+    const resolved = registry.resolve(model)
+    if (resolved === undefined) {
+      return { response: { status: 400, headers: [], body: modelNotFoundBody(model) } }
+    }
+    if (resolved.family === 'openai-compatibility') {
+      if (!familyModelEligible(context.config, 'openai-compatibility', model)) {
+        return { response: proxyUnavailable(), trace: resolved.familyIndex }
+      }
+      try {
+        const response = await res2OaiService.handleResponses(
+          {
+            method: context.request.method,
+            path: `${context.url.pathname}${context.url.search}`,
+            headers: context.facadeHeaders,
+            body: decoded.text,
+          },
+          send,
+        )
+        return { response, trace: resolved.familyIndex }
+      } catch (error) {
+        if (error instanceof RangeError) return { response: { status: 400, headers: [], body: depthFailureBody() } }
+        throw error
+      }
+    }
+    return { response: directionNotMerged() }
+  }
+
+  /** Images surface gates (S1 section 3.2 + S1-25). */
+  const dispatchImages = (context: RequestContext): Handled => {
+    if (config.imageGenerationMode === true) {
+      // Bool `true`: the all-disabled state - both images routes are
+      // absent (404 empty) before the body is read.
+      return { response: emptyNotFound() }
+    }
+    const decoded = decodeOrFail(context, (message) => charsetJson(400, invalidRequestBody(message)))
+    if ('handled' in decoded) return decoded.handled
+    const parsed = parseJsonGuarded(decoded.text)
+    if (parsed === undefined) {
+      return { response: charsetJson(400, invalidRequestBody(MAX_DEPTH_MESSAGE.slice('Invalid request: '.length))) }
+    }
+    if (parsed.malformed) {
+      return { response: charsetJson(400, invalidRequestBody('body must be valid JSON')) }
+    }
+    const body = isPlainObject(parsed.value) ? parsed.value : {}
+    const prompt = body['prompt']
+    if (typeof prompt !== 'string' || prompt.length === 0) {
+      return { response: charsetJson(400, invalidRequestBody('prompt is required')) }
+    }
+    const model = typeof body['model'] === 'string' ? (body['model'] as string) : ''
+    if (!registry.isImageModel(model)) {
+      return { response: charsetJson(400, imagesUnsupportedModelBody(model)) }
+    }
+    return { response: directionNotMerged() }
+  }
+
+  /** v1beta action dispatch (S1 section 3.4). */
+  const dispatchV1BetaAction = async (context: RequestContext): Promise<Handled> => {
+    const pathname = context.url.pathname
+    const actionPrefix = '/v1beta/models/'
+    const action = pathname.length > actionPrefix.length ? pathname.slice(actionPrefix.length) : ''
+    const parsed = gem2oai.parseModelMethod(action)
+    if (parsed === undefined) {
+      return { response: charsetJson(404, gem2oai.actionNotFoundBody(pathname)) }
+    }
+    const method = parsed.method
+    if (method !== 'generateContent' && method !== 'streamGenerateContent' && method !== 'countTokens') {
+      // Silent fall-through (recorded S1-13): the action parses, no
+      // switch case matches - nothing written, no headers, no trace.
+      return { response: { status: 200, headers: [], body: '' } }
+    }
+    const decoded = decodeOrFail(context, (message) => charsetJson(400, invalidRequestBody(message)))
+    if ('handled' in decoded) return decoded.handled
+    const resolved = registry.resolve(parsed.model)
+    if (resolved === undefined) {
+      // The gemini surface renders the OpenAI-shaped 400 (S1 section 8).
+      return { response: { status: 400, headers: [], body: gem2oai.modelNotFoundBody(parsed.model) } }
+    }
+    const facadeRequest = {
+      method: context.request.method,
+      path: `${pathname}${context.url.search}`,
+      headers: context.facadeHeaders,
+      body: decoded.text,
+    }
+    const dispatch = async (run: () => Promise<GatewayResponse>): Promise<GatewayResponse> => {
+      try {
+        return await run()
+      } catch (error) {
+        if (error instanceof RangeError) return { status: 400, headers: [], body: depthFailureBody() }
+        throw error
+      }
+    }
+    if (resolved.family === 'openai-compatibility') {
+      if (!familyModelEligible(context.config, 'openai-compatibility', parsed.model)) {
+        return { response: proxyUnavailable(), trace: resolved.familyIndex }
+      }
+      const response = await dispatch(() => gem2OaiService.handleV1Beta(facadeRequest, send))
+      return { response, trace: resolved.familyIndex }
+    }
+    if (resolved.family === 'claude-api-key') {
+      if (!familyModelEligible(context.config, 'claude-api-key', parsed.model)) {
+        return { response: proxyUnavailable(), trace: resolved.familyIndex }
+      }
+      const response = await dispatch(() => gem2ClaService.handleV1beta(facadeRequest, send))
+      return { response, trace: resolved.familyIndex }
+    }
+    return { response: directionNotMerged() }
+  }
+
+  /** v1beta model discovery (registry-generic, S1 section 6.2). */
+  const dispatchV1BetaDiscovery = async (context: RequestContext): Promise<Handled> => {
+    try {
+      const response = await gem2OaiService.handleV1Beta(
+        {
+          method: context.request.method,
+          path: `${context.url.pathname}${context.url.search}`,
+          headers: context.facadeHeaders,
+          body: '',
+        },
+        send,
+      )
+      return { response }
+    } catch (error) {
+      if (error instanceof RangeError) return { response: { status: 400, headers: [], body: depthFailureBody() } }
+      throw error
+    }
+  }
+
+  /** POST /v1beta/interactions validation gates (S1-25). */
+  const dispatchInteractions = (context: RequestContext): Handled => {
+    const decoded = decodeOrFail(context, (message) => charsetJson(400, invalidRequestBody(message)))
+    if ('handled' in decoded) return decoded.handled
+    const parsed = parseJsonGuarded(decoded.text)
+    if (parsed === undefined) {
+      return { response: charsetJson(400, invalidRequestBody(MAX_DEPTH_MESSAGE.slice('Invalid request: '.length))) }
+    }
+    if (parsed.malformed) {
+      return { response: charsetJson(400, INTERACTIONS_INVALID_JSON_BODY) }
+    }
+    const body = isPlainObject(parsed.value) ? parsed.value : {}
+    const hasModel = typeof body['model'] === 'string' && (body['model'] as string).length > 0
+    const hasAgent = typeof body['agent'] === 'string' && (body['agent'] as string).length > 0
+    if (hasModel === hasAgent) {
+      return { response: charsetJson(400, INTERACTIONS_EXACTLY_ONE_BODY) }
+    }
+    if (body['stream'] !== undefined && typeof body['stream'] !== 'boolean') {
+      return { response: charsetJson(400, INTERACTIONS_STREAM_BOOLEAN_BODY) }
+    }
+    return { response: directionNotMerged() }
+  }
+
+  /** Codex-only routes without codex credentials (S1-23). */
+  const codexUnavailable = (): GatewayResponse => charsetJson(503, CODEX_AUTH_UNAVAILABLE_BODY)
+
+  const isWebSocketUpgrade = (context: RequestContext): boolean => {
+    const connection = (headerValue(context.request.headers, 'connection') ?? '').toLowerCase()
+    const upgrade = (headerValue(context.request.headers, 'upgrade') ?? '').toLowerCase()
+    return (
+      connection
+        .split(',')
+        .map((part) => part.trim())
+        .includes('upgrade') && upgrade === 'websocket'
+    )
+  }
+
+  /** gorilla-style handshake rejection (recorded 12-byte body, S7-02). */
+  const websocketBadRequest = (): GatewayResponse =>
+    plainText(400, WEBSOCKET_BAD_REQUEST_BODY, [
+      ['Sec-Websocket-Version', '13'],
+      ['X-Content-Type-Options', 'nosniff'],
+    ])
+
+  /**
+   * `GET /v1/ws` (S7 F4): after the ws-auth gate, a passing upgrade is
+   * accepted into Durable Object hibernation. The relay protocol behind
+   * the 101 is the `ws:relay` seam - sessions hold silent.
+   */
+  const dispatchWsRelay = (context: RequestContext): Handled => {
+    if (!isWebSocketUpgrade(context)) {
+      return { response: websocketBadRequest() }
+    }
+    if (options.sockets === undefined) {
+      // No hibernation host (non-DO composition): the relay cannot be
+      // served; the seam answer is explicit.
+      return { response: directionNotMerged() }
+    }
+    const pair = new WebSocketPair()
+    const [client, server] = Object.values(pair) as [WebSocket, WebSocket]
+    options.sockets.accept(server, ['ws-relay'])
+    return {
+      response: {
+        status: 101,
+        headers: [],
+        body: '',
+        webSocket: client,
+      },
+    }
+  }
+
+  /** Nested 400 body of a bad client-secrets request (recorded S1-25). */
+  const realtimeInvalidSecretBody = (): string =>
+    realtimeEnvelope('invalid_request', 'Invalid Realtime client secret request', 'invalid_request_error')
+
+  /**
+   * Mints one realtime client secret. The success body shape is not
+   * golden-pinned (S1-25 records only the bad-JSON 400); this emits the
+   * OpenAI-style `client_secret` envelope until a recording pins it.
+   */
+  const mintRealtimeSecret = async (body: Record<string, unknown>): Promise<Handled> => {
+    const requested = typeof body['lifetime_ms'] === 'number' ? (body['lifetime_ms'] as number) : undefined
+    const secret = await plane.realtimeSecrets.issue(requested)
+    const payload = JSON.stringify({
+      client_secret: {
+        value: secret.token,
+        expires_at: formatRfc3339(secret.expiresAtMs),
+      },
+    })
+    return { response: charsetJson(200, payload) }
+  }
+
+  /**
+   * Redirect-flow providers: S7 F5a - these flows need a loopback
+   * listener this platform cannot bind.
+   */
+  const REDIRECT_AUTH_URL_PROVIDERS: ReadonlySet<string> = new Set(['anthropic', 'codex', 'antigravity', 'devin'])
+
+  /** Device-flow providers: EQUIVALENT here, polls ride the DO alarm. */
+  const DEVICE_AUTH_URL_PROVIDERS: ReadonlySet<string> = new Set(['kimi', 'xai', 'meta'])
+
+  /** The /v0/management/<provider>-auth-url handler (S7 F5a/F5b gates). */
+  const dispatchAuthUrl = async (context: RequestContext): Promise<Handled> => {
+    const provider = context.url.pathname.slice('/v0/management/'.length).replace(/-auth-url$/, '')
+    if (
+      provider !== 'anthropic' &&
+      provider !== 'codex' &&
+      provider !== 'antigravity' &&
+      provider !== 'kimi' &&
+      provider !== 'xai' &&
+      provider !== 'devin' &&
+      provider !== 'meta'
+    ) {
+      return { response: emptyNotFound() }
+    }
+    if (REDIRECT_AUTH_URL_PROVIDERS.has(provider)) {
+      if (!capabilities.localCallbackServer) {
+        return { response: charsetJson(501, LOCAL_CALLBACK_UNAVAILABLE_BODY) }
+      }
+      return { response: directionNotMerged() }
+    }
+    if (DEVICE_AUTH_URL_PROVIDERS.has(provider)) {
+      const response = await plane.handleAuthUrl(toWebRequest(context), provider as 'kimi' | 'xai' | 'meta')
+      const wire = await fromWebResponse(response)
+      if (wire.status === 200) {
+        // The session registered; arm the alarm-driven poll loop.
+        const state = sessionStateOf(wire.body)
+        if (state !== undefined && options.alarm !== undefined) {
+          const registered = await registerDevicePoll(store, provider as 'kimi' | 'xai' | 'meta', state, now)
+          if (registered) {
+            const pollDoc = await store.get(SCHEDULER_NAMESPACE, `${DEVICE_POLL_PREFIX}${state}`)
+            const nextPollAt =
+              typeof pollDoc === 'object' && pollDoc !== null && !Array.isArray(pollDoc)
+                ? (pollDoc as Record<string, unknown>)['next_poll_at_ms']
+                : undefined
+            if (typeof nextPollAt === 'number') {
+              await ensureAlarmBefore(options.alarm, nextPollAt)
+            }
+          }
+        }
+      }
+      return { response: wire }
+    }
+    return { response: emptyNotFound() }
+  }
+
+  /**
+   * Management facade wrapper: the two route-level degradations S7 pins
+   * that live in front of the composed facade - the F1 api-call proxy
+   * gate (after the facade's own 400 ladder would pass) and the F2
+   * plugin-store install gate.
+   */
+  const wrapManagement = async (context: RequestContext): Promise<GatewayResponse> => {
+    const pathname = context.url.pathname
+    const method = context.request.method.toUpperCase()
+    if (method === 'POST' && pathname === '/v0/management/api-call' && !capabilities.proxyTransport) {
+      const blocked = apiCallProxyBlocked(context)
+      if (blocked !== undefined) return blocked
+    }
+    const wire = await managementApi?.handle(toWebRequest(context))
+    if (wire === undefined) return emptyNotFound()
+    if (
+      method === 'POST' &&
+      /^\/v0\/management\/plugin-store\/[^/]+\/install$/.test(pathname) &&
+      wire.status !== 401 &&
+      wire.status !== 403
+    ) {
+      // F2: no plugin binary can load on any runtime; installs 501 with
+      // the pinned body on every runtime (S7 section 2.3-F2-4).
+      return charsetJson(501, PLUGIN_INSTALL_UNAVAILABLE_BODY)
+    }
+    return { status: wire.status, headers: wire.rawHeaders, body: await wire.text() }
+  }
+
+  /**
+   * F1 api-call resolution: the facade's validation ladder (body, url,
+   * proxy_url shape) runs first upstream of any transport decision, so
+   * this gate only decides the case that would otherwise reach the
+   * sender: a request-level proxy_url, else the global config value,
+   * resolving to an explicit proxy URL.
+   */
+  const apiCallProxyBlocked = (context: RequestContext): GatewayResponse | undefined => {
+    const text = new TextDecoder().decode(context.request.body)
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(text)
+    } catch {
+      return undefined // the facade answers 400 invalid body
+    }
+    const record = isPlainObject(parsed) ? parsed : undefined
+    if (record === undefined) return undefined
+    const method = typeof record['method'] === 'string' ? (record['method'] as string) : ''
+    if (method === '') return undefined // facade: 400 missing method
+    const url = typeof record['url'] === 'string' ? (record['url'] as string) : ''
+    if (url === '') return undefined // facade: 400 missing url
+    try {
+      new URL(url)
+    } catch {
+      return undefined // facade: 400 invalid url
+    }
+    const proxyUrl = record['proxy_url']
+    if (proxyUrl !== undefined && typeof proxyUrl !== 'string') return undefined // facade: 400 invalid proxy_url
+    if (typeof proxyUrl === 'string' && proxyUrl !== '') {
+      try {
+        new URL(proxyUrl)
+      } catch {
+        return undefined // facade: 400 invalid proxy_url
+      }
+    }
+    const own = typeof proxyUrl === 'string' ? proxyUrl : ''
+    const globalProxy = context.config.proxyUrl
+    const resolved = own.trim().length > 0 ? own : globalProxy
+    if (resolved.trim().length === 0) return undefined
+    const lowered = resolved.trim().toLowerCase()
+    if (lowered === 'direct' || lowered === 'none') return undefined
+    let parsedUrl: URL
+    try {
+      parsedUrl = new URL(resolved.trim())
+    } catch {
+      return undefined // facade: 400 invalid proxy_url
+    }
+    const scheme = parsedUrl.protocol.replace(':', '').toLowerCase()
+    if (scheme === 'socks5' || scheme === 'socks5h' || scheme === 'http' || scheme === 'https') {
+      return charsetJson(501, PROXY_UNAVAILABLE_MGMT_BODY)
+    }
+    return undefined
+  }
+
+  /** Handler table; each returns the pre-CORS/trace response. */
+  const handleById = async (context: RequestContext): Promise<Handled> => {
+    const id = context.match.entry.id
+    switch (id) {
+      case 'root': {
+        const safePage = plane.serveSafeModePage(toWebRequest(context))
+        if (safePage !== null) return { response: await fromWebResponse(safePage) }
+        return { response: charsetJson(200, ROOT_BODY) }
+      }
+      case 'healthz': {
+        if (context.request.method === 'HEAD') {
+          return { response: { status: 200, headers: [], body: '' } }
+        }
+        return { response: charsetJson(200, STATUS_OK_BODY) }
+      }
+      case 'management-panel': {
+        // NE-S7-08: the control panel bootstrap needs a writable
+        // filesystem; this runtime has none - the route 404s exactly as
+        // if `disable-control-panel: true` were set.
+        const safePage = plane.serveSafeModePage(toWebRequest(context))
+        if (safePage !== null) return { response: await fromWebResponse(safePage) }
+        return { response: emptyNotFound() }
+      }
+      case 'keep-alive': {
+        // TUI mode is ABSENT on every serverless runtime (S7 adjacent
+        // list): the route answers the empty 404.
+        return { response: emptyNotFound() }
+      }
+      case 'ws-relay': {
+        return dispatchWsRelay(context)
+      }
+      case 'callback-anthropic':
+      case 'callback-codex':
+      case 'callback-antigravity': {
+        const provider =
+          id === 'callback-anthropic' ? 'anthropic' : id === 'callback-codex' ? 'codex' : 'antigravity'
+        return {
+          response: await fromWebResponse(
+            await plane.handlePlainCallback(toWebRequest(context), provider),
+          ),
+        }
+      }
+      case 'callback-devin': {
+        return { response: await fromWebResponse(await plane.handleDevinCallback(toWebRequest(context))) }
+      }
+      case 'mgmt-oauth-callback': {
+        if (!plane.managementAvailable()) return { response: emptyNotFound() }
+        return {
+          response: await fromWebResponse(await plane.handleManagementOauthCallback(toWebRequest(context))),
+        }
+      }
+      case 'mgmt-auth-url': {
+        return dispatchAuthUrl(context)
+      }
+      case 'mgmt-get-auth-status': {
+        return { response: await fromWebResponse(await plane.handleGetAuthStatus(toWebRequest(context))) }
+      }
+      case 'mgmt-oauth-session': {
+        return { response: await fromWebResponse(await plane.handleOauthSession(toWebRequest(context))) }
+      }
+      case 'mgmt-rest': {
+        if (managementApi !== undefined) {
+          return { response: await wrapManagement(context) }
+        }
+        // No composed facade (no config text or no management secret):
+        // the plane-subset answers and every payload route keeps the
+        // recorded unknown-subroute 404.
+        return { response: emptyNotFound() }
+      }
+      case 'models-list': {
+        const anthropicVersion = headerValue(context.request.headers, 'anthropic-version')
+        const userAgent = headerValue(context.request.headers, 'user-agent') ?? ''
+        if (
+          (anthropicVersion !== undefined && anthropicVersion.length > 0) ||
+          userAgent.startsWith('claude-cli')
+        ) {
+          return {
+            response: charsetJson(
+              200,
+              claudeModelsListBody(registry, modelListStamp(), !config.disableCloakingModelList),
+            ),
+          }
+        }
+        return { response: charsetJson(200, openAiModelsListBody(registry, modelListStamp())) }
+      }
+      case 'chat-completions':
+      case 'completions': {
+        // /v1/completions rides the chat machinery; the legacy
+        // text-completions adaptation is a recorded seam upstream of
+        // the direction dispatch (S1 section 3.2 note).
+        return dispatchChat(context)
+      }
+      case 'messages':
+      case 'messages-count-tokens': {
+        return dispatchMessages(context)
+      }
+      case 'responses': {
+        return dispatchResponses(context)
+      }
+      case 'responses-compact': {
+        return dispatchResponsesCompact(context)
+      }
+      case 'responses-ws': {
+        if (!isWebSocketUpgrade(context)) {
+          return { response: websocketBadRequest() }
+        }
+        return { response: directionNotMerged() }
+      }
+      case 'images-generations':
+      case 'images-edits': {
+        return dispatchImages(context)
+      }
+      case 'videos-create':
+      case 'videos-retrieve':
+      case 'openai-videos-create':
+      case 'openai-videos-retrieve':
+      case 'openai-videos-content': {
+        // Video executors are unmerged: routes registered, dispatch is
+        // the direction seam.
+        return { response: directionNotMerged() }
+      }
+      case 'alpha-search': {
+        if (!codexConfigured) return { response: codexUnavailable() }
+        return { response: directionNotMerged() }
+      }
+      case 'live-call': {
+        if (!codexConfigured) return { response: codexUnavailable() }
+        return { response: directionNotMerged() }
+      }
+      case 'live-sideband': {
+        const callId = context.match.params['call_id'] ?? ''
+        // The id pattern validates before the upgrade check (recorded
+        // 400 for malformed ids on any transport).
+        if (!CALL_ID_PATTERN.test(callId)) {
+          return { response: charsetJson(400, plainErrorBody('Invalid Codex live call ID')) }
+        }
+        if (!isWebSocketUpgrade(context)) {
+          return {
+            response: charsetJson(426, plainErrorBody('WebSocket upgrade required'), [['Upgrade', 'websocket']]),
+          }
+        }
+        // No live-session registry merged yet: every well-formed id is
+        // the recorded unknown-call 404.
+        return { response: charsetJson(404, plainErrorBody('Codex live session not found')) }
+      }
+      case 'realtime-ws': {
+        const callId = context.url.searchParams.get('call_id')
+        if (!isWebSocketUpgrade(context)) {
+          const code = callId !== null ? 'realtime_request_failed' : 'websocket_upgrade_required'
+          return {
+            response: charsetJson(
+              426,
+              realtimeEnvelope(code, 'WebSocket upgrade required', 'invalid_request_error'),
+              [['Upgrade', 'websocket']],
+            ),
+          }
+        }
+        return { response: directionNotMerged() }
+      }
+      case 'realtime-call': {
+        if (!codexConfigured) {
+          // /v1/realtime* paths switch to the nested envelope with
+          // type api_error for >=500 (recorded prefix rule).
+          return {
+            response: charsetJson(
+              503,
+              realtimeEnvelope('realtime_request_failed', 'auth_not_found: no auth available', 'api_error'),
+            ),
+          }
+        }
+        return { response: directionNotMerged() }
+      }
+      case 'realtime-calls-sideband': {
+        const callId = context.match.params['call_id'] ?? ''
+        // Id pattern first, then the upgrade check (same sideband
+        // handler semantics as /v1/live, nested envelope on this path).
+        if (!CALL_ID_PATTERN.test(callId)) {
+          return {
+            response: charsetJson(
+              400,
+              realtimeEnvelope('realtime_request_failed', 'Invalid Codex live call ID', 'invalid_request_error'),
+            ),
+          }
+        }
+        if (!isWebSocketUpgrade(context)) {
+          return {
+            response: charsetJson(
+              426,
+              realtimeEnvelope('realtime_request_failed', 'WebSocket upgrade required', 'invalid_request_error'),
+              [['Upgrade', 'websocket']],
+            ),
+          }
+        }
+        return {
+          response: charsetJson(
+            404,
+            realtimeEnvelope('realtime_request_failed', 'Codex live session not found', 'invalid_request_error'),
+          ),
+        }
+      }
+      case 'realtime-hangup': {
+        const callId = context.match.params['call_id'] ?? ''
+        if (!CALL_ID_PATTERN.test(callId)) {
+          return {
+            response: charsetJson(
+              400,
+              realtimeEnvelope('invalid_call_id', 'Invalid Realtime call ID', 'invalid_request_error'),
+            ),
+          }
+        }
+        // No live-session registry merged: the recorded not-found body.
+        return {
+          response: charsetJson(
+            404,
+            realtimeEnvelope('realtime_call_not_found', 'Realtime call not found', 'invalid_request_error'),
+          ),
+        }
+      }
+      case 'realtime-sip-accept':
+      case 'realtime-sip-reject':
+      case 'realtime-sip-refer': {
+        const verb = id === 'realtime-sip-accept' ? 'accept' : id === 'realtime-sip-reject' ? 'reject' : 'refer'
+        return {
+          response: charsetJson(
+            501,
+            realtimeEnvelope(
+              'realtime_capability_not_supported',
+              `Realtime SIP ${verb} are not supported by the ChatGPT/Codex OAuth upstream`,
+              'not_supported_error',
+            ),
+          ),
+        }
+      }
+      case 'realtime-client-secrets': {
+        const decoded = decodeOrFail(context, (message) =>
+          charsetJson(400, realtimeEnvelope('invalid_request', message, 'invalid_request_error')),
+        )
+        if ('handled' in decoded) return decoded.handled
+        const parsed = parseJsonGuarded(decoded.text)
+        if (parsed === undefined) return { response: charsetJson(400, realtimeInvalidSecretBody()) }
+        if (parsed.malformed || !isPlainObject(parsed.value)) {
+          return { response: charsetJson(400, realtimeInvalidSecretBody()) }
+        }
+        return mintRealtimeSecret(parsed.value)
+      }
+      case 'realtime-sessions': {
+        // Legacy minting path: no JSON validation of the raw body.
+        return mintRealtimeSecret({})
+      }
+      case 'realtime-transcription-sessions': {
+        return {
+          response: charsetJson(
+            501,
+            realtimeEnvelope(
+              'realtime_capability_not_supported',
+              'Realtime transcription-only sessions are not supported by the ChatGPT/Codex OAuth upstream',
+              'not_supported_error',
+            ),
+          ),
+        }
+      }
+      case 'realtime-translations-stub':
+      case 'realtime-translations-client-secrets': {
+        return {
+          response: charsetJson(
+            501,
+            realtimeEnvelope(
+              'realtime_capability_not_supported',
+              'Realtime translation sessions are not supported by the ChatGPT/Codex OAuth upstream',
+              'not_supported_error',
+            ),
+          ),
+        }
+      }
+      case 'v1beta-models-list':
+      case 'v1beta-models-action': {
+        if (context.request.method === 'GET') {
+          return dispatchV1BetaDiscovery(context)
+        }
+        return dispatchV1BetaAction(context)
+      }
+      case 'v1beta-interactions': {
+        return dispatchInteractions(context)
+      }
+      default: {
+        throw new Error(`no handler for route id ${id}`)
+      }
+    }
+  }
+
+  /** The main pipeline (S1 section 2 order: OPTIONS -> redirect -> route -> auth). */
+  const handle = async (request: GatewayRequest): Promise<GatewayResponse> => {
+    const url = new URL(request.url)
+    const pathname = url.pathname
+    const method = request.method.toUpperCase()
+
+    // OPTIONS anywhere: 204 + CORS, never authenticated or routed.
+    if (method === 'OPTIONS') {
+      return { status: 204, headers: withCors([]), body: '' }
+    }
+
+    // Route first; the router-emitted trailing-slash redirect fires only
+    // when NO route matches the request path, and it is emitted before
+    // the middleware chain: NO CORS block, no auth (recorded S1-08/S1-25).
+    const match = matchRoute(method, pathname)
+    if (match === undefined) {
+      const redirect = evaluateRedirect(method, pathname, url.search.length > 0 ? url.search.slice(1) : '')
+      if (redirect.redirect) {
+        return redirectResponse(redirect.status, redirect.location, method)
+      }
+      // Framework 404: empty body, CORS present (ruling R-404).
+      return { status: 404, headers: withCors([]), body: '' }
+    }
+
+    let bodyDecoded: BodyDecode | undefined
+    const context: RequestContext = {
+      request,
+      url,
+      match,
+      config,
+      facadeHeaders: request.headers,
+      decodeBody: () => {
+        if (bodyDecoded === undefined) {
+          bodyDecoded =
+            zstdDecode === undefined
+              ? { ok: true, text: new TextDecoder().decode(request.body), message: '' }
+              : decodeBodyBytes(request.body, headerValue(request.headers, 'content-encoding'), zstdDecode)
+        }
+        return bodyDecoded
+      },
+    }
+
+    // Group gates (S1 section 4).
+    const group = match.entry.group
+    if (group === 'client') {
+      const rejected = await plane.authenticateProxy(toWebRequest(context))
+      if (rejected !== null) return planeRejected(rejected)
+      context.facadeHeaders = normalizeFacadeHeaders(request.headers, acceptedApiKey(config, context))
+    } else if (group === 'client-ws') {
+      // S7 F4: the ws-auth gate - auth required unless explicitly
+      // disabled (an absent key means REQUIRED, the loader preset).
+      if (config.wsAuth) {
+        const rejected = await plane.authenticateProxy(toWebRequest(context))
+        if (rejected !== null) return planeRejected(rejected)
+      }
+    } else if (group === 'realtime' || group === 'realtime-standard') {
+      const sealed = plane.safeModeProxyResponse(toWebRequest(context))
+      if (sealed !== null) return planeRejected(sealed)
+      const gate =
+        group === 'realtime'
+          ? await plane.authenticateRealtime(toWebRequest(context))
+          : await plane.authenticateRealtimeStandard(toWebRequest(context))
+      if (gate !== null) return planeRejected(gate)
+    } else if (group === 'management') {
+      if (!plane.managementAvailable()) {
+        // Availability middleware: the whole surface is absent (S1
+        // section 3.9) - including when only the plane subset runs.
+        return { status: 404, headers: withCors([]), body: '' }
+      }
+      // The plane's key middleware gates the plane-owned routes and the
+      // wrapped facade dispatch (the composed facade re-runs its own
+      // gate; passing requests never double-count).
+      const verdict = await plane.authenticateManagement(
+        toWebRequest(context),
+        request.remoteAddress === undefined ? undefined : { remoteAddress: request.remoteAddress },
+      )
+      if (!verdict.ok) return planeRejected(verdict.response)
+    }
+
+    return finalizeResponse(await handleById(context))
+  }
+
+  return { handle, capabilities, store, plane, config, managementApi }
+}
+
+/** Extracts the state token from a login-URL response body, if shaped. */
+function sessionStateOf(body: string | ReadableStream<Uint8Array>): string | undefined {
+  if (typeof body !== 'string') return undefined
+  try {
+    const parsed: unknown = JSON.parse(body)
+    if (!isPlainObject(parsed)) return undefined
+    const state = parsed['state']
+    return typeof state === 'string' ? state : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** Fallback store for compositions that inject none (unit tests). */
+function newPlaneFallbackStore(): Store {
+  return new MemoryStore()
+}

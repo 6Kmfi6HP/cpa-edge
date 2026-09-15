@@ -39,6 +39,12 @@ export interface GatewayResponse {
   /** Headers in emission order (Date/Content-Length are platform-added). */
   readonly headers: HeaderList
   readonly body: GatewayBody
+  /**
+   * Client half of an accepted WebSocket upgrade (status 101): the
+   * platform Response carries it; the DO keeps the server half in
+   * hibernation.
+   */
+  readonly webSocket?: WebSocket
 }
 
 /**

@@ -150,8 +150,8 @@ export function effectiveEntryMode(
   const own = resolveProxyMode(entryProxyUrl(entry))
   if (own === 'proxy') return 'proxy'
   if (own === 'direct') return 'direct'
-  if (globalProxyUrl.length > 0) return resolveProxyMode(globalProxyUrl)
-  return 'direct'
+  const inherited = globalProxyUrl.length > 0 ? resolveProxyMode(globalProxyUrl) : 'direct'
+  return inherited === 'inherit' ? 'direct' : inherited
 }
 
 /** Global `proxy-url` scalar of the config document. */

@@ -105,10 +105,12 @@ export class KvStore implements Store {
 
   async list(namespace: string, prefix?: string): Promise<string[]> {
     const scoped = requireName(namespace, 'namespace')
-    const encodedPrefix = `${this.keyPrefix}:d:${encodeName(scoped)}:`
-    const scanPrefix = prefix === undefined ? encodedPrefix : encodedPrefix + encodeName(prefix)
+    const basePrefix = `${this.keyPrefix}:d:${encodeName(scoped)}:`
+    const scanPrefix = prefix === undefined ? basePrefix : basePrefix + encodeName(prefix)
     const found = await this.driver.scanKeys(scanPrefix)
-    const keys = found.map((key) => decodeName(key.slice(scanPrefix.length)))
+    // Slice off only the namespace part: matched keys keep their full
+    // key suffix, which starts with the requested prefix when given.
+    const keys = found.map((key) => decodeName(key.slice(basePrefix.length)))
     keys.sort()
     return keys
   }
@@ -156,7 +158,7 @@ export class KvStore implements Store {
     return Object.freeze({
       id: claimed.id,
       token,
-      payload: parseJsonValue(item.p, 'queue payload'),
+      payload: parseJsonValue(item.payload, 'queue payload'),
       leaseExpiresAt: claimed.leaseExpiresAt,
     }) satisfies QueueClaim
   }

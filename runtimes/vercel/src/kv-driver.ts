@@ -193,7 +193,7 @@ export class RestKvDriver implements KvDriver {
       throw new CpaError('unavailable', 'KV document reply was not a string')
     }
     const envelope = parseEnvelope(result)
-    return { version: envelope.version, value: envelope.value }
+    return { version: envelope.v, value: envelope.value }
   }
 
   async writeDocument(
@@ -582,7 +582,14 @@ export interface QueueItemRecord {
 }
 
 function serializeItem(record: QueueItemRecord): string {
-  return JSON.stringify({ p: record.payload, s: record.state, t: record.token, e: record.leaseExpiresAt })
+  // Short state codes match the store's enqueue encoding and the REST
+  // driver's server-side scripts ('a' available, 'l' leased).
+  return JSON.stringify({
+    p: record.payload,
+    s: record.state === 'leased' ? 'l' : 'a',
+    t: record.token,
+    e: record.leaseExpiresAt,
+  })
 }
 
 function parseItem(text: string): QueueItemRecord {

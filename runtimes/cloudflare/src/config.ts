@@ -408,3 +408,102 @@ export const CONFIG_NAMESPACE = 'config'
 
 /** Store key holding the raw config.yaml text (runtime-owned bytes). */
 export const CONFIG_TEXT_KEY = 'config-yaml'
+
+
+// ---------------------------------------------------------------------------
+// Direction credential mappers (S7 section 2.3-F1: only schedulable
+// entries reach the facades; proxy-mode credentials are excluded from
+// scheduling on this runtime)
+// ---------------------------------------------------------------------------
+
+import { cla2gem, gem2cla, gem2oai, oai2cla, oai2codex, res2oai } from '@cpa-edge/translators'
+
+/** Maps the schedulable claude-api-key entries onto the oai2cla facade shape. */
+export function claudeCredentialsForChat(config: NormalizedConfig): readonly oai2cla.Oai2ClaCredential[] {
+  return eligibleProvidersOf(config, 'claude-api-key').map((provider) => ({
+    apiKey: provider.apiKey,
+    baseUrl: provider.baseUrl,
+    headers: provider.headers,
+    ...(provider.fingerprintProfile === 'claude-code-cli'
+      ? { fingerprintProfile: 'claude-code-cli' as const }
+      : {}),
+    models: provider.models.map((model) => ({
+      name: model.name,
+      alias: model.alias,
+      ...(model.isCompat ? { isCompat: true } : {}),
+      ...(model.thinking === undefined ? {} : { thinking: model.thinking }),
+    })),
+  }))
+}
+
+/** Maps the schedulable openai-compatibility entries onto the gem2oai facade shape. */
+export function openAiCompatCredentials(config: NormalizedConfig): readonly gem2oai.Gem2OaiCredential[] {
+  return eligibleProvidersOf(config, 'openai-compatibility').map((provider) => ({
+    name: provider.providerName,
+    apiKey: provider.apiKey,
+    baseUrl: provider.baseUrl,
+    ...(Object.keys(provider.headers).length === 0 ? {} : { headers: provider.headers }),
+    models: provider.models.map((model) => ({
+      name: model.name,
+      ...(model.alias !== model.name ? { alias: model.alias } : {}),
+      ...(model.thinking?.levels !== undefined ? { thinking: { levels: model.thinking.levels } } : {}),
+      ...(model.forceMapping ? { forceMapping: true } : {}),
+    })),
+  }))
+}
+
+/** Maps the schedulable codex-api-key entries onto the oai2codex facade shape. */
+export function codexCredentialsForChat(config: NormalizedConfig): readonly oai2codex.Oai2CodexCredential[] {
+  return eligibleProvidersOf(config, 'codex-api-key').map((provider) => ({
+    apiKey: provider.apiKey,
+    ...(provider.baseUrl.length > 0 ? { baseUrl: provider.baseUrl } : {}),
+    ...(Object.keys(provider.headers).length === 0 ? {} : { headers: provider.headers }),
+    models: provider.models.map((model) => ({
+      name: model.name,
+      ...(model.alias !== model.name ? { alias: model.alias } : {}),
+      ...(model.thinking === undefined ? {} : { thinking: true }),
+    })),
+  }))
+}
+
+/** Maps the schedulable openai-compatibility entries onto the res2oai facade shape. */
+export function openAiCompatCredentialsForResponses(config: NormalizedConfig): readonly res2oai.Res2OaiCredential[] {
+  return eligibleProvidersOf(config, 'openai-compatibility').map((provider) => ({
+    apiKey: provider.apiKey,
+    baseUrl: provider.baseUrl,
+    provider: provider.providerName,
+    ...(Object.keys(provider.headers).length === 0 ? {} : { headers: provider.headers }),
+    models: provider.models.map((model) => ({
+      name: model.name,
+      ...(model.alias !== model.name ? { alias: model.alias } : {}),
+    })),
+  }))
+}
+
+/** Maps the schedulable gemini-api-key entries onto the cla2gem facade shape. */
+export function geminiCredentialsForMessages(config: NormalizedConfig): readonly cla2gem.Cla2GemCredential[] {
+  return eligibleProvidersOf(config, 'gemini-api-key').map((provider) => ({
+    apiKey: provider.apiKey,
+    ...(provider.baseUrl.length > 0 ? { baseUrl: provider.baseUrl } : {}),
+    models: provider.models.map((model) => ({
+      name: model.name,
+      ...(model.alias !== model.name ? { alias: model.alias } : {}),
+      ...(model.thinking === undefined
+        ? {}
+        : { thinking: model.thinking as { min?: number; max?: number; levels?: readonly string[] } }),
+    })),
+  }))
+}
+
+/** Maps the schedulable claude-api-key entries onto the gem2cla facade shape. */
+export function claudeCredentialsForGemini(config: NormalizedConfig): readonly gem2cla.Gem2ClaCredential[] {
+  return eligibleProvidersOf(config, 'claude-api-key').map((provider) => ({
+    apiKey: provider.apiKey,
+    baseUrl: provider.baseUrl,
+    models: provider.models.map((model) => ({
+      name: model.name,
+      alias: model.alias,
+      ...(model.thinking === undefined ? {} : { thinking: model.thinking }),
+    })),
+  }))
+}
