@@ -11,9 +11,9 @@ This document states them in operator terms.
 How to read the runtime sections: each runtime declares a fixed
 `RuntimeCapabilities` profile (S7 §3.1). On the serverless runtimes,
 missing capabilities produce the pinned 501 bodies — never silent
-deviation. The node runtime's v1 scope is set by the D2 audit (GR-5):
-what lands in the final parity round and what is registered absent is
-listed per feature in §5.2.
+deviation. The node runtime's v1 scope is set by the D2 audit (GR-5)
+and the final parity ruling: what is served and what is registered
+absent (v1.1) is listed per feature in §5.2.
 
 | Capability | node | cloudflare | vercel |
 |---|---|---|---|
@@ -464,22 +464,23 @@ column in §5.2 is the audited v1 reality (GR-5), not the S7 ideal.
 
 ### 5.2 Platform matrix (S7 + D2 audit) — per feature
 
-The node column is the audited v1 reality (GR-5). "Landing" items arrive
-in the final T1 parity round; "REGISTERED ABSENT" items are v1 scope
-decisions, not pending work.
+The node column is the audited v1 reality (GR-5, final parity ruling
+2026-09-16: of the three planned parity items, only the `/v1/ws` gates
+landed). "REGISTERED ABSENT" items are v1 scope decisions targeted at
+v1.1, not pending work.
 
 | Feature | node | cloudflare | vercel |
 |---|---|---|---|
-| Outbound proxy egress (`proxy-url`) | ingestion lands in the final round — config accepted, proxy-credentialed credentials fail-closed stripped with a warning; actual dialing REGISTERED ABSENT (node `fetch` cannot proxy without undici agent plumbing) | 501 when only proxy-credentialed candidates exist (fail closed) | same as cloudflare |
+| Outbound proxy egress (`proxy-url`) | REGISTERED ABSENT (v1.1) — ingestion never landed: `proxy-url` is config-accepted and echoed only (unknown-key ignore), with no fail-closed strip, no warning, and no dialing (node `fetch` cannot proxy without undici agent plumbing) | 501 when only proxy-credentialed candidates exist (fail closed) | same as cloudflare |
 | C-ABI plugins | config surface only; installs 501 | same | same |
 | File logging (`/v0/management/logs`) | the Store log ring serves the API; file substrate REGISTERED ABSENT | served (DO-backed ring) | 501 when `logging-to-file: true` |
-| Inbound WebSocket `/v1/ws` | recorded gates land in the final round, with the S7-01..04 golden replay (GR-8) | served (DO hibernation) | 501 after the auth gate |
+| Inbound WebSocket `/v1/ws` | served — the recorded `ws-auth` gate and handshake outcomes landed in the parity round with the S7-01..04 golden replay (GR-8); the relay protocol behind the 101 remains executor territory | served (DO hibernation) | 501 after the auth gate |
 | Redirect-flow logins (localhost forwarders) | loopback forwarders REGISTERED ABSENT — manual relay via the pinned `oauth-callback` endpoint | 501 | 501 |
 | Device-flow logins (xai/meta/kimi) | envelope-only — poll driver REGISTERED ABSENT, so device sessions have the same observable as vercel (wait → 30-min TTL → unknown or expired) | live: Store-backed sessions + DO-alarm polling | envelope only; sessions never complete |
 | Background token refresh | REGISTERED ABSENT — manual `POST /v0/management/auth-files/refresh` is the v1 path | runs on the DO alarm | none — serverless has no background execution; the manual endpoint applies |
 | OAuth callback routes + session registry | served (pinned surface) | served (Store-backed registry) | ladder served; no session completes |
 | CLI `--login` UX (browser open, user-code print) | out of HTTP contract | absent | absent |
-| External file watching / hot reload | hot-reload recompose lands in the final round (management writes take effect without restart); external file watching REGISTERED ABSENT | management writes only | management writes only |
+| External file watching / hot reload | hot-reload recompose REGISTERED ABSENT (v1.1) — management config writes are accepted and echoed but a running gateway keeps its composition; external file watching REGISTERED ABSENT | management writes only | management writes only |
 | TLS listener (`tls.enable/cert/key`) | REGISTERED ABSENT — the host terminates TLS itself; config accepted + echoed | platform-terminated; config no-op | platform-terminated; config no-op |
 | Local Redis-RESP usage side-band | protocol logic lives in the management package (harness-pinned); NO runtime ships the raw TCP listener in v1 — a host binds the wire itself | no listener; `usage-queue` HTTP keeps semantics | no listener; `usage-queue` HTTP keeps semantics |
 
@@ -597,12 +598,14 @@ T3 gate review, first finding — FOLDED (2026-09-16):
 D2 final audit — FOLDED (2026-09-16, GR-1..GR-8 registered in SPEC §5):
 
 - [x] M3 (release-blocking): §5.2's node column rewritten to the audited
-      reality — /v1/ws gates, hot-reload recompose, and proxy-url
-      ingestion marked "landing in the final T1 parity round";
-      background token-refresh driver, device-flow poll driver,
+      reality; background token-refresh driver, device-flow poll driver,
       file-log substrate, TLS listener, loopback redirect forwarders,
       and actual proxy dialing marked REGISTERED ABSENT. The stale
       §2.5 "lands with T1" table is deleted; its truth lives in §5.2.
+      FINAL PARITY RULING (2026-09-16): of the three planned parity
+      items only the /v1/ws gates landed (S7-01..04 replays with them)
+      — flipped to served; hot-reload recompose and proxy-url ingestion
+      flipped to REGISTERED ABSENT (v1.1).
 - [x] §5.1 rewritten per GR-1 (OAuth serving), GR-2 (antigravity
       executor), GR-3 (native seams answer the exact 503 body).
 - [x] §5.6 scheduling runtime (GR-4), §5.7 accepted-inert config
@@ -610,10 +613,17 @@ D2 final audit — FOLDED (2026-09-16, GR-1..GR-8 registered in SPEC §5):
 - [x] RESP claim corrected everywhere: protocol logic in the management
       package (harness-pinned); NO runtime ships the raw TCP listener.
 
+D1 finding closure (2026-09-16): the management package now re-exports
+`openUsageWireConnection` + `UsageWireDeps` (commit 969c2ef, "D1 finding
+closed") — the "a host binds the wire itself" claim in §5.2 is backed by
+the package surface.
+
 Open residuals (none blocking D1):
 
-- [ ] Confirmation that the final T1 parity round has landed (the
-      "landing" rows in §5.2 flip to "served" then).
+- [x] Final T1 parity disposition RECEIVED (2026-09-16): /v1/ws gates
+      landed (S7-01..04 replays) — §5.2 row flipped to served;
+      hot-reload recompose and proxy-url ingestion did NOT land — both
+      rows flipped to REGISTERED ABSENT (v1.1).
 - [ ] T2 gate-review findings beyond the ones already forwarded, if any
       change a folded §3 fact.
 - [ ] Further T3 gate-review findings, if any change a folded §4 fact.

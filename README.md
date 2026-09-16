@@ -180,14 +180,15 @@ rulings GR-1..GR-8. The headline items:
 - **Serving rotation in v1 is config-order first-fit** with cooldown
   skip and request-retry; the strategy engine is merged and unit-pinned
   but strategy/weights/affinity switches echo only (GR-4).
-- **Node scope (GR-5)**: `/v1/ws` gates, hot-reload recompose, and
-  proxy-url ingestion (fail-closed strip + warning) land in the final
-  parity round; registered absent on node: background token-refresh
-  driver (manual `POST /auth-files/refresh` is the v1 path), device-flow
-  poll driver (envelope-only, same observable as vercel), file-log
-  substrate (the Store ring serves `/logs`), TLS listener (hosts own
-  TLS), loopback redirect forwarders (manual relay via
-  `oauth-callback`), and actual proxy dialing.
+- **Node scope (GR-5, final parity ruling)**: `/v1/ws` is served — the
+  recorded gates landed with the S7-01..04 golden replays. Registered
+  absent on node: hot-reload recompose and proxy-url ingestion (both
+  v1.1 — `proxy-url` is config-accepted and echoed only), background
+  token-refresh driver (manual `POST /auth-files/refresh` is the v1
+  path), device-flow poll driver (envelope-only, same observable as
+  vercel), file-log substrate (the Store ring serves `/logs`), TLS
+  listener (hosts own TLS), loopback redirect forwarders (manual relay
+  via `oauth-callback`), and actual proxy dialing.
 - **Accepted-inert config (GR-6)**: payload rules, `force-model-prefix`,
   `$`-dynamic headers outside codex-passthrough, streaming keepalives,
   and quota refresh of request-error-logs — accepted and echoed, no
