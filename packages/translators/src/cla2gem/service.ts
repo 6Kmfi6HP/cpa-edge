@@ -362,10 +362,12 @@ export function createCla2GemService(options: Cla2GemServiceOptions): Cla2GemSer
         retryable: false,
         response: {
           status: 200,
+          // The SSE commit set in the recorded emission order (T4 F2):
+          // Cache-Control, then Connection, then Content-Type.
           headers: [
-            ['Content-Type', 'text/event-stream'],
             ['Cache-Control', 'no-cache'],
             ['Connection', 'keep-alive'],
+            ['Content-Type', 'text/event-stream'],
             ['Access-Control-Allow-Origin', '*'],
           ],
           body: framesToReadable(bootstrap.firstFrame, bootstrap.rest),

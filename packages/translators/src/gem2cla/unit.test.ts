@@ -1289,9 +1289,13 @@ describe('service facade', () => {
       }),
     )
     expect(response.status).toBe(200)
+    // Recorded SSE commit order (T4 F2): Cache-Control, Connection,
+    // Content-Type - the mid-stream disconnect stays on the committed
+    // head, so the order pin runs on a live 200.
     expect(response.headers).toEqual([
-      ['Content-Type', 'text/event-stream'],
       ['Cache-Control', 'no-cache'],
+      ['Connection', 'keep-alive'],
+      ['Content-Type', 'text/event-stream'],
     ])
     const body = await readBody(response)
     expect(body.endsWith('event: error\ndata: {"error":{"message":"unexpected EOF","type":"server_error","code":"internal_server_error"}}\n\n')).toBe(true)

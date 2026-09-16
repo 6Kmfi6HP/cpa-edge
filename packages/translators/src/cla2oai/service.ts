@@ -170,11 +170,15 @@ interface AttemptOutcome {
   readonly response: Cla2OaiResponse
 }
 
-/** Downstream SSE success headers (the route layer adds the CORS block). */
+/**
+ * Downstream SSE success headers (the route layer adds the CORS block).
+ * Emission order is the recorded one (T4 F2): Cache-Control, then
+ * Connection, then Content-Type.
+ */
 const SSE_HEADERS: HeaderList = [
-  ['Content-Type', 'text/event-stream'],
   ['Cache-Control', 'no-cache'],
   ['Connection', 'keep-alive'],
+  ['Content-Type', 'text/event-stream'],
   ['Access-Control-Allow-Origin', '*'],
 ]
 

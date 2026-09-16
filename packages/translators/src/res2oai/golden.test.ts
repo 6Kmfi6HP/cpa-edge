@@ -202,6 +202,10 @@ async function assertDownstream(response: Res2OaiResponse, caseId: string): Prom
   expect(response.status, `${caseId}: status`).toBe(expected.status)
   expect(headerValue(response.headers, 'content-type'), `${caseId}: Content-Type`).toBe(expectedContentType)
   if (expectedContentType === 'text/event-stream') {
+    expect(
+      response.headers.map(([name]) => name),
+      `${caseId}: recorded SSE commit order (Cache-Control, Connection, Content-Type)`,
+    ).toEqual(['Cache-Control', 'Connection', 'Content-Type', 'Access-Control-Allow-Origin'])
     expect(headerValue(response.headers, 'cache-control'), `${caseId}: Cache-Control`).toBe(
       expected.headers['Cache-Control'],
     )

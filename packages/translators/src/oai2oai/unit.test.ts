@@ -407,6 +407,11 @@ describe('R3 - stream re-framing', () => {
     const { send, calls } = senderWith(() => upstreamSse(frames))
     const response = await handle.handleChatCompletions(request(streamRequest), send)
     expect(response.status).toBe(200)
+    expect(response.headers.map(([name]) => name), 'recorded SSE commit order (T4 F2)').toEqual([
+      'Cache-Control',
+      'Connection',
+      'Content-Type',
+    ])
     expect(headerOf(response.headers, 'content-type')).toBe('text/event-stream')
     expect(headerOf(response.headers, 'cache-control')).toBe('no-cache')
     expect(headerOf(response.headers, 'connection')).toBe('keep-alive')

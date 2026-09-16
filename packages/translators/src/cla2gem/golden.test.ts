@@ -209,6 +209,14 @@ async function assertDownstream(response: Cla2GemResponse, caseId: string): Prom
     expected.headers['Content-Type'],
   )
   if (expected.sse) {
+    // The order pin runs only on committed SSE responses: an error that
+    // fires before the first chunk renders as plain JSON (S2d8-18).
+    if (expected.headers['Content-Type'] === 'text/event-stream') {
+      expect(
+        response.headers.map(([name]) => name),
+        `${caseId}: recorded SSE commit order (Cache-Control, Connection, Content-Type)`,
+      ).toEqual(['Cache-Control', 'Connection', 'Content-Type', 'Access-Control-Allow-Origin'])
+    }
     // Raw byte stream first (my framing is deterministic), then the
     // R-SSE decoded event sequence.
     expect(body, `${caseId}: SSE byte stream`).toBe(expected.body)

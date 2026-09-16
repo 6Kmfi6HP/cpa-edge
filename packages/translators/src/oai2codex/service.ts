@@ -297,9 +297,12 @@ export function createOai2CodexService(options: Oai2CodexServiceOptions): Oai2Co
         retryable: false,
         response: {
           status: 200,
+          // The SSE commit set in the recorded emission order (T4 F2):
+          // Cache-Control, then Connection, then Content-Type.
           headers: [
-            ['Content-Type', 'text/event-stream'],
             ['Cache-Control', 'no-cache'],
+            ['Connection', 'keep-alive'],
+            ['Content-Type', 'text/event-stream'],
           ],
           body: framesToReadable(bootstrap.firstFrame, bootstrap.rest),
         },

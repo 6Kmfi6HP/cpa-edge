@@ -317,11 +317,14 @@ export function createGem2ClaService(options: Gem2ClaServiceOptions): Gem2ClaSer
         retryable: false,
         response: {
           status: 200,
+          // The SSE commit set in the recorded emission order (T4 F2):
+          // Cache-Control, then Connection, then Content-Type.
           headers:
             framing === 'sse'
               ? [
-                  ['Content-Type', 'text/event-stream'],
                   ['Cache-Control', 'no-cache'],
+                  ['Connection', 'keep-alive'],
+                  ['Content-Type', 'text/event-stream'],
                 ]
               : [['Content-Type', 'text/plain; charset=utf-8']],
           body: framesToReadable(bootstrap.firstFrame, bootstrap.rest, framing),

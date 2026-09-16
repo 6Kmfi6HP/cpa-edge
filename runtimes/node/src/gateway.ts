@@ -45,7 +45,7 @@ import {
 } from './config'
 import { ModelRegistry } from './registry'
 import { withCors } from './cors'
-import { TRACE_HEADER, newTraceId } from './trace'
+import { TRACE_HEADER, isSelectorEnvelope, newTraceId } from './trace'
 import {
   CODEX_AUTH_UNAVAILABLE_BODY,
   INTERACTIONS_EXACTLY_ONE_BODY,
@@ -665,7 +665,15 @@ export function createNodeGateway(options: NodeGatewayOptions): NodeGateway {
     let headers = handled.response.headers
     if (handled.trace !== undefined) {
       const kept = headers.filter(([name]) => name.toLowerCase() !== TRACE_HEADER.toLowerCase())
-      headers = [...kept, [TRACE_HEADER, newTraceId(handled.trace, new Date(now()))]]
+      if (isSelectorEnvelope(handled.response.body)) {
+        // Selector envelopes (the facade-rendered model-cooldown /
+        // auth-unavailable answers, no upstream call) stay untraced:
+        // every recorded golden of that family lacks the header while
+        // the surrounding passthrough errors keep it.
+        headers = kept
+      } else {
+        headers = [...kept, [TRACE_HEADER, newTraceId(handled.trace, new Date(now()))]]
+      }
     }
     return {
       status: handled.response.status,

@@ -1522,3 +1522,91 @@ describe('direction flips wired at merge (Phase B)', () => {
     CORS_BLOCK_PRESENT(response)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Trace scoping on selector envelopes (T4 finding F1)
+// ---------------------------------------------------------------------------
+
+describe('trace scoping - selector envelopes stay untraced', () => {
+  const RATE_LIMIT_BODY =
+    '{"error":{"message":"mock rate limit","type":"rate_limit_exceeded","code":"rate_limit_exceeded"}}'
+
+  it('a cooldown R2 envelope carries no trace header; the executor-routed R1 429 keeps it', async () => {
+    let clock = 1_789_490_000_000
+    const transport = scriptedFetch(() => ({
+      status: 429,
+      headers: { 'Content-Type': 'application/json' },
+      body: RATE_LIMIT_BODY,
+    }))
+    const gateway = createNodeGateway({ config: BASE_CONFIG, fetch: transport.fetch, now: () => clock })
+    const path = '/v1beta/models/mock-model:generateContent'
+    const body = '{"contents":[{"parts":[{"text":"hi"}]}]}'
+
+    // R1: the upstream 429 reaches the executor and passes through.
+    const r1 = await gateway.handle(request('POST', path, bearer(API_KEY), body))
+    expect(r1.status).toBe(429)
+    expect(await text(r1)).toBe(RATE_LIMIT_BODY)
+    expect(header(r1, 'Retry-After')).toBeUndefined()
+    expect(header(r1, 'X-Cpa-Trace-Id')).toMatch(/^\d{14}-\d+-[0-9a-f]{8}$/)
+
+    // R2: inside the fresh window the facade renders the model_cooldown
+    // envelope with no upstream call; the recorded golden has no trace.
+    clock += 100
+    const r2 = await gateway.handle(request('POST', path, bearer(API_KEY), body))
+    expect(r2.status).toBe(429)
+    expect(header(r2, 'Retry-After')).toBe('1')
+    expect(header(r2, 'X-Cpa-Trace-Id')).toBeUndefined()
+    const envelope = JSON.parse(await text(r2)) as { error: { code: string; reset_seconds: number } }
+    expect(envelope.error.code).toBe('model_cooldown')
+    expect(envelope.error.reset_seconds).toBe(1)
+    expect(transport.calls.length).toBe(1)
+
+    // After the window a normal executor-routed response is traced again.
+    clock += 1_000
+    const ok = scriptedFetch(() => ({
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+      body: OPENAI_CHAT_JSON,
+    }))
+    const traced = createNodeGateway({ config: BASE_CONFIG, fetch: ok.fetch, now: () => clock })
+    const r3 = await traced.handle(request('POST', path, bearer(API_KEY), body))
+    expect(r3.status).toBe(200)
+    expect(header(r3, 'X-Cpa-Trace-Id')).toMatch(/^\d{14}-\d+-[0-9a-f]{8}$/)
+  })
+
+  it('the codex auth-unavailable window response carries no trace header (S2d9-18 shape)', async () => {
+    const transport = scriptedFetch(() => ({
+      status: 404,
+      headers: { 'Content-Type': 'application/json' },
+      body: '{"error":{"code":"model_not_found","message":"model not found: mock-codex-upstream"}}',
+    }))
+    const gateway = createNodeGateway({
+      config: {
+        ...BASE_CONFIG,
+        'codex-api-key': [
+          {
+            'api-key': 'codex-upstream-key',
+            'base-url': 'http://127.0.0.1:21003',
+            models: [{ name: 'gpt-mock-codex', alias: 'codex-mock-model' }],
+          },
+        ],
+      },
+      fetch: transport.fetch,
+    })
+    const call = () =>
+      gateway.handle(request('POST', '/v1/responses', bearer(API_KEY), '{"model": "codex-mock-model", "input": "hi"}'))
+
+    // R1: the upstream 404 passes through the executor with a trace.
+    const r1 = await call()
+    expect(r1.status).toBe(404)
+    expect(header(r1, 'X-Cpa-Trace-Id')).toMatch(/^\d{14}-\d+-[0-9a-f]{8}$/)
+
+    // R2: inside the not-found window the facade renders the 503
+    // auth_unavailable selection error; the recorded golden has no trace.
+    const r2 = await call()
+    expect(r2.status).toBe(503)
+    expect(await text(r2)).toContain('"auth_unavailable: no auth available')
+    expect(header(r2, 'X-Cpa-Trace-Id')).toBeUndefined()
+    expect(transport.calls.length).toBe(1)
+  })
+})

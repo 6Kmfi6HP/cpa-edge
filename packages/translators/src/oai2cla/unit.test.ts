@@ -848,6 +848,38 @@ describe('service facade — cooldown bookkeeping', () => {
     }
   })
 
+  it('a committed stream emits the SSE headers in the recorded order (T4 F2)', async () => {
+    const service = createOai2ClaChatService({
+      credentials: [CREDENTIAL],
+      gatewayVersion: 'v7.3.4',
+      store: new MemoryStore(),
+      now: () => 1_000_000,
+      requestRetry: 0,
+    })
+    const events = [
+      'event: message_start\ndata: {"type":"message_start","message":{"id":"i","model":"m"}}\n\n',
+      'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hi"}}\n\n',
+      'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}\n\n',
+    ]
+    const response = await service.handleChatCompletions(
+      {
+        ...chatRequest(),
+        body: JSON.stringify({ model: 'cm', stream: true, messages: [{ role: 'user', content: 'q' }] }),
+      },
+      async () => ({
+        status: 200,
+        headers: [['Content-Type', 'text/event-stream']],
+        body: byteStream(events.map((event) => encoder.encode(event))),
+      }),
+    )
+    expect(response.status).toBe(200)
+    expect(response.headers).toEqual([
+      ['Cache-Control', 'no-cache'],
+      ['Connection', 'keep-alive'],
+      ['Content-Type', 'text/event-stream'],
+    ])
+  })
+
   it('concurrent 429s never shorten a longer cooldown window', async () => {
     const restore = stubRandom([0, 0.5])
     try {

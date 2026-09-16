@@ -289,6 +289,10 @@ describe('S2d5 golden replay - full facade', () => {
         }
 
         if (expectedContentType === 'text/event-stream') {
+          expect(
+            response.headers.map(([name]) => name),
+            `${caseId} step ${step + 1}: recorded SSE commit order (Cache-Control, Connection, Content-Type)`,
+          ).toEqual(['Cache-Control', 'Connection', 'Content-Type'])
           for (const line of body.split('\n')) {
             expect(line.startsWith('event:'), `${caseId} step ${step + 1}: downstream must be data:-only`).toBe(false)
           }

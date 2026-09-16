@@ -994,7 +994,13 @@ describe('facade routing and gates', () => {
       okSend(),
     )
     expect(response.status).toBe(200)
-    expect(response.headers[0]).toEqual(['Content-Type', 'text/event-stream'])
+    // The alias pipeline commits the same recorded SSE order (T4 F2).
+    expect(response.headers.slice(0, 4)).toEqual([
+      ['Cache-Control', 'no-cache'],
+      ['Connection', 'keep-alive'],
+      ['Content-Type', 'text/event-stream'],
+      ['Access-Control-Allow-Origin', '*'],
+    ])
   })
 
   test('upstream URL: base-url wins, trailing slash trimmed; default targets the chatgpt backend', async () => {
@@ -1307,6 +1313,10 @@ describe('stream facade units', () => {
     )
     expect(response.status).toBe(200)
     const names = response.headers.map(([name]) => name)
+    // Recorded SSE commit order (T4 F2): the direction-owned set leads
+    // with Cache-Control, Connection, Content-Type, then the facade CORS
+    // value; upstream-filtered names follow in their own order.
+    expect(names.slice(0, 4)).toEqual(['Cache-Control', 'Connection', 'Content-Type', 'Access-Control-Allow-Origin'])
     expect(names).toContain('X-Custom-Trace')
     // Gateway-owned values survive; the upstream's hop-by-hop and proxy
     // pairs never reach the client.

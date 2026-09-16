@@ -1541,6 +1541,13 @@ describe('facade — upstream wire', () => {
       async () => ({ status: 200, headers: [], body: byteStream(['data: {"choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}],"model":"mock-gpt-model"}\n\n', 'data: [DONE]\n\n']) }),
     )
     expect(response.status).toBe(200)
+    expect(response.headers.map(([name]) => name), 'recorded SSE commit order (T4 F2)').toEqual([
+      'Cache-Control',
+      'Connection',
+      'Content-Type',
+      'Access-Control-Allow-Origin',
+      'X-Cpa-Trace-Id',
+    ])
     expect(headerOf(response, 'content-type')).toBe('text/event-stream')
     expect(headerOf(response, 'cache-control')).toBe('no-cache')
     expect(headerOf(response, 'connection')).toBe('keep-alive')

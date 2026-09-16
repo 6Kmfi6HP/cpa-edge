@@ -153,11 +153,15 @@ const CORS_BLOCK: HeaderList = [
   ],
 ]
 
-/** Direction-owned SSE headers, committed together with the first frame. */
+/**
+ * Direction-owned SSE headers, committed together with the first frame.
+ * Emission order is the recorded one (T4 F2): Cache-Control, then
+ * Connection, then Content-Type.
+ */
 const SSE_HEADERS: HeaderList = [
-  ['Content-Type', 'text/event-stream'],
   ['Cache-Control', 'no-cache'],
   ['Connection', 'keep-alive'],
+  ['Content-Type', 'text/event-stream'],
   ['Access-Control-Allow-Origin', '*'],
 ]
 

@@ -428,12 +428,14 @@ export function createGem2OaiService(options: Gem2OaiServiceOptions): Gem2OaiSer
     } catch (error) {
       return transportFailure(alias, error)
     }
+    // The SSE commit set in the recorded emission order (T4 F2):
+    // Cache-Control, then Connection, then Content-Type.
     const headers: HeaderList =
       framing === 'sse'
         ? [
-            ['Content-Type', 'text/event-stream'],
             ['Cache-Control', 'no-cache'],
             ['Connection', 'keep-alive'],
+            ['Content-Type', 'text/event-stream'],
             ['Access-Control-Allow-Origin', '*'],
             ['X-Cpa-Trace-Id', newTraceId()],
           ]

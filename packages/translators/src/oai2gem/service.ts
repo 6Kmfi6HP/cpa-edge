@@ -350,9 +350,12 @@ export function createOai2GemService(options: Oai2GemServiceOptions): Oai2GemCha
     } catch (error) {
       return transportFailure(error)
     }
+    // The SSE commit set in the recorded emission order (T4 F2):
+    // Cache-Control, then Connection, then Content-Type.
     const headers: HeaderList = [
-      ['Content-Type', 'text/event-stream'],
       ['Cache-Control', 'no-cache'],
+      ['Connection', 'keep-alive'],
+      ['Content-Type', 'text/event-stream'],
       ['X-Cpa-Trace-Id', newTraceId()],
     ]
     if (first.done === true) {

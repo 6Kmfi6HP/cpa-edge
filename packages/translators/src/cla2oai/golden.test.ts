@@ -277,6 +277,10 @@ async function assertDownstream(response: Cla2OaiResponse, caseId: string): Prom
     )
   }
   if (expected.sse) {
+    expect(
+      response.headers.map(([name]) => name),
+      `${caseId}: recorded SSE commit order (Cache-Control, Connection, Content-Type)`,
+    ).toEqual(['Cache-Control', 'Connection', 'Content-Type', 'Access-Control-Allow-Origin'])
     expect(body, `${caseId}: SSE byte stream`).toBe(expected.body)
     expect(parseDownstreamSse(body), `${caseId}: decoded SSE event sequence (R-SSE)`).toEqual(
       parseDownstreamSse(expected.body),
