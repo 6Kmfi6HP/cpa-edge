@@ -188,19 +188,19 @@ masked; every other byte was compared and matched.
 
 ## 6. Verdict
 
-**FAIL — 2 gateway-side blockers (F1, F2), plus 2 transport-emission deltas
-(T1, T2) submitted for ruling.**
+**PASS (final, after the F1/F2 fixer landed — see §8).** Every gateway-owned
+byte matched across REF, EDGE and the RECORDED goldens on the re-run: all 16
+statuses, all 16 bodies (both SSE streams, the management echo, both cooldown
+states), upstream wires, header values and header emission order. The only
+remaining deltas are the REGISTERED node-platform transport facts T1/T2
+(orchestrator ruling, §7): node:http's `Connection: keep-alive` +
+`Keep-Alive: timeout=5` + `Date` placement downstream, and undici's
+default headers upstream — non-blocking, v1.1 refinement.
 
-What passed: all 16 statuses; all 16 bodies byte-identical between REF and
-EDGE (including both SSE streams, the 2686-byte management echo, both
-cooldown states); upstream wires byte-identical across REF/EDGE/GOLDEN;
-REF reproduces every recorded golden byte-exactly (16/16); EDGE is
-byte-exact vs the goldens on 13/16 with zero body/status divergences.
-
-What blocks: F2 (SSE commit header order — one constant, systemic) and,
-pending the presence-vs-value ruling, F1 (trace on the cooldown envelope).
-T1/T2 are gin-vs-node transport facts documented with exact bytes.
-
+Initial verdict at first run: FAIL on F1 (trace on the cooldown envelope)
+and F2 (SSE commit header order); both were fixed by the fixer commit
+(`151ba6b`, "F1 trace exclusion on selector envelopes + F2 SSE emission
+order across 10 modules") and re-verified green in §8.
 
 ## 7. Ruling addendum (orchestrator, 2026-09-16, msg agentmsg_3bcf1d47)
 
@@ -211,3 +211,36 @@ T1/T2 are gin-vs-node transport facts documented with exact bytes.
 - **F1 / F2**: dispatched to a fixer (trace presence on the cooldown
   envelope; SSE commit header order). The FAIL verdict below stands on
   those two findings until the fixer lands and T4 re-verifies.
+
+
+## 8. Re-verify after the F1/F2 fixes (2026-09-16, orchestrator-requested)
+
+Trigger: orchestrator rulings (§7) + the accepted fixer commit `151ba6b`
+(F1 trace exclusion on selector envelopes; F2 SSE emission order across 10
+modules). Method unchanged: same `sample.json` bytes, same configs, same
+mocks, fresh containers (REF) and a re-bundled edge host from the fixed tree
+(`pnpm exec esbuild` of the same host.ts). Transcripts:
+`_cpa_edge_ref/t4/probes/*-r2/` + `upstackB-r2-all.jsonl` / `upstackC-r2-all.jsonl`.
+
+| Row | Fixture request | First-run problem | Re-run result |
+|---|---|---|---|
+| 11 | S1-15 chat-stream | F2 order | **GREEN** — edge wire now `…Expose-Headers, Cache-Control, Content-Type, X-Cpa-Trace-Id, Date, [transport]`; SSE 631 B byte-identical REF=EDGE and vs golden; order note gone |
+| 16 | S2d8-09 messages-stream | F2 order | **GREEN** — edge wire `…Expose-Headers, Cache-Control, Content-Type, X-Cpa-Trace-Id, Date, [transport]`; SSE 941 B / 7 events byte-identical; zero golden problems on REF, transport-only on EDGE |
+| 15 | S2d2 cooldown R2 (fresh state) | F1 trace presence | **GREEN** — edge R2 head now `…Expose-Headers, Content-Type, Retry-After: 1, [transport]`, **no X-Cpa-Trace-Id**; 356 B byte-identical REF=EDGE |
+| 15 | S2d2 cooldown R2 (recorded state, 3rd consecutive 429 via escalate.py) | F1 + golden parity | **GREEN** — both systems emit `Retry-After: 4`, `"reset_seconds":4,"reset_time":"4s"`; body byte-exact vs golden; no trace header on either side |
+
+Unchanged-rows confirmation (re-run as part of the same phases):
+S1-09 / S1-11 / S1-14 / S1-17 / S2d2 countTokens all re-ran green — statuses,
+bodies (109/136/319/246/76 B) and upstream wires byte-identical across
+REF/EDGE/golden (`upstackB-r2-all.jsonl`, `upstackC-r2-all.jsonl`), zero
+upstream calls for the local-synthesis and error rows.
+
+Residual diffs on every edge row = the registered transport facts T1/T2
+only (`Connection: keep-alive` + `Keep-Alive: timeout=5` present; `Date`
+appended by node after the gateway headers; undici's upstream defaults).
+The gateway-owned header set, values and ORDER now match the recorded
+goldens everywhere.
+
+Teardown re-verified after the re-run: containers `cpa-oracle-t4b/c`
+removed, mocks + edge hosts killed, all T4 ports free, mock control
+restored to `{"mode": "happy"}`.
