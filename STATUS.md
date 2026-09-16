@@ -9,7 +9,7 @@
 ## Steps
 | step | scope | phase | assignee (lock) | pipeline | gate rounds | notes |
 |---|---|---|---|---|---|---|
-| P0.1 | repo skeleton (root configs, SPEC/STATUS) | 0 | — | pending | 0 |  |
+| P0.1 | repo skeleton (root configs, SPEC/STATUS) | 0 | — | merged | 1 | committed in P0 wave; CI green |
 | P0.2 | packages/core: Store interface + memory impl + error registry | 0 | — | merged | 2 | impl-p0-core impl; adv round1 FAIL (B1 aliasing) -> fix-p0-core -> round2 PASS; N8 portability note carried to S6/T2 |
 | ORACLE | reference env at _cpa_edge_ref (outside repo) | — | — | merged | 0 | v7.3.4 anchor; image digest recorded; 17 probes; recordable/credentialed table; harness proven |
 | S1 | spec: endpoint inventory | 1 | spec-s1-endpoints | merged | 2 | ADMITTED round 2. 25 goldens (283 files). Feeds T1 routing + all handler contracts. 4 residual nits -> writer cleanup, no re-gate per reviewer. |
@@ -39,7 +39,7 @@
 | I-tr-S2d7 | packages/translators: Gemini→Claude | 2 | — | merged | 2 | MERGED: gem2cla complete (spec 2 rounds, impl gate 2 rounds incl. S2d7-31 recorded ruling). 108 module + 33 contract green. |
 | I-tr-S2d8 | packages/translators: Claude→Gemini | 2 | — | merged | 2 | MERGED: cla2gem complete (impl gate 2 rounds). 105 module + contract 22/22 incl. S2d8-21. Ledger: NR1 depth-cap asymmetry 7-10k response-side; N2/N4/N5/N6 carried. |
 | I-tr-S2d9 | packages/translators: Codex passthrough | 2 | — | merged | 2 | MERGED: codex-passthrough complete (impl gate 2 rounds). 96 module + contract 18/18. Ledger: N3-N7/N9/N10. |
-| I-tr-S2d10 | packages/translators: Antigravity redirect | 2 | — | pending | 0 |  |
+| I-tr-S2d10 | packages/translators: Antigravity redirect | 2 | — | ruled-absent | 0 | D2 GR-2: 18 recorded goldens archived as complete v1.1 spec; surface pinned via S3/S7 |
 | I-exec-openai | packages/executors: openai executor | 2 | — | merged | 0 | SATISFIED via direction modules per R-EXECS |
 | I-exec-claude | packages/executors: claude executor | 2 | — | merged | 0 | SATISFIED via direction modules per R-EXECS |
 | I-exec-gemini | packages/executors: gemini executor | 2 | — | merged | 0 | SATISFIED via direction modules per R-EXECS |
