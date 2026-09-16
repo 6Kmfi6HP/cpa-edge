@@ -55,6 +55,7 @@ import {
   MAX_DEPTH_MESSAGE,
   ROOT_BODY,
   STATUS_OK_BODY,
+  WEBSOCKET_BAD_REQUEST_BODY,
   ZSTD_MAGIC_MISMATCH,
   charsetJson,
   claudeInvalidRequestBody,
@@ -1328,6 +1329,23 @@ export function createNodeGateway(options: NodeGatewayOptions): NodeGateway {
           ),
         }
       }
+      case 'ws-relay': {
+        if (!isWebSocketUpgrade(context)) {
+          // gorilla handshake rejection: the recorded 12-byte body with
+          // the handshake hints (S7-02 steps 4/6, S7-01's expected form).
+          return {
+            response: plainText(400, WEBSOCKET_BAD_REQUEST_BODY, [
+              ['Sec-Websocket-Version', '13'],
+              ['X-Content-Type-Options', 'nosniff'],
+            ]),
+          }
+        }
+        // Recorded S7-04: a genuine upgrade answers 101 with no
+        // HTTP-level auth (the session protocol behind the 101 is the
+        // ws:relay seam - node accepts and closes; no relay is
+        // implemented, matching the cloudflare sibling's silent hold).
+        return { response: { status: 101, headers: [], body: '' } }
+      }
       case 'realtime-client-secrets': {
         const decoded = decodeOrFail(context, (message) =>
           charsetJson(400, realtimeEnvelope('invalid_request', message, 'invalid_request_error')),
@@ -1430,7 +1448,16 @@ export function createNodeGateway(options: NodeGatewayOptions): NodeGateway {
 
     // Group gates (S1 §4).
     const group = match.entry.group
-    if (group === 'client') {
+    if (group === 'ws') {
+      // S7 F4: ws-auth ON requires the client key, but only for
+      // NON-upgrade requests - the recorded S7-04 upgrade answers 101
+      // with no HTTP auth (session auth happens in-protocol behind the
+      // seam). Auth errors precede the gorilla 400 (S7-02 note).
+      if (!isWebSocketUpgrade(context) && config.wsAuth) {
+        const rejected = await plane.authenticateProxy(toWebRequest(context))
+        if (rejected !== null) return planeRejected(rejected)
+      }
+    } else if (group === 'client') {
       const rejected = await plane.authenticateProxy(toWebRequest(context))
       if (rejected !== null) return planeRejected(rejected)
       context.facadeHeaders = normalizeFacadeHeaders(request.headers, acceptedApiKey(config, context))

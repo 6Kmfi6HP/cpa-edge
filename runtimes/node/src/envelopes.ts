@@ -157,6 +157,12 @@ export const STATUS_OK_BODY = '{"status":"ok"}'
 export const KEEPALIVE_INVALID_BODY = '{"error":"invalid password"}'
 
 
+/**
+ * gorilla handshake rejection body (recorded S7-02/S7-01 expectations):
+ * 12 plain-text bytes with the trailing newline.
+ */
+export const WEBSOCKET_BAD_REQUEST_BODY = 'Bad Request\n'
+
 /** Trailing-slash redirect body for GET (301) requests (gin form). */
 export function trailingSlashRedirectBody(location: string): string {
   return `<a href="${location}">Moved Permanently</a>.\n`

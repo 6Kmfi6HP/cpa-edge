@@ -92,6 +92,8 @@ export interface NormalizedConfig {
   readonly disableCloakingModelList: boolean
   /** `codex.disable-codex-cloaking`: keeps the caller UA/originator wire. */
   readonly disableCodexCloaking: boolean
+  /** `ws-auth`: absent means REQUIRED (S7 F4; the loader presets true). */
+  readonly wsAuth: boolean
   readonly requestRetry: number
   readonly transientErrorCooldownSeconds: number
   readonly providers: readonly ProviderEntry[]
@@ -250,6 +252,9 @@ export function normalizeRuntimeConfig(input: RuntimeConfigInput): NormalizedCon
     imageGenerationMode: readImageGenerationMode(input['disable-image-generation']),
     disableCloakingModelList: claudeCodeSource['disable-cloaking-model-list'] === true,
     disableCodexCloaking: codexSource['disable-codex-cloaking'] === true,
+    // S7 F4: the reference presets ws-auth to true when the key is absent
+    // (the recorded S7-01 deviation note pins the pristine-config 401).
+    wsAuth: input['ws-auth'] === undefined ? true : input['ws-auth'] === true,
     requestRetry: readNumber(input, 'request-retry') ?? 0,
     transientErrorCooldownSeconds: readNumber(input, 'transient-error-cooldown-seconds') ?? 0,
     providers,

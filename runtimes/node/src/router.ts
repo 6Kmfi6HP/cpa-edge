@@ -21,6 +21,7 @@ export type RouteGroup =
   | 'realtime-standard' // realtime control endpoints, key-only gate
   | 'management' // /v0/management/* (availability-gated)
   | 'keep-alive' // TUI-mode local password
+  | 'ws' // /v1/ws: ws-auth-conditional gate, upgrade-aware (S7 F4)
 
 /** One registered route. */
 export interface RouteEntry {
@@ -102,6 +103,9 @@ export const ROUTES: readonly RouteEntry[] = [
   { method: 'GET', pattern: '/v1/realtime/translations', group: 'realtime', id: 'realtime-translations-stub' },
   { method: 'POST', pattern: '/v1/realtime/translations', group: 'realtime', id: 'realtime-translations-stub' },
   { method: 'POST', pattern: '/v1/realtime/translations/client_secrets', group: 'realtime-standard', id: 'realtime-translations-client-secrets' },
+  // 3.10/7 F4: the inbound websocket surface (ws-auth-conditional gate;
+  // only GET is registered - POST is the recorded R-404 empty).
+  { method: 'GET', pattern: '/v1/ws', group: 'ws', id: 'ws-relay' },
   // 3.4 Gemini-compatible surface
   { method: 'GET', pattern: '/v1beta/models', group: 'client', id: 'v1beta-models-list' },
   { method: 'GET', pattern: '/v1beta/models/*action', group: 'client', id: 'v1beta-models-action' },

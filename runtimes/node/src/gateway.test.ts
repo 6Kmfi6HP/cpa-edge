@@ -1232,6 +1232,63 @@ describe('merged facade wiring', () => {
 
 
 // ---------------------------------------------------------------------------
+// S7 F4: /v1/ws route gates (recorded S7-01..04 transcripts)
+// ---------------------------------------------------------------------------
+
+describe('S7 /v1/ws route gates', () => {
+  it('S7-01: plain GET with ws-auth unset (required) is the 401', async () => {
+    const gateway = gatewayWith()
+    const response = await gateway.handle(request('GET', '/v1/ws'))
+    expect(response.status).toBe(401)
+    expect(header(response, 'Content-Type')).toBe('application/json; charset=utf-8')
+    expect(await text(response)).toBe('{"error":"Missing API key"}')
+  })
+
+  it('S7-02 observables: auth precedes the gorilla 400; toggle-off re-opens', async () => {
+    // Steps 2-4 of the recorded sequence (ws-auth enabled).
+    const gateway = gatewayWith()
+    const wrongKey = await gateway.handle(request('GET', '/v1/ws', bearer('wrong-key')))
+    expect(wrongKey.status).toBe(401)
+    expect(await text(wrongKey)).toBe('{"error":"Invalid API key"}')
+    const validKey = await gateway.handle(request('GET', '/v1/ws', bearer(API_KEY)))
+    expect(validKey.status).toBe(400)
+    expect(header(validKey, 'Content-Type')).toBe('text/plain; charset=utf-8')
+    expect(header(validKey, 'Sec-Websocket-Version')).toBe('13')
+    expect(header(validKey, 'X-Content-Type-Options')).toBe('nosniff')
+    expect(await text(validKey)).toBe('Bad Request\n')
+    // Step 6 observable (ws-auth disabled): no auth required, the
+    // handshake check still rejects a plain GET.
+    const open = createNodeGateway({ config: { ...BASE_CONFIG, 'ws-auth': false } })
+    const response = await open.handle(request('GET', '/v1/ws'))
+    expect(response.status).toBe(400)
+    expect(await text(response)).toBe('Bad Request\n')
+  })
+
+  it('S7-03: POST is the R-404 empty; OPTIONS is auto-answered 204', async () => {
+    const gateway = gatewayWith()
+    const post = await gateway.handle(request('POST', '/v1/ws', bearer(API_KEY)))
+    expect(post.status).toBe(404)
+    expect(post.body).toBe('')
+    const options = await gateway.handle(request('OPTIONS', '/v1/ws'))
+    expect(options.status).toBe(204)
+  })
+
+  it('S7-04: a genuine upgrade answers 101 (session protocol is the seam)', async () => {
+    const gateway = gatewayWith()
+    const response = await gateway.handle(
+      makeGatewayRequest('GET', '/v1/ws', [
+        ['Upgrade', 'websocket'],
+        ['Connection', 'Upgrade'],
+        ['Sec-WebSocket-Key', 'T2Try7F8BIaZbRok24njlg=='],
+        ['Sec-WebSocket-Version', '13'],
+      ]),
+    )
+    expect(response.status).toBe(101)
+    expect(response.body).toBe('')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Direction flips wired at merge (Phase B)
 // ---------------------------------------------------------------------------
 
