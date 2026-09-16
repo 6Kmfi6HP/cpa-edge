@@ -9,7 +9,7 @@ import { openUsageWireConnection, type UsageWireConnection } from './resp'
 import { sidecarName, CooldownSidecars, COOLDOWN_NAMESPACE } from './cooldown'
 import { popUsageRecords, USAGE_QUEUE, type UsageCompletion } from './usage'
 import { AUTH_FILES_NAMESPACE } from './authfiles'
-import { MemoryStore, type Store } from '@cpa-edge/core'
+import { MemoryStore, CooldownTracker, type Store } from '@cpa-edge/core'
 
 const SEED = `# comment line
 host: ""
@@ -1063,5 +1063,191 @@ describe('cooldown sidecar pruning', () => {
     expect(sidecars).toHaveLength(1)
     expect(sidecars[0]?.authId).toBe(liveId)
     expect(await api.isCooling('vanished:auth:dead')).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// M2: oauth-maps PATCH error ladder, api-call $TOKEN$, reset-quota cooldown
+// ---------------------------------------------------------------------------
+
+describe('oauth maps PATCH validation ladder (S5:130-132)', () => {
+  const OAUTH_MAP_YAML = `${MANAGEMENT_TEST_YAML}oauth-excluded-models:
+  kimi:
+    - kimi-k2
+oauth-model-alias:
+  kimi:
+    - name: kimi-k2
+      alias: k2
+oauth-request-scoped-errors:
+  kimi:
+    - status: 429
+      action: continue-and-cooldown
+`
+
+  it('404s with the recorded text when the empty list targets an absent key', async () => {
+    const { api } = createTestHarness({ configYaml: OAUTH_MAP_YAML })
+    const body = JSON.stringify({ provider: 'nope', models: [] })
+    const excluded = await callApi(api, 'PATCH', '/oauth-excluded-models', { body })
+    expect(excluded.status).toBe(404)
+    expect(await excluded.text()).toBe('{"error":"provider not found"}')
+    const alias = await callApi(api, 'PATCH', '/oauth-model-alias', { body: JSON.stringify({ channel: 'nope', aliases: [] }) })
+    expect(alias.status).toBe(404)
+    expect(await alias.text()).toBe('{"error":"channel not found"}')
+    const scoped = await callApi(api, 'PATCH', '/oauth-request-scoped-errors', { body: JSON.stringify({ channel: 'nope', rules: [] }) })
+    expect(scoped.status).toBe(404)
+    expect(await scoped.text()).toBe('{"error":"channel not found"}')
+  })
+
+  it('400s per spec wording when the target name is blank', async () => {
+    const { api } = createTestHarness({ configYaml: OAUTH_MAP_YAML })
+    const excluded = await callApi(api, 'PATCH', '/oauth-excluded-models', { body: JSON.stringify({ provider: ' ', models: [] }) })
+    expect(excluded.status).toBe(400)
+    expect(await excluded.text()).toBe('{"error":"invalid provider"}')
+    const alias = await callApi(api, 'PATCH', '/oauth-model-alias', { body: JSON.stringify({ channel: '', aliases: [] }) })
+    expect(alias.status).toBe(400)
+    expect(await alias.text()).toBe('{"error":"invalid channel"}')
+  })
+
+  it('keeps the empty-list delete on an existing key at 200', async () => {
+    const { api } = createTestHarness({ configYaml: OAUTH_MAP_YAML })
+    const excluded = await callApi(api, 'PATCH', '/oauth-excluded-models', { body: JSON.stringify({ provider: 'KIMI', models: [] }) })
+    expect(excluded.status).toBe(200)
+    expect(await excluded.text()).toBe('{"status":"ok"}')
+    const listed = (await jsonOf(await callApi(api, 'GET', '/oauth-excluded-models'))) as Record<string, unknown>
+    expect(listed).toEqual({ 'oauth-excluded-models': {} })
+    // Once deleted the key is absent, so a second empty PATCH 404s.
+    const again = await callApi(api, 'PATCH', '/oauth-excluded-models', { body: JSON.stringify({ provider: 'kimi', models: [] }) })
+    expect(again.status).toBe(404)
+    expect(await again.text()).toBe('{"error":"provider not found"}')
+  })
+})
+
+describe('api-call $TOKEN$ substitution (S5:199)', () => {
+  const captured: { request?: { method: string; url: string; headers: ReadonlyArray<readonly [string, string]>; body: string } } = {}
+  const sender = async (request: { method: string; url: string; headers: ReadonlyArray<readonly [string, string]>; body: string }) => {
+    captured.request = request
+    return { status: 200, headers: [['content-type', 'application/json'] as const], body: '{"ok":true}' }
+  }
+
+  function createSenderHarness(): { api: ReturnType<typeof createManagementApi> } {
+    return { api: createManagementApi({
+      configYaml: MANAGEMENT_TEST_YAML,
+      managementKey: MANAGEMENT_KEY,
+      store: new MemoryStore(),
+      buildInfo: TEST_BUILD_INFO,
+      now: () => 1_770_000_000_000,
+      clientIp: '127.0.0.1',
+      sendUpstream: sender,
+    }) }
+  }
+
+  // The adapter derives api-key credential indices asynchronously; resolve
+  // the one the GET listing surfaces here.
+  async function geminiAuthIndex(api: ReturnType<typeof createManagementApi>): Promise<string> {
+    const list = (await jsonOf(await callApi(api, 'GET', '/gemini-api-key'))) as {
+      'gemini-api-key'?: ReadonlyArray<{ 'auth-index'?: string }>
+    }
+    const authIndex = list['gemini-api-key']?.[0]?.['auth-index']
+    if (typeof authIndex !== 'string') throw new Error('gemini list must carry an auth-index')
+    return authIndex
+  }
+
+  it('keeps $TOKEN$ verbatim when no auth_index is given (recorded)', async () => {
+    const { api } = createSenderHarness()
+    const response = await callApi(api, 'POST', '/api-call', {
+      body: JSON.stringify({ method: 'GET', url: 'http://upstream.test/v1/models', header: { 'X-S5-Token': 'Bearer $TOKEN$' } }),
+    })
+    expect(response.status).toBe(200)
+    expect(captured.request?.headers).toContainEqual(['X-S5-Token', 'Bearer $TOKEN$'])
+  })
+
+  it('substitutes $TOKEN$ from the resolved credential in header and body', async () => {
+    const { api } = createSenderHarness()
+    const authIndex = await geminiAuthIndex(api)
+    const response = await callApi(api, 'POST', '/api-call', {
+      body: JSON.stringify({
+        auth_index: authIndex,
+        method: 'POST',
+        url: 'http://upstream.test/v1/chat',
+        header: { 'X-S5-Token': 'Bearer $TOKEN$' },
+        data: '{"key":"$TOKEN$"}',
+      }),
+    })
+    expect(response.status).toBe(200)
+    expect(captured.request?.headers).toContainEqual(['X-S5-Token', 'Bearer gem-key-1'])
+    expect(captured.request?.body).toBe('{"key":"gem-key-1"}')
+  })
+
+  it('accepts the authIndex / AuthIndex body aliases for the same credential', async () => {
+    const { api } = createSenderHarness()
+    await callApi(api, 'PUT', '/claude-api-key', { body: '[{"api-key":"alias-key","base-url":"http://alias.test"}]' })
+    const listed = (await jsonOf(await callApi(api, 'GET', '/claude-api-key'))) as {
+      'claude-api-key'?: ReadonlyArray<{ 'auth-index'?: string }>
+    }
+    const authIndex = listed['claude-api-key']?.[0]?.['auth-index']
+    if (typeof authIndex !== 'string') throw new Error('claude list must carry an auth-index')
+    for (const field of ['authIndex', 'AuthIndex'] as const) {
+      const response = await callApi(api, 'POST', '/api-call', {
+        body: JSON.stringify({ [field]: authIndex, method: 'GET', url: 'http://upstream.test/v1/models', header: { 'X-S5-Token': 'Bearer $TOKEN$' } }),
+      })
+      expect(response.status).toBe(200)
+      expect(captured.request?.headers).toContainEqual(['X-S5-Token', 'Bearer alias-key'])
+    }
+  })
+
+  it('400s with auth token not found for an unknown auth_index', async () => {
+    const { api } = createSenderHarness()
+    const response = await callApi(api, 'POST', '/api-call', {
+      body: JSON.stringify({ auth_index: 'nope', method: 'GET', url: 'http://upstream.test/v1/models', header: { 'X-S5-Token': 'Bearer $TOKEN$' } }),
+    })
+    expect(response.status).toBe(400)
+    expect(await response.text()).toBe('{"error":"auth token not found"}')
+  })
+})
+
+describe('reset-quota resets the scheduler cooldown (S4:168, S5:154)', () => {
+  it('clears the cooldown document and returns the cleared model keys', async () => {
+    const { api, store } = createTestHarness()
+    const listed = (await jsonOf(await callApi(api, 'GET', '/gemini-api-key'))) as {
+      'gemini-api-key'?: ReadonlyArray<{ 'auth-index'?: string }>
+    }
+    const authIndex = listed['gemini-api-key']?.[0]?.['auth-index']
+    if (typeof authIndex !== 'string') throw new Error('gemini list must carry an auth-index')
+
+    const tracker = new CooldownTracker(store, () => 1_770_000_000_000, {
+      transientCooldownSeconds: 0,
+      globalDisableCooling: false,
+    })
+    await tracker.markFailure(authIndex, 'gemini', 'mock-model', {
+      kind: 'quota',
+      rotation: 'continue',
+      cooldown: 'ladder',
+      neutral: false,
+      retryRoundEligible: false,
+      credentialScoped: false,
+      skipQuotaObservation: false,
+      statusMessage: 'quota',
+    })
+    expect(await tracker.availability(authIndex, 'mock-model')).not.toBeUndefined()
+
+    const response = await callApi(api, 'POST', '/reset-quota', { body: JSON.stringify({ auth_index: authIndex }) })
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe(`{"auth_index":"${authIndex}","models":["mock-model"],"status":"ok"}`)
+    expect(await tracker.availability(authIndex, 'mock-model')).toBeUndefined()
+
+    // A second reset has nothing left to clear.
+    const again = await callApi(api, 'POST', '/reset-quota', { body: JSON.stringify({ auth_index: authIndex }) })
+    expect(again.status).toBe(200)
+    expect(await again.text()).toBe(`{"auth_index":"${authIndex}","models":[],"status":"ok"}`)
+  })
+
+  it('keeps the recorded 400/404 ladder intact', async () => {
+    const { api } = createTestHarness()
+    const missing = await callApi(api, 'POST', '/reset-quota', { body: '{}' })
+    expect(missing.status).toBe(400)
+    expect(await missing.text()).toBe('{"error":"auth_index is required"}')
+    const unknown = await callApi(api, 'POST', '/reset-quota', { body: '{"auth_index":"nope"}' })
+    expect(unknown.status).toBe(404)
+    expect(await unknown.text()).toBe('{"error":"auth not found"}')
   })
 })

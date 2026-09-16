@@ -138,16 +138,27 @@ node 五子项缺席（#39，GR-5 逐行登记）；capabilities 常量与审计
 | # | 条目 | 缺什么 | 需要什么 |
 |---|---|---|---|
 | V1 | Claude/Codex/Antigravity token exchange 200 真实结构 | vendor 真实响应 | 真实 OAuth 凭据完成授权流 |
+  → 阻塞原因/需要什么：需要 Claude、Codex、Antigravity 三家的真实 OAuth 授权码走完一次完整授权（authorize→回调→token exchange），录下 token endpoint 的 200 成功体原始 JSON；测试账号与 mock 不算数。
 | V2 | refresh 200 body + 429 Retry-After(-Ms) 头戴 | vendor 刷新实录（含 429） | 同上 |
+  → 阻塞原因/需要什么：需要各家 refresh token endpoint 的真实 200 body 字段集，以及一次真实 429 响应的头（Retry-After 与 Retry-After-Ms 同时出现时谁优先、头上限）；通常要在配额打满或短期高频刷新下才能录到 429。
 | V3 | Kimi/xAI/Meta device grant 200 payload | device 完成实录 | 真实 device flow |
+  → 阻塞原因/需要什么：需要 Kimi、xAI、Meta、Codex 四家 device flow 各从零走完一次完整流程（device code 申请→用户授权→poll 直至 200），录下最终 grant 成功 payload；本仓库 device-flows.ts 的 envelope 是按文档/类型推的，未经现场确认。
 | V4 | Meta muse-code/key mint 200 键值 | mint 实录 | Meta 真实 DCA token |
+  → 阻塞原因/需要什么：需要一枚真实 Meta DCA token 实际调用 muse-code / key mint 接口并录下 200 响应体键值；该端点不属公开 OAuth 文档，无真实凭据无法取证。
 | V5 | Devin /auth/cli/token 与 /v3/self 响应 | vendor 实录 | Devin 真实会话 |
+  → 阻塞原因/需要什么：需要一个真实 Devin 账户会话，录到 POST /auth/cli/token（CLI 换 token）与 GET /v3/self（当前身份）的原始响应；Devin 文档不开源，必须真实账号。
 | V6 | xAI OIDC discovery 返回体 | .well-known 实录 | 外网可达 |
+  → 阻塞原因/需要什么：需要在外网环境真实 GET 一次 xAI 的 OIDC .well-known/openid-configuration 并留存响应体（签发方/端点集/jwks_uri）；离线 mock 无法核对键名与 issuer 字符串。
 | V7 | vendor 错误字面量（expired_token/access_denied/refresh_token_reused） | 错误实录 | 刻意触发 vendor 错误 |
+  → 阻塞原因/需要什么：需要对各家分别刻意触发一次真实错误并重放：过期 refresh_token（expired_token）、用户拒绝（access_denied）、refresh token 复用（refresh_token_reused），录下 exact error 字段串；各家错误字面量不一致，不能相互推算。
 | V8 | refresh-on-401 全链（401→刷新→重放） | 全链实录 | 有效凭据 + 上游 401 场景 |
+  → 阻塞原因/需要什么：需要一次真实链路上游主动返回 401（如凭据被吊销或 token 提前失效），录下本代理 refresh→重放→二次响应的完整时序；人为 mock 401 无法证明走的是 vendor 真实拒绝路径。
 | V9 | Home/面板/TUI 真实行为（资产下载内容、home-jwt 握手、TUI 交互） | 上游部署面实录 | 上游 home/panel/TUI 环境 |
+  → 阻塞原因/需要什么：需要一套真上游 CLIProxyAPI 部署（本机 go1.24.4 不可构建，需 go1.26 环境或官方镜像），现场观察 home-jwt 成员握手、面板的 GitHub 资产实际下载内容、TUI 各 tab 的真实交互；直播行为不能从源码反推。
 | V10 | 上游构建/运行对照（go 1.26、docker 镜像实跑） | 本机 go 1.24.4 不足 | go 1.26 或 oracle 镜像环境 |
+  → 阻塞原因/需要什么：需要 go1.26 构建环境或官方预构建镜像，把上游真实跑起来并回放一遍关键路径（启动/登录/转发/管理面）；只读源码只能确认"注册了"，无法确认运行时行为与启动副作用。
 | V11 | realtime client_secrets/sessions 成功体、hangup 成功转发体 | 成功路径金档 | 真实 codex live 会话 |
+  → 阻塞原因/需要什么：需要一个真实 Codex 会话在此分支上发起一次 realtime client_secrets 与 sessions 请求并录下成功体字段，以及一次真实 hangup（WS 中断）时上游最终转发体的形状；realtime 中继尚未实现（报告 #6/#7），只能借真上游或正式 codex live 端点现场录。
 
 ## 6. 前 10 条按影响排序
 

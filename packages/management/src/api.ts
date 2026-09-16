@@ -7,7 +7,7 @@
  */
 
 import type { JsonValue, Store } from '@cpa-edge/core'
-import { deriveAuthIndex } from '@cpa-edge/core'
+import { COOLDOWN_NAMESPACE as SCHEDULER_COOLDOWN_NAMESPACE, deriveAuthIndex } from '@cpa-edge/core'
 import {
   createAuthPlane,
   prepareManagementSecretSync,
@@ -496,6 +496,15 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
   // ---- on-demand credential index registry -------------------------------
   const allCredentialIndices = async (): Promise<Map<string, { provider: string; models: readonly string[] }>> => {
     const out = new Map<string, { provider: string; models: readonly string[] }>()
+    for (const candidate of await allProviderEntries()) {
+      if (!out.has(candidate.index)) out.set(candidate.index, { provider: candidate.provider, models: candidate.models })
+    }
+    return out
+  }
+
+  /** Every config-derived credential with its derived auth index. */
+  const allProviderEntries = async (): Promise<Array<{ index: string; provider: string; models: readonly string[]; apiKey: string }>> => {
+    const out: Array<{ index: string; provider: string; models: readonly string[]; apiKey: string }> = []
     for (const [, spec] of Object.entries(PROVIDER_LISTS) as Array<[string, (typeof PROVIDER_LISTS)[ProviderListKey]]>) {
       const entries = ((effective as unknown as { [key: string]: readonly ProviderEntry[] | undefined })[spec.key]) ?? []
       for (const entry of entries) {
@@ -503,12 +512,12 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
         if (spec.family === 'openai-compatibility') {
           for (const sub of entry.apiKeyEntries ?? []) {
             const index = await credentialAuthIndex('openai-compatibility', entry.baseUrl ?? '', sub.apiKey)
-            if (!out.has(index)) out.set(index, { provider: entry.name ?? '', models })
+            out.push({ index, provider: entry.name ?? '', models, apiKey: sub.apiKey })
           }
           continue
         }
         const index = await credentialAuthIndex(spec.literal, entry.baseUrl ?? '', entry.apiKey)
-        if (!out.has(index)) out.set(index, { provider: spec.family, models })
+        out.push({ index, provider: spec.family, models, apiKey: entry.apiKey })
       }
     }
     return out
@@ -1359,20 +1368,32 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
       const record = await readJsonObject(request)
       if (record === undefined) return ginError(400, 'invalid body')
       const channel = typeof record['channel'] === 'string' ? (record['channel'] as string) : typeof record['provider'] === 'string' ? (record['provider'] as string) : undefined
-      if (channel === undefined || channel.trim() === '') return ginError(400, 'invalid channel')
+      // Blank target names the map's own selector: `invalid provider` for the
+      // excluded-models map, `invalid channel` for the other two.
+      if (channel === undefined || channel.trim() === '') {
+        return ginError(400, path === 'oauth-excluded-models' ? 'invalid provider' : 'invalid channel')
+      }
       const normalized = channel.trim().toLowerCase()
       const map = readMap()
       if (path === 'oauth-excluded-models') {
         const models = record['models']
         if (!Array.isArray(models)) return ginError(400, 'invalid body')
         const list = (models as JsonValue[]).filter((item): item is string => typeof item === 'string')
-        if (list.length === 0) delete map[normalized]
-        else map[normalized] = list
+        if (list.length === 0) {
+          if (!(normalized in map)) return ginError(404, 'provider not found')
+          delete map[normalized]
+        } else {
+          map[normalized] = list
+        }
       } else {
         const aliases = record['aliases'] ?? record['models'] ?? record['rules']
         if (!Array.isArray(aliases)) return ginError(400, 'invalid body')
-        if ((aliases as unknown[]).length === 0) delete map[normalized]
-        else map[normalized] = aliases as JsonValue
+        if ((aliases as unknown[]).length === 0) {
+          if (!(normalized in map)) return ginError(404, 'channel not found')
+          delete map[normalized]
+        } else {
+          map[normalized] = aliases as JsonValue
+        }
       }
       writeMap(map)
       return json(200, goJson({ status: 'ok' }))
@@ -1810,9 +1831,17 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
     const resolved = await resolveAuthIndex(record)
     if (resolved.invalid === true) return ginError(400, 'auth_index is required')
     if (resolved.index === undefined) return ginError(404, 'auth not found')
-    const registry = await allCredentialIndices()
-    const credential = registry.get(resolved.index)
-    return json(200, goJson({ status: 'ok', auth_index: resolved.index, models: credential?.models ?? [] }))
+    // The reset makes the credential immediately schedulable (S4-07): the
+    // scheduler cooldown document drops every per-model state plus the
+    // credential-wide fields, and the models listing mirrors the cleared keys.
+    let cleared: string[] = []
+    await store.update<JsonValue>(SCHEDULER_COOLDOWN_NAMESPACE, resolved.index, (current) => {
+      const document = (typeof current === 'object' && current !== null && !Array.isArray(current) ? current : {}) as { [key: string]: JsonValue }
+      const models = document['models']
+      cleared = typeof models === 'object' && models !== null && !Array.isArray(models) ? Object.keys(models as { [key: string]: JsonValue }) : []
+      return {}
+    })
+    return json(200, goJson({ status: 'ok', auth_index: resolved.index, models: cleared }))
   }
 
   // ---- plugins -------------------------------------------------------------------------
@@ -1887,12 +1916,22 @@ export function createManagementApi(deps: ManagementApiDeps): ManagementApi {
         return ginError(400, 'invalid proxy_url')
       }
     }
-    const data = typeof record['data'] === 'string' ? (record['data'] as string) : ''
+    const authIndexRaw = record['auth_index'] ?? record['authIndex'] ?? record['AuthIndex']
+    const authIndex = typeof authIndexRaw === 'string' && authIndexRaw !== '' ? authIndexRaw : undefined
+    // `$TOKEN$` draws from the resolved credential's api key; a request that
+    // names no credential keeps the placeholder verbatim (recorded).
+    const credentialEntry = authIndex === undefined ? undefined : (await allProviderEntries()).find((candidate) => candidate.index === authIndex)
+    if (authIndex !== undefined && credentialEntry === undefined) return ginError(400, 'auth token not found')
+    const injectToken = (text: string): string => {
+      if (credentialEntry === undefined || credentialEntry.apiKey === '') return text
+      return text.split('$TOKEN$').join(credentialEntry.apiKey)
+    }
+    const data = injectToken(typeof record['data'] === 'string' ? (record['data'] as string) : '')
     const headerRecord = asPlainRecord(record['header'] ?? record['headers'])
     const headers: Array<[string, string]> = [['User-Agent', 'Go-http-client/1.1']]
     if (data !== '') headers.push(['Content-Length', String(byteLengthOf(data))])
     for (const [name, value] of Object.entries(headerRecord ?? {})) {
-      if (typeof value === 'string') headers.push([name, value])
+      if (typeof value === 'string') headers.push([name, injectToken(value)])
     }
     headers.push(['Accept-Encoding', 'gzip'])
 
