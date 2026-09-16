@@ -200,3 +200,14 @@ byte-exact vs the goldens on 13/16 with zero body/status divergences.
 What blocks: F2 (SSE commit header order — one constant, systemic) and,
 pending the presence-vs-value ruling, F1 (trace on the cooldown envelope).
 T1/T2 are gin-vs-node transport facts documented with exact bytes.
+
+
+## 7. Ruling addendum (orchestrator, 2026-09-16, msg agentmsg_3bcf1d47)
+
+- **T1 / T2**: REGISTERED as node-platform transport facts. The gateway seam
+  emits the recorded header set correctly; adapter-level emission parity
+  (server.ts passthrough of the gateway `Connection` header + `Date`
+  positioning) is a **v1.1 refinement**. Neither blocks release.
+- **F1 / F2**: dispatched to a fixer (trace presence on the cooldown
+  envelope; SSE commit header order). The FAIL verdict below stands on
+  those two findings until the fixer lands and T4 re-verifies.
