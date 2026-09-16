@@ -49,9 +49,9 @@ platform-specific concern lives in an adapter under `runtimes/`.
 
 | Path | Role |
 |---|---|
-| `packages/core` | `Store` abstraction (+ in-memory implementation), shared model types, error registry, scheduling algorithms (round-robin / weighted / fill-first, cooldowns, retry rounds, session affinity), and the `RuntimeCapabilities` descriptor each runtime declares |
+| `packages/core` | `Store` abstraction (+ in-memory implementation), shared model types, error registry, the S4 strategy engine (round-robin / weighted / fill-first / session affinity — merged and unit-pinned), and the `RuntimeCapabilities` descriptor each runtime declares. v1 serving rotation is config-order first-fit with cooldown skip and request-retry; full strategy wiring is a v1.1 item (GR-4) |
 | `packages/translators` | pairwise protocol translation — one module per direction, no canonical intermediate form |
-| `packages/executors` | upstream executor seam; recorded provider wires are embedded in the direction modules (ruling R-EXECS) |
+| `packages/executors` | executor seam; recorded provider wires are served by the direction modules (R-EXECS; the antigravity executor is pending per GR-2) |
 | `packages/auth` | OAuth and device flows, token refresh and lifecycle, client API-key auth, management-key authorization |
 | `packages/management` | the `/v0/management` API and the state layer over the `Store` |
 | `runtimes/node` | reference runtime (`node:http` adapter); all contract tests run against it |
@@ -162,22 +162,44 @@ deployment. The three that bite hardest:
 ## Published degradations (operator summary)
 
 The full list in operator terms is
-[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) §5. The headline items:
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) §5, including the D2 gap
+rulings GR-1..GR-8. The headline items:
 
-- Native-wire calls for providers whose wires were never recorded
-  (kimi-native, xai-native, meta-native OAuth, interactions, vertex
-  standalone) return 501; those credential types still load, schedule, and
-  refresh (R-EXECS).
-- The local Redis-RESP usage side-band exists only on the node runtime
-  (S7 feature F8).
-- Device-flow logins: fully supported on node, conditional on Cloudflare
-  (Store-backed sessions plus Durable Object alarms), degraded on Vercel —
-  the envelope returns but sessions never complete (NE-S7-11).
-- Inbound WebSocket `/v1/ws`, outbound proxy egress, redirect-style OAuth
-  logins, file logging, and external file watching are degraded or absent
-  on the serverless runtimes per the S7 matrix.
-- Strict request boundary: malformed JSON bodies are rejected with 400
-  where the reference leniently parses them (NE-LENIENT).
+- **v1 serves API-KEY upstreams** (gemini, claude, codex,
+  openai-compatibility). OAuth credential types load, list, patch,
+  refresh, and expire — but no client-facing model maps to them;
+  requests for OAuth-only models answer `400 model_not_found` (GR-1).
+  CLI-subscription serving is the primary v1.1 item.
+- **The antigravity executor is unimplemented in v1** — its
+  login/redirect/callback surface is pinned, its request wire is
+  recorded, the module is pending (GR-2).
+- **Native passthrough and never-recorded seams answer the exact 503
+  body**: Claude→Claude, Gemini→Gemini, plus the xai/meta/interactions/vertex
+  native wires — `{"error":{"message":"direction not yet available in this build",...}}`
+  (GR-3).
+- **Serving rotation in v1 is config-order first-fit** with cooldown
+  skip and request-retry; the strategy engine is merged and unit-pinned
+  but strategy/weights/affinity switches echo only (GR-4).
+- **Node scope (GR-5)**: `/v1/ws` gates, hot-reload recompose, and
+  proxy-url ingestion (fail-closed strip + warning) land in the final
+  parity round; registered absent on node: background token-refresh
+  driver (manual `POST /auth-files/refresh` is the v1 path), device-flow
+  poll driver (envelope-only, same observable as vercel), file-log
+  substrate (the Store ring serves `/logs`), TLS listener (hosts own
+  TLS), loopback redirect forwarders (manual relay via
+  `oauth-callback`), and actual proxy dialing.
+- **Accepted-inert config (GR-6)**: payload rules, `force-model-prefix`,
+  `$`-dynamic headers outside codex-passthrough, streaming keepalives,
+  and quota refresh of request-error-logs — accepted and echoed, no
+  runtime consumer.
+- **The RESP usage side-band is protocol-only in v1**: the byte-exact
+  state machine lives in the management package (harness-pinned); no
+  runtime ships the raw TCP listener — a host binds the wire itself.
+- **Device-flow logins are live only on Cloudflare** (Store-backed
+  sessions plus Durable Object alarms); node and vercel are
+  envelope-only (the NE-S7-11 observable).
+- **Strict request boundary**: malformed JSON bodies are rejected with
+  400 where the reference leniently parses them (NE-LENIENT).
 
 ## Clean-room and license
 

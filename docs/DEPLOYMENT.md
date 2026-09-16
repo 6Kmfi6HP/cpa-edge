@@ -9,8 +9,11 @@ registry in [spec/sections/S7-platform-degradation.md](../spec/sections/S7-platf
 This document states them in operator terms.
 
 How to read the runtime sections: each runtime declares a fixed
-`RuntimeCapabilities` profile (S7 §3.1). Missing capabilities produce the
-pinned 501 bodies below — never silent deviation.
+`RuntimeCapabilities` profile (S7 §3.1). On the serverless runtimes,
+missing capabilities produce the pinned 501 bodies — never silent
+deviation. The node runtime's v1 scope is set by the D2 audit (GR-5):
+what lands in the final parity round and what is registered absent is
+listed per feature in §5.2.
 
 | Capability | node | cloudflare | vercel |
 |---|---|---|---|
@@ -112,8 +115,8 @@ credential is. Consequences for operators:
 
 The node runtime is the reference runtime: the full route surface, the
 merged translation directions, the management API, and the auth plane
-composed over a `Store`. It ships as a library — an operator (or the
-packaged host, once T1 delivers it) composes the gateway and binds it.
+composed over a `Store`. It ships as a library — an operator composes
+the gateway and binds it; there is no packaged CLI in v1.
 
 ### 2.1 Quickstart (verified against the current tree)
 
@@ -200,9 +203,10 @@ Notes:
 - Unknown keys are ignored, so a full reference `config.yaml` can be
   mapped in as-is; the complete dialect (including `proxy-url`, `tls`,
   logging, routing, and watcher keys) is specified in S6 §3.1. Keys the
-  runtime does not yet ingest still round-trip through the management
-  echo, which serves off the raw YAML text, but do not drive gateway
-  behavior until T1 wires them (§2.5).
+  runtime does not ingest are accepted and round-tripped through the
+  management echo (which serves off the raw YAML text) with no runtime
+  consumer — the accepted-inert list is §5.7, the audited node scope is
+  §5.2.
 
 ### 2.4 Management API on node
 
@@ -216,25 +220,6 @@ The loopback gate: with `allow-remote: false` (default), only loopback
 clients pass. `listenGateway` feeds each connection's socket address to
 that gate. Keep `allow-remote: false` unless you front the gateway with an
 authenticating proxy on a non-loopback bind.
-
-### 2.5 Node-bound features: contract vs current wiring
-
-S7 classifies the node runtime as the full-capability reference. The node
-contract and today's wiring status:
-
-| Feature (S7 id) | Node contract | Wiring status today |
-|---|---|---|
-| F1 outbound proxy egress | EQUIVALENT — `proxy-url` honored incl. socks5 | transport dials direct today; the `proxy-url` management endpoints serve off the raw YAML text; proxy dialing lands with T1 |
-| F2 C-ABI plugins | ABSENT — config surface served, installs 501 | served (config/echo routes over the management facade) |
-| F3 file logging | EQUIVALENT — rotating files under `<auth-dir>/logs/` | `/v0/management/logs` served from the log ring; file substrate lands with T1 |
-| F4 inbound WebSocket `/v1/ws` | EQUIVALENT — auth gate, 400 for non-upgrades, 101 upgrade | route + relay session wiring lands with T1 |
-| F5 OAuth logins | EQUIVALENT — localhost forwarders on 54545/1455/51121 for redirect flows; device flows native | auth-url + session-registry endpoints served over the auth plane; forwarder binding lands with T1 |
-| F6 hot reload | EQUIVALENT — external config/auth file watching | management-API writes apply on the next composed request; file watchers land with T1 |
-| F7 TLS listener | EQUIVALENT — `tls.enable/cert/key` with startup validation | adapter wiring lands with T1 (terminate TLS at a reverse proxy meanwhile) |
-| F8 RESP usage side-band | EQUIVALENT — S6 §4 is the node contract | raw-listener multiplexing lands with T1 |
-
-T1 (runtime integration) is the in-flight step that owns this column;
-the "lands with T1" items are recorded integration seams, not scope cuts.
 
 ## 3. Cloudflare Workers (as delivered by T2)
 
@@ -452,35 +437,51 @@ ceiling and `CPA_MAX_STREAMING_DURATION_MS` below it (§4.3).
 
 ## 5. Published degradation list
 
-This is SPEC §5's registry in operator terms. It is the contract; per-
-runtime wiring status lives in §2-§4.
+This is SPEC §5's registry in operator terms — now including the D2 gap
+rulings **GR-1..GR-8**, which re-scope the v1 surface honestly. The node
+column in §5.2 is the audited v1 reality (GR-5), not the S7 ideal.
 
-### 5.1 Provider native-wire gaps (every runtime) — R-EXECS
+### 5.1 Direction and credential serving gaps — GR-1 / GR-2 / GR-3
 
-Provider types whose native wires were never recorded — **kimi-native,
-xai-native, meta-native OAuth, interactions, and vertex standalone** —
-follow one rule everywhere: their credentials load, schedule, and refresh
-per the auth/scheduling contracts, but a call that would use their native
-wire returns the S7-style 501 degradation. The recorded directions —
-gemini (×3), claude, openai-chat, codex-responses, antigravity — are
-served by the direction modules, which is how R-EXECS satisfies the
-charter's executor steps.
+- **GR-1 — OAuth upstreams are not served in v1.** The gateway serves
+  API-KEY upstreams (gemini, claude, codex, openai-compatibility). OAuth
+  credential types (Claude, Codex, Antigravity, Kimi, xAI, Meta, Devin)
+  load, list, patch, refresh, and expire per the auth/state contracts —
+  but no client-facing model maps to them and no facade accepts them: a
+  request for an OAuth-only model answers `400 model_not_found`.
+  CLI-subscription serving is the primary v1.1 item.
+- **GR-2 — the antigravity executor is unimplemented in v1.** The
+  login/redirect/callback surface is pinned and served; the executor's
+  request wire is recorded (18 goldens) but the direction module is
+  pending. This supersedes R-EXECS's antigravity clause.
+- **GR-3 — native passthrough and never-recorded seams answer the exact
+  503 body.** Claude→Claude (`/v1/messages` over `claude-api-key`),
+  Gemini→Gemini (`/v1beta` over `gemini-api-key`), plus the xai, meta,
+  interactions, and vertex native wires answer the registered v1 seam
+  shape — HTTP 503 with the body
+  `{"error":{"message":"direction not yet available in this build","type":"server_error","code":"not_implemented"}}`.
+  This supersedes R-EXECS's "S7-style 501" wording for those seams.
 
-### 5.2 Platform matrix (S7) — per feature
+### 5.2 Platform matrix (S7 + D2 audit) — per feature
+
+The node column is the audited v1 reality (GR-5). "Landing" items arrive
+in the final T1 parity round; "REGISTERED ABSENT" items are v1 scope
+decisions, not pending work.
 
 | Feature | node | cloudflare | vercel |
 |---|---|---|---|
-| Outbound proxy egress (`proxy-url`) | served | 501 when only proxy-credentialed candidates exist (fail closed) | same as cloudflare |
+| Outbound proxy egress (`proxy-url`) | ingestion lands in the final round — config accepted, proxy-credentialed credentials fail-closed stripped with a warning; actual dialing REGISTERED ABSENT (node `fetch` cannot proxy without undici agent plumbing) | 501 when only proxy-credentialed candidates exist (fail closed) | same as cloudflare |
 | C-ABI plugins | config surface only; installs 501 | same | same |
-| File logging (`/v0/management/logs`) | served (files) | served (DO-backed ring) | 501 when `logging-to-file: true` |
-| Inbound WebSocket `/v1/ws` | served | served (DO hibernation) | 501 after the auth gate |
-| Redirect-flow logins (localhost forwarders) | served | 501 | 501 |
-| Device-flow logins (xai/meta/kimi) | served | served — Store-backed sessions + DO-alarm polling (conditional MUSTs met) | envelope only; sessions never complete |
-| OAuth callback routes + session registry | served | served (Store-backed registry) | ladder served; no session completes |
+| File logging (`/v0/management/logs`) | the Store log ring serves the API; file substrate REGISTERED ABSENT | served (DO-backed ring) | 501 when `logging-to-file: true` |
+| Inbound WebSocket `/v1/ws` | recorded gates land in the final round, with the S7-01..04 golden replay (GR-8) | served (DO hibernation) | 501 after the auth gate |
+| Redirect-flow logins (localhost forwarders) | loopback forwarders REGISTERED ABSENT — manual relay via the pinned `oauth-callback` endpoint | 501 | 501 |
+| Device-flow logins (xai/meta/kimi) | envelope-only — poll driver REGISTERED ABSENT, so device sessions have the same observable as vercel (wait → 30-min TTL → unknown or expired) | live: Store-backed sessions + DO-alarm polling | envelope only; sessions never complete |
+| Background token refresh | REGISTERED ABSENT — manual `POST /v0/management/auth-files/refresh` is the v1 path | runs on the DO alarm | none — serverless has no background execution; the manual endpoint applies |
+| OAuth callback routes + session registry | served (pinned surface) | served (Store-backed registry) | ladder served; no session completes |
 | CLI `--login` UX (browser open, user-code print) | out of HTTP contract | absent | absent |
-| External file watching / hot reload | served | management writes only | management writes only |
-| TLS listener (`tls.enable/cert/key`) | served | platform-terminated; config no-op | platform-terminated; config no-op |
-| Local Redis-RESP usage side-band | served | no listener; `usage-queue` HTTP keeps semantics | no listener; `usage-queue` HTTP keeps semantics |
+| External file watching / hot reload | hot-reload recompose lands in the final round (management writes take effect without restart); external file watching REGISTERED ABSENT | management writes only | management writes only |
+| TLS listener (`tls.enable/cert/key`) | REGISTERED ABSENT — the host terminates TLS itself; config accepted + echoed | platform-terminated; config no-op | platform-terminated; config no-op |
+| Local Redis-RESP usage side-band | protocol logic lives in the management package (harness-pinned); NO runtime ships the raw TCP listener in v1 — a host binds the wire itself | no listener; `usage-queue` HTTP keeps semantics | no listener; `usage-queue` HTTP keeps semantics |
 
 Invalid `proxy-url` values behave as upstream on every runtime: the
 request proceeds direct (log and fall through), no 501.
@@ -509,6 +510,32 @@ The reference parses request bodies leniently (a truncated-JSON body was
 recorded as 200 with full translation). CPA-Edge enforces a strict
 boundary instead: non-JSON or malformed bodies are rejected with 400 in
 each surface's error shape. Well-formed clients see no difference.
+
+### 5.6 Scheduling runtime — GR-4
+
+The S4 strategy engine (round-robin, weighted round-robin, fill-first,
+session affinity, tier views) is merged in `@cpa-edge/core` with
+recorded-chain unit pins — but the v1 **serving** path performs
+config-order first-fit with per-facade cooldown skip and request-retry
+rotation. `routing.strategy`, weights, and session-affinity switches
+are management-CRUD echo-only at request time: setting them is accepted
+and echoed but does not change rotation in v1. Multi-account strategy
+wiring is the v1.1 item.
+
+### 5.7 Accepted-inert config — GR-6
+
+These config surfaces are accepted, echoed, and round-tripped, but have
+no runtime consumer in v1: the payload rules engine
+(`request-scoped-errors`), `force-model-prefix`, per-entry `$`-dynamic
+headers outside codex-passthrough, streaming keepalives, and quota
+refresh of request-error-logs. They fail no request and change no
+behavior; treat them as reserved for v1.1.
+
+### 5.8 Legacy `/v1/completions` prompt bodies — GR-7
+
+The legacy prompt-style adaptation for `/v1/completions` is an unpinned
+seam: legacy prompt bodies are not converted in v1. Chat-style bodies
+on that route follow the recorded chat machinery.
 
 ## 6. Fill-in ledger (T2 + T3 filled)
 
@@ -567,8 +594,26 @@ T3 gate review, first finding — FOLDED (2026-09-16):
       the 240 s default until `CPA_MAX_STREAMING_DURATION_MS` is raised
       explicitly. Folded into §4.3.
 
+D2 final audit — FOLDED (2026-09-16, GR-1..GR-8 registered in SPEC §5):
+
+- [x] M3 (release-blocking): §5.2's node column rewritten to the audited
+      reality — /v1/ws gates, hot-reload recompose, and proxy-url
+      ingestion marked "landing in the final T1 parity round";
+      background token-refresh driver, device-flow poll driver,
+      file-log substrate, TLS listener, loopback redirect forwarders,
+      and actual proxy dialing marked REGISTERED ABSENT. The stale
+      §2.5 "lands with T1" table is deleted; its truth lives in §5.2.
+- [x] §5.1 rewritten per GR-1 (OAuth serving), GR-2 (antigravity
+      executor), GR-3 (native seams answer the exact 503 body).
+- [x] §5.6 scheduling runtime (GR-4), §5.7 accepted-inert config
+      (GR-6), §5.8 legacy completions seam (GR-7) added.
+- [x] RESP claim corrected everywhere: protocol logic in the management
+      package (harness-pinned); NO runtime ships the raw TCP listener.
+
 Open residuals (none blocking D1):
 
+- [ ] Confirmation that the final T1 parity round has landed (the
+      "landing" rows in §5.2 flip to "served" then).
 - [ ] T2 gate-review findings beyond the ones already forwarded, if any
       change a folded §3 fact.
 - [ ] Further T3 gate-review findings, if any change a folded §4 fact.
