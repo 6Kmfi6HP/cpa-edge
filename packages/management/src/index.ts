@@ -20,7 +20,8 @@ export type {
   WireResponse,
 } from './api'
 export type { ErrorEventInput, UsageCompletion } from './usage'
-export type { UsageWireConnection } from './resp'
+export type { UsageWireConnection, UsageWireDeps } from './resp'
+export { openUsageWireConnection } from './resp'
 export { AUTH_FILES_NAMESPACE } from './authfiles'
 export { COOLDOWN_NAMESPACE, sidecarName } from './cooldown'
 export { LOGS_RING, LOG_RING_CAPACITY } from './logs'

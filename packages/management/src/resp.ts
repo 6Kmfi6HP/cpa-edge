@@ -27,7 +27,12 @@ export interface UsageWireConnection {
   close(): void
 }
 
-interface WireDeps {
+/**
+ * Injectables of one connection state machine: the key pipeline verdict,
+ * the destructive record pops and the live-subscription hooks. Runtimes
+ * binding the RESP protocol to their own transport supply these.
+ */
+export interface UsageWireDeps {
   /** Verdict of the management-key pipeline; failures carry the HTTP body message. */
   readonly verifyKey: (presented: string) => Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }>
   readonly popRecords: (count: number) => Promise<string[]>
@@ -172,7 +177,7 @@ class RespReader {
 }
 
 /** Creates one fresh connection state machine. */
-export function openUsageWireConnection(deps: WireDeps): UsageWireConnection {
+export function openUsageWireConnection(deps: UsageWireDeps): UsageWireConnection {
   const reader = new RespReader()
   let output: Uint8Array[] = []
   let authenticated = false
