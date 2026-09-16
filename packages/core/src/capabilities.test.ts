@@ -7,14 +7,14 @@ import {
 import type { RuntimeCapabilities } from './capabilities'
 
 describe('runtime capability descriptors (S7 3.1)', () => {
-  it('declares the node profile with every capability except plugin loading', () => {
+  it('declares the node profile with REGISTERED-ABSENT capabilities disabled per GR-5', () => {
     expect(NODE_RUNTIME_CAPABILITIES).toEqual({
       inboundWebSocket: true,
-      proxyTransport: true,
+      proxyTransport: false,
       pluginLoading: false,
-      fileLogging: true,
-      fileWatching: true,
-      localCallbackServer: true,
+      fileLogging: false,
+      fileWatching: false,
+      localCallbackServer: false,
     } satisfies RuntimeCapabilities)
   })
 

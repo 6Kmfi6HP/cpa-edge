@@ -25,17 +25,19 @@ export interface RuntimeCapabilities {
 }
 
 /**
- * Full-capability profile declared by runtimes/node: the reference runtime
- * for contract tests. Every capability the core knows about is on, except
- * plugin loading, which is absent project-wide by design.
+ * Profile declared by runtimes/node: the reference runtime for contract
+ * tests. Inbound WebSocket upgrades are served; outbound proxy dialing,
+ * file logging, external file watching, and loopback callback forwarders
+ * are REGISTERED ABSENT in v1 (SPEC.md GR-5, DEPLOYMENT §5.2), and plugin
+ * loading is absent project-wide by design.
  */
 export const NODE_RUNTIME_CAPABILITIES: RuntimeCapabilities = Object.freeze({
   inboundWebSocket: true,
-  proxyTransport: true,
+  proxyTransport: false,
   pluginLoading: false,
-  fileLogging: true,
-  fileWatching: true,
-  localCallbackServer: true,
+  fileLogging: false,
+  fileWatching: false,
+  localCallbackServer: false,
 })
 
 /**
