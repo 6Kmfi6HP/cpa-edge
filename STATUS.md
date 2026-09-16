@@ -57,4 +57,5 @@
 
 ## Verdict / escalation log
 (appended by orchestrator)
+- 2026-09-16 final T1 parity disposition: /v1/ws gates LANDED (S7-01..04 replay; runtime 71/71); hot-reload recompose + proxy ingestion REGISTERED V1-ABSENT (GR-5). T1 closed.
 - 2026-09-16 09:0x T3 MERGED (impl gate PASS-WITH-NONBLOCKING). Vercel runtime complete: T1 closed + T3 merged; T2 gate verdict pending.
