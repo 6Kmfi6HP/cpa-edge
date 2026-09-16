@@ -57,5 +57,6 @@
 
 ## Verdict / escalation log
 (appended by orchestrator)
+- 2026-09-16 FINAL CLOSURE: T2 gate PASS-WITH-NONBLOCKING (alarm durability across hibernation + min-monotone re-arm independently probed; DO store sound; N1 management-plane 3-way persistence race registered as v1.1 hardening). ALL GATES NOW CLOSED: P0 skeleton+P0.2; ORACLE (399 golden dirs, reference v7.3.4 pinned); P1 16/16 spec sections; P2 13/13 modules; T1 node runtime CLOSED (+/v1/ws gates, S7-01..04 replayed); T2 cloudflare PASS-WITH-NONBLOCKING; T3 vercel PASS-WITH-NONBLOCKING; T4 PASS (16/16 golden parity over real sockets); D1 docs release-ready; D2 audit complete with GR-1..GR-8 registered. Final state: 2064/2064 tests green, typecheck+lint clean, wrangler dry-run green.
 - 2026-09-16 final T1 parity disposition: /v1/ws gates LANDED (S7-01..04 replay; runtime 71/71); hot-reload recompose + proxy ingestion REGISTERED V1-ABSENT (GR-5). T1 closed.
 - 2026-09-16 09:0x T3 MERGED (impl gate PASS-WITH-NONBLOCKING). Vercel runtime complete: T1 closed + T3 merged; T2 gate verdict pending.
