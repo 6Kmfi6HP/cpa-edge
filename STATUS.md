@@ -50,11 +50,11 @@
 | I-mgmt | packages/management: /v0/management | 2 | — | merged | 2 | MERGED: management complete (impl gate 2 rounds). 50 unit + S5 24/24 + S6 20/20. Ledger: NR1 overflow-record off-by-one, NR2 callback now()-stamp, N3-N10. |
 | T1 | runtimes/node integration + full contract tests | 3 | — | merged | 0 | CLOSED: node runtime complete (route layer + 11 facades + management + auth plane; s1-routes 150/150; full suite 2053/2053; mgmt-gate parity fix landed). Seam inventory = ruled v1 boundary. |
 | T2 | runtimes/cloudflare (DO store, alarms, WS hibernation) | 3 | integrator-t2 | impl | 0 |  |
-| T3 | runtimes/vercel (degraded per S7) | 3 | integrator-t3 | impl | 0 |  |
+| T3 | runtimes/vercel (degraded per S7) | 3 | — | merged | 1 | MERGED: vercel runtime PASS-WITH-NONBLOCKING (charter bar met at all grammar points; KV CAS sound; boundary renders pinned terminal frames). N1 800s-plan doc note -> D1; N2 partial-frame observation ledger. |
 | T4 | end-to-end smoke: fixture replay vs upstream diff | 3 | t4-smoke | impl | 0 |  |
 | D1 | README/deploy guide, SPEC version anchor publication | 4 | impl-d1-docs | impl | 0 |  |
 | D2 | global final audit vs upstream README | 4 | adv-d2-final | impl | 0 |  |
 
 ## Verdict / escalation log
 (appended by orchestrator)
-- 2026-09-16 08:5x I-tr-oai2oai MERGED (B1 terminator fixed per cross-golden evidence; s1-routes 150/150 zero skips). ALL 13 PACKAGE MODULES THROUGH GATES + s1-routes COMPLETE.
+- 2026-09-16 09:0x T3 MERGED (impl gate PASS-WITH-NONBLOCKING). Vercel runtime complete: T1 closed + T3 merged; T2 gate verdict pending.
