@@ -358,7 +358,11 @@ by S7 — this is the runtime's documented choice):
   `CPA_MAX_STREAMING_DURATION_MS` (default 240000 — the 300 s Pro
   ceiling minus a safety margin). Set it at or below your plan's
   `maxDuration` minus a margin; an Enterprise deployment with
-  `maxDuration: 800` should raise it accordingly (e.g. 780000).
+  `maxDuration: 800` should raise it accordingly (e.g. 780000). The
+  default does **not** scale with the plan: on an 800 s (Enterprise)
+  deployment, the boundary still cuts streams at 240 s until the operator
+  explicitly raises `CPA_MAX_STREAMING_DURATION_MS` — raising
+  `maxDuration` alone changes nothing.
 - When the budget trips, the upstream exchange aborts mid-stream. The
   direction facades observe the abort as the recorded mid-stream
   transport disconnect and render their family's pinned terminal frame
@@ -556,7 +560,15 @@ T3 (Vercel) — FILLED (2026-09-16, from T3's final report +
       cross-key transactions vs. the DO store, retention sweeps ride
       request traffic. Folded into §4.6.
 
+T3 gate review, first finding — FOLDED (2026-09-16):
+
+- [x] N1: the streaming budget does not auto-scale with the plan — on an
+      800 s (Enterprise) deployment the boundary still cuts streams at
+      the 240 s default until `CPA_MAX_STREAMING_DURATION_MS` is raised
+      explicitly. Folded into §4.3.
+
 Open residuals (none blocking D1):
 
-- [ ] T2 gate-review findings, if any change a folded §3 fact.
-- [ ] T3 gate-review findings, if any change a folded §4 fact.
+- [ ] T2 gate-review findings beyond the ones already forwarded, if any
+      change a folded §3 fact.
+- [ ] Further T3 gate-review findings, if any change a folded §4 fact.
